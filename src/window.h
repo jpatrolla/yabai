@@ -1,7 +1,11 @@
 #ifndef WINDOW_H
 #define WINDOW_H
 
+
 const CFStringRef kAXFullscreenAttribute = CFSTR("AXFullScreen");
+
+/* Sub‑role used by macOS Picture‑in‑Picture helper windows */
+const CFStringRef kAXPiPSubrole = CFSTR("AXPictureInPictureWindow");
 
 #define AX_WINDOW_MINIMIZED_INDEX      0
 #define AX_WINDOW_DEMINIMIZED_INDEX    1
@@ -61,7 +65,8 @@ static CFStringRef ax_window_notification[] =
     WINDOW_PROPERTY_ENTRY("is-hidden",            WINDOW_PROPERTY_IS_HIDDEN,           0x020000000) \
     WINDOW_PROPERTY_ENTRY("is-floating",          WINDOW_PROPERTY_IS_FLOATING,         0x040000000) \
     WINDOW_PROPERTY_ENTRY("is-sticky",            WINDOW_PROPERTY_IS_STICKY,           0x080000000) \
-    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000)
+    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000) \
+    WINDOW_PROPERTY_ENTRY("is-pip",               WINDOW_PROPERTY_IS_PIP,              0x200000000)
 
 enum window_property
 {
@@ -99,7 +104,7 @@ struct window
     bool is_eligible;
     uint8_t notification;
     uint8_t rule_flags;
-    uint8_t flags;
+    uint16_t flags;
     float opacity;
     int layer;
     char *scratchpad;
@@ -114,7 +119,8 @@ enum window_flag
     WINDOW_STICKY     = 0x10,
     WINDOW_WINDOWED   = 0x20,
     WINDOW_MOVABLE    = 0x40,
-    WINDOW_RESIZABLE  = 0x80
+    WINDOW_RESIZABLE  = 0x80,
+    WINDOW_PIP        = 0x100
 };
 
 enum window_rule_flag
@@ -125,7 +131,7 @@ enum window_rule_flag
     WINDOW_RULE_MFF_VALUE  = 0x08
 };
 
-static inline bool window_check_flag(struct window *w, enum window_flag x) { return w->flags & x; }
+static inline bool window_check_flag(struct window *w, enum window_flag x) { fprintf(stderr,"window_check_flag %d\n", x);return w->flags & x; }
 static inline void window_clear_flag(struct window *w, enum window_flag x) { w->flags &= ~x; }
 static inline void window_set_flag(struct window *w, enum window_flag x) { w->flags |= x; }
 
@@ -166,6 +172,7 @@ bool window_is_undersized(struct window *window);
 bool window_is_fullscreen(struct window *window);
 bool window_is_real(struct window *window);
 bool window_is_standard(struct window *window);
+bool window_is_pip(struct window *window);
 bool window_level_is_standard(struct window *window);
 bool window_is_unknown(struct window *window);
 bool window_observe(struct window *window);

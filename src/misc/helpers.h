@@ -462,7 +462,7 @@ static bool get_config_file(char *restrict filename, char *restrict buffer, int 
 
 static void exec_config_file(char *config_file, int config_file_size)
 {
-    if (config_file[0] == '\0' && !get_config_file("yabairc", config_file, config_file_size)) {
+    if (config_file[0] == '\0' && !get_config_file("yabaicustomrc", config_file, config_file_size)) {
         warn("yabai: could not locate config file..\n");
         notify("configuration", "could not locate config file..");
         return;
@@ -675,3 +675,17 @@ static CGImageRef cgimage_restore_alpha(CGImageRef image)
 }
 
 #endif
+
+//void window_exit_pip(struct window *w)
+//{
+//    // Ask AX for the close button of the PiP window
+//    AXUIElementRef close = NULL;
+//    if (AXUIElementCopyAttributeValue(w->ref,
+//                                      kAXCloseButtonAttribute,   // [oai_citation:1‡Apple Developer](https://developer.apple.com/documentation/applicationservices/kaxclosebuttonattribute?utm_source=chatgpt.com)
+//                                      (CFTypeRef *)&close) != kAXErrorSuccess || !close)
+//        return;
+
+//    // Simulate a click
+//    AXUIElementPerformAction(close, kAXPressAction);             // [oai_citation:2‡Apple Developer](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/action/press?utm_source=chatgpt.com)
+//    CFRelease(close);
+//}
