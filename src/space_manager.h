@@ -58,6 +58,7 @@ struct view *space_manager_tile_window_on_space(struct space_manager *sm, struct
 bool space_manager_equalize_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag);
 bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag);
 void space_manager_toggle_window_split(struct space_manager *sm, struct window *window);
+
 int space_manager_mission_control_index(uint64_t sid);
 uint64_t space_manager_mission_control_space(int desktop_id);
 uint64_t space_manager_cursor_space(void);
@@ -105,5 +106,5 @@ void space_manager_mark_spaces_invalid(struct space_manager *sm);
 bool space_manager_refresh_application_windows(struct space_manager *sm);
 void space_manager_handle_display_add(struct space_manager *sm, uint32_t did);
 void space_manager_begin(struct space_manager *sm);
-
+bool space_manager_toggle_floating_windows_on_space(struct space_manager *sm,uint64_t sid);
 #endif

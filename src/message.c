@@ -121,6 +121,7 @@ extern bool g_verbose;
 #define ARGUMENT_SPACE_TGL_GAP      "gap"
 #define ARGUMENT_SPACE_TGL_MC       "mission-control"
 #define ARGUMENT_SPACE_TGL_SD       "show-desktop"
+#define ARGUMENT_SPACE_TGL_FW       "floating-windows"
 #define ARGUMENT_SPACE_LAYOUT_BSP   "bsp"
 #define ARGUMENT_SPACE_LAYOUT_STACK "stack"
 #define ARGUMENT_SPACE_LAYOUT_FLT   "float"
@@ -1989,7 +1990,10 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                 space_manager_toggle_mission_control(acting_sid);
             } else if (token_equals(value, ARGUMENT_SPACE_TGL_SD)) {
                 space_manager_toggle_show_desktop(acting_sid);
-            } else {
+            } else if (token_equals(value, ARGUMENT_SPACE_TGL_FW)) {
+                debug("message.c %d\n", acting_sid);
+                space_manager_toggle_floating_windows_on_space(&g_space_manager,acting_sid);
+            }else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
         } else if (token_equals(command, COMMAND_SPACE_LAYOUT)) {

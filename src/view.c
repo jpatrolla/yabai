@@ -961,7 +961,13 @@ void view_serialize(FILE *rsp, struct view *view, uint64_t flags)
 
         fprintf(rsp, "\t\"is-native-fullscreen\":%s", json_bool(space_is_fullscreen(view->sid)));
     }
-
+    /* --- is-float-toggled ------------------------------------------------- */
+    if (flags & SPACE_PROPERTY_IS_FLOAT_TOGGLED) {
+        if (did_output) fprintf(rsp, ",\n");
+        fprintf(rsp, "\t\"is-float-toggled\":%s",
+                json_bool(view_check_flag(view, VIEW_FLOAT_TOGGLED)));
+        did_output = true;
+    }
     fprintf(rsp, "\n}");
 }
 

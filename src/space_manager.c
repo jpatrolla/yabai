@@ -10,6 +10,51 @@ static TABLE_COMPARE_FUNC(compare_view)
 {
     return *(uint64_t *) key_a == *(uint64_t *) key_b;
 }
+bool space_manager_toggle_floating_windows_on_space(struct space_manager *sm,uint64_t sid) {
+    TIME_FUNCTION;
+    debug("space_manager_toggle_floating_windows_on_space \n");
+    struct view *view = space_manager_find_view(sm, sid);
+    if (!view) return false;
+
+    int window_count = 0;  
+    uint32_t *window_list = space_window_list(sid, &window_count, false);
+    debug("window_list %d,  \n",  window_list);
+
+    if (!window_list || window_count == 0){
+        debug("No floating windows in %d space \n");
+        return false;
+    }
+
+    bool did_toggle = false;
+    bool hiding = !view_check_flag(view, VIEW_FLOAT_TOGGLED);    
+
+   if (hiding) {
+    // hide & remember
+    for (int i = 0; i < window_count; ++i) {
+        struct window *w = window_manager_find_window(&g_window_manager, window_list[i]);
+        if (!w || !window_check_flag(w, WINDOW_FLOAT)) continue;
+
+        scripting_addition_order_window(w->id, 0, 0);   // hide
+        buf_push(view->hidden_floaters, w->id);         // remember
+    }
+    view_set_flag(view, VIEW_FLOAT_TOGGLED);
+    did_toggle = true;
+    } 
+    else {
+        // show everything we hid last time
+        for (int i = 0; i < buf_len(view->hidden_floaters); ++i) {
+            struct window *w = window_manager_find_window(&g_window_manager,
+                                                        view->hidden_floaters[i]);
+            if (w) scripting_addition_order_window(w->id, 1, 0); // show
+        }
+        buf_free(view->hidden_floaters);
+        view->hidden_floaters = NULL;
+
+        view_clear_flag(view, VIEW_FLOAT_TOGGLED);
+        did_toggle = true;
+    }
+    return did_toggle;
+}
 
 bool space_manager_query_space(FILE *rsp, uint64_t sid, uint64_t flags)
 {
@@ -249,31 +294,28 @@ void space_manager_toggle_mission_control(uint64_t sid) {
     bool is_in_mc = mission_control_is_active();
 
     if (!is_in_mc) {
-        // 1. Store current mouse position
+        // store current mouse position
         CGEventRef event = CGEventCreate(NULL);
         saved_mouse_position = CGEventGetLocation(event);
         CFRelease(event);
 
-        // 2. Activate Mission Control
+        // activate mission Control
         CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
 
-        // 3. Move mouse to top-center of the main display
+        // move mouse to top-center of the main display
         uint32_t did = display_manager_main_display_id();
         CGRect bounds = CGDisplayBounds(did);
         CGPoint top_center = {
             .x = bounds.origin.x + bounds.size.width / 2,
-            .y = bounds.origin.y + 20  // small offset from absolute top
+            .y = bounds.origin.y + 20
         };
         CGWarpMouseCursorPosition(top_center);
 
     } else {
-        // 1. Close Mission Control
         CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
 
-        // 2. Restore previous mouse position
+        // restore previous mouse position
         CGWarpMouseCursorPosition(saved_mouse_position);
-
-        // 3. Return focus to space
         space_manager_focus_space(sid);
     }
 }
