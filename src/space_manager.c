@@ -244,10 +244,38 @@ bool space_manager_toggle_gap_for_space(struct space_manager *sm, uint64_t sid)
     return true;
 }
 
-void space_manager_toggle_mission_control(uint64_t sid)
-{
-    space_manager_focus_space(sid);
-    CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+void space_manager_toggle_mission_control(uint64_t sid) {
+    static CGPoint saved_mouse_position = {0, 0};
+    bool is_in_mc = mission_control_is_active();
+
+    if (!is_in_mc) {
+        // 1. Store current mouse position
+        CGEventRef event = CGEventCreate(NULL);
+        saved_mouse_position = CGEventGetLocation(event);
+        CFRelease(event);
+
+        // 2. Activate Mission Control
+        CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+
+        // 3. Move mouse to top-center of the main display
+        uint32_t did = display_manager_main_display_id();
+        CGRect bounds = CGDisplayBounds(did);
+        CGPoint top_center = {
+            .x = bounds.origin.x + bounds.size.width / 2,
+            .y = bounds.origin.y + 20  // small offset from absolute top
+        };
+        CGWarpMouseCursorPosition(top_center);
+
+    } else {
+        // 1. Close Mission Control
+        CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+
+        // 2. Restore previous mouse position
+        CGWarpMouseCursorPosition(saved_mouse_position);
+
+        // 3. Return focus to space
+        space_manager_focus_space(sid);
+    }
 }
 
 void space_manager_toggle_show_desktop(uint64_t sid)
