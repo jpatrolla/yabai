@@ -21,6 +21,7 @@ enum window_op_error
     WINDOW_OP_ERROR_DEMINIMIZE_FAILED,
     WINDOW_OP_ERROR_MAX_STACK,
     WINDOW_OP_ERROR_SAME_STACK,
+    WINDOW_OP_ERROR_MIN_CONSTRAINT,
 };
 
 enum purify_mode
@@ -196,6 +197,7 @@ void window_manager_adjust_layer(struct window *window, int layer);
 bool window_manager_set_window_layer(struct window *window, int layer);
 void window_manager_toggle_window_shadow(struct window *window);
 void window_manager_toggle_window_zoom_parent(struct window_manager *wm, struct window *window);
+enum window_op_error window_manager_auto_layout_window(struct space_manager *sm,struct window_manager *wm, struct window *window,int direction, float ratio);
 void window_manager_toggle_window_zoom_fullscreen(struct window_manager *wm, struct window *window);
 void window_manager_toggle_window_windowed_fullscreen(struct window *window);
 void window_manager_toggle_window_native_fullscreen(struct window *window);

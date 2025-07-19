@@ -61,7 +61,8 @@ static CFStringRef ax_window_notification[] =
     WINDOW_PROPERTY_ENTRY("is-hidden",            WINDOW_PROPERTY_IS_HIDDEN,           0x020000000) \
     WINDOW_PROPERTY_ENTRY("is-floating",          WINDOW_PROPERTY_IS_FLOATING,         0x040000000) \
     WINDOW_PROPERTY_ENTRY("is-sticky",            WINDOW_PROPERTY_IS_STICKY,           0x080000000) \
-    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000)
+    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000) \
+     WINDOW_PROPERTY_ENTRY("is-pip",              WINDOW_PROPERTY_IS_PIP,          0x200000000)
 
 enum window_property
 {
@@ -100,6 +101,7 @@ struct window
     uint8_t notification;
     uint8_t rule_flags;
     uint8_t flags;
+    uint32_t min_width;
     float opacity;
     int layer;
     char *scratchpad;
@@ -114,7 +116,8 @@ enum window_flag
     WINDOW_STICKY     = 0x10,
     WINDOW_WINDOWED   = 0x20,
     WINDOW_MOVABLE    = 0x40,
-    WINDOW_RESIZABLE  = 0x80
+    WINDOW_RESIZABLE  = 0x80,
+    WINDOW_PIP        = 0x100,
 };
 
 enum window_rule_flag
@@ -149,6 +152,7 @@ int window_level(uint32_t wid);
 int window_sub_level(uint32_t wid);
 uint64_t window_tags(uint32_t wid);
 bool window_is_sticky(uint32_t wid);
+bool window_is_pip(struct window *window);
 CGPoint window_ax_origin(struct window *window);
 CGRect window_ax_frame(struct window *window);
 CFStringRef window_ax_role(struct window *window);

@@ -50,7 +50,19 @@ mach_port_t g_bs_port;
 int g_connection;
 bool g_verbose;
 pid_t g_pid;
+struct yb_flags {
+    uint8_t is_floating : 1;
+    uint8_t is_sticky   : 1;
+    uint8_t is_stacked  : 1;
+    uint8_t is_pip      : 1;
+};
 
+struct yb_flags_payload {
+    uint32_t event;
+    uint32_t count;
+    uint32_t window_id[512];
+    struct yb_flags flags[512];
+};
 static int client_send_message(int argc, char **argv)
 {
     if (argc <= 1) {
@@ -122,7 +134,44 @@ static int client_send_message(int argc, char **argv)
     socket_close(sockfd);
     return result;
 }
+void push_janky_update(int code, uint32_t count, uint32_t wid, uint32_t value)
+{
+    debug("🔥 pushing janky update: code=%d, count=%d, wid=%d, value=%d\n", code, count, wid, value);
+    mach_port_t port;
 
+    if (g_bs_port && bootstrap_look_up(g_bs_port, "git.felix.jbevent", &port) == KERN_SUCCESS) {
+        struct {
+            uint32_t event;  // your custom code (e.g., 1337)
+            uint32_t count;
+            uint32_t wid;    // window ID
+            uint32_t value;  // e.g., state flag or extra info
+        } payload = { code, count, wid, value };
+
+        mach_send(port, &payload, sizeof(payload));
+    }
+}
+void push_janky_flags(uint32_t wid,
+                      bool floating,
+                      bool sticky,
+                      bool stacked,
+                      bool pip)
+{
+    mach_port_t port;
+    if (g_bs_port &&
+        bootstrap_look_up(g_bs_port, "git.felix.jbevent", &port) == KERN_SUCCESS) {
+
+        struct yb_flags_payload msg = {0};
+        msg.event      = 1338;      // agreed “flags-bundle” opcode
+        msg.count      = 1;         // only one window for now
+        msg.window_id[0]        = wid;
+        msg.flags[0].is_floating = floating;
+        msg.flags[0].is_sticky   = sticky;
+        msg.flags[0].is_stacked  = stacked;
+        msg.flags[0].is_pip      = pip;
+
+        mach_send(port, &msg, sizeof(msg));
+    }
+}
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 static inline bool configure_settings_and_acquire_lock(void)

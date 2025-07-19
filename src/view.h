@@ -223,7 +223,8 @@ struct view
 
 void insert_feedback_show(struct window_node *node);
 void insert_feedback_destroy(struct window_node *node);
-
+void enforce_min_width_recursive(struct window_node *node);
+uint32_t subtree_min_width(struct window_node *node);
 void window_node_flush(struct window_node *node);
 void window_node_update(struct view *view, struct window_node *node);
 bool window_node_contains_window(struct window_node *node, uint32_t window_id);

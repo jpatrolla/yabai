@@ -5,7 +5,7 @@ extern void *g_workspace_context;
 extern struct process_manager g_process_manager;
 extern struct mouse_state g_mouse_state;
 extern double g_cv_host_clock_frequency;
-
+void push_janky_update(int code, uint32_t count, uint32_t wid, uint32_t value);
 static TABLE_HASH_FUNC(hash_wm)
 {
     return *(uint32_t *) key;
@@ -14,6 +14,12 @@ static TABLE_HASH_FUNC(hash_wm)
 static TABLE_COMPARE_FUNC(compare_wm)
 {
     return *(uint32_t *) key_a == *(uint32_t *) key_b;
+}
+
+static inline void window_manager_raise_top(uint32_t wid)
+{
+    /* kCGSOrderAbove == 1 */
+    SLSOrderWindow(g_connection, wid, 1, 0);
 }
 
 bool window_manager_is_window_eligible(struct window *window)
@@ -114,10 +120,14 @@ void window_manager_apply_manage_rule_effects_to_window(struct space_manager *sm
         window_clear_rule_flag(window, WINDOW_RULE_MANAGED);
         window_manager_make_window_floating(sm, wm, window, true, true);
     }
+    
 }
 
 void window_manager_apply_rule_effects_to_window(struct space_manager *sm, struct window_manager *wm, struct window *window, struct rule_effects *effects)
 {
+    debug("Applying rule to window %d with title: %s VALUE: %d\n", window->id, window_title_ts(window), effects->min_width);
+    
+
     if (effects->sid || effects->did) {
         if (!window_is_fullscreen(window) && !space_is_fullscreen(window_space(window->id))) {
             uint64_t sid = effects->sid ? effects->sid : display_space_id(effects->did);
@@ -162,10 +172,15 @@ void window_manager_apply_rule_effects_to_window(struct space_manager *sm, struc
             free(scratchpad);
         }
     }
-
+    if (rule_effects_check_flag(effects, RULE_EFFECTS_MIN_WIDTH)) {
+        window->min_width = effects->min_width;
+    }
     if (effects->grid[0] != 0 && effects->grid[1] != 0) {
         window_manager_apply_grid(sm, wm, window, effects->grid[0], effects->grid[1], effects->grid[2], effects->grid[3], effects->grid[4], effects->grid[5]);
     }
+
+   debug("MIN_WIDTH %d \n", window->min_width);
+    debug("EFFECTS %d \n", effects);
 }
 
 void window_manager_apply_manage_rules_to_window(struct space_manager *sm, struct window_manager *wm, struct window *window, char *window_title, char *window_role, char *window_subrole, bool one_shot_rules)
@@ -212,7 +227,7 @@ void window_manager_apply_rules_to_window(struct space_manager *sm, struct windo
             }
         }
     }
-
+    
     if (match) window_manager_apply_rule_effects_to_window(sm, wm, window, &effects);
 }
 
@@ -327,6 +342,82 @@ enum window_op_error window_manager_adjust_window_ratio(struct window_manager *w
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
+// Auto layout a window to a given ratio in the split axis, cycling if already at target.
+enum window_op_error window_manager_auto_layout_window(struct space_manager *sm, struct window_manager *wm, struct window *window, int direction, float ratio)
+{
+    TIME_FUNCTION;
+
+    bool is_managed = window_manager_find_managed_window(wm, window) != NULL;
+    debug("[AUTO_LAYOUT] %s is %s\n", window->application->name, is_managed ? "managed" : "not managed");
+
+    if (is_managed) {
+        struct view *view = window_manager_find_managed_window(wm, window);
+        struct window_node *node = view->root;
+        if (!node || !node->left || !node->right) {
+            debug("[AUTO_LAYOUT] Root node is incomplete — skipping.\n");
+            return WINDOW_OP_ERROR_SUCCESS;
+        }
+
+        enum window_node_split split = node->split;
+        debug("[AUTO_LAYOUT] Root split = %s\n", (split == SPLIT_X ? "SPLIT_X" : "SPLIT_Y"));
+
+        float current = node->ratio;
+        float rounded = roundf(current * 100) / 100.0f;
+
+        // Determine if we're adjusting in the relevant axis.
+        bool x_direction = (direction == DIR_WEST || direction == DIR_EAST);
+        bool y_direction = (direction == DIR_NORTH || direction == DIR_SOUTH);
+
+        bool is_valid_direction = (split == SPLIT_X && y_direction) || (split == SPLIT_Y && x_direction);
+
+        if (is_valid_direction) {
+            debug("[AUTO_LAYOUT] Current ratio: %.2f | Target ratio: %.2f\n", rounded, ratio);
+
+            bool shrink = (x_direction && direction == DIR_WEST) || (y_direction && direction == DIR_SOUTH);
+            bool should_cycle = false; // TODO: make configurable per call
+
+            float step = ratio;
+            if (step <= 0.0f || step >= 1.0f) step = 0.2f;
+
+            int max_steps = (int)(1.0f / step)- 1;
+            float base_ratio = step;
+
+            // Generate nearest stepped index
+            int current_index = (int)((current + (step / 2.0f)) / step);
+            int target_index = shrink ? current_index - 1 : current_index + 1;
+
+            debug("[AUTO_LAYOUT] current: %d\n", current_index);
+
+            if (target_index < 1 || target_index > max_steps) {
+                if (should_cycle) {
+                    if(current == base_ratio){
+                        target_index = max_steps;
+                    } else{
+                        target_index = 1;
+                    }
+                } else {
+                    debug("[AUTO_LAYOUT] At edge, skipping ratio adjustment.\n");
+                    return WINDOW_OP_ERROR_SUCCESS;
+                }
+            }
+
+            float next_ratio = roundf(target_index * step * 100) / 100.0f;
+            debug("[AUTO_LAYOUT] target ratio: %.2f\n, target_index:  %d", next_ratio, target_index);
+
+            node->ratio = next_ratio;
+            view_update(view);
+            view_flush(view);
+            return WINDOW_OP_ERROR_SUCCESS;
+        } else {
+            debug("[AUTO_LAYOUT] Direction does not match root split — skipping.\n");
+            return WINDOW_OP_ERROR_INVALID_OPERATION;
+        }
+    } else {
+        debug("[AUTO_LAYOUT] Not yet implemented for unmanaged windows.\n");
+        return WINDOW_OP_ERROR_SUCCESS;
+    }
+}
+
 enum window_op_error window_manager_move_window_relative(struct window_manager *wm, struct window *window, int type, float dx, float dy)
 {
     TIME_FUNCTION;
@@ -424,6 +515,14 @@ void window_manager_move_window(struct window *window, float x, float y)
 
 void window_manager_resize_window(struct window *window, float width, float height)
 {
+    // Enforce a minimum width on resize.
+    // Priority: per‑window rule (`window->min_width`) falls back to 500 px.
+    float min_w = window->min_width ? (float) window->min_width : 500.0f;
+    debug("MIN WIDTH %d current width: %.0f f\n",min_w, width);
+
+    if (width < min_w) {
+        width = min_w;
+    }
     CGSize size = CGSizeMake(width, height);
     CFTypeRef size_ref = AXValueCreate(kAXValueTypeCGSize, (void *) &size);
     if (!size_ref) return;
@@ -486,7 +585,7 @@ static void window_manager_create_window_proxy(int animation_connection, float a
     CFRelease(empty_region);
 }
 
-static void window_manager_destroy_window_proxy(int animation_connection, struct window_proxy *proxy)
+ void window_manager_destroy_window_proxy(int animation_connection, struct window_proxy *proxy)
 {
     if (proxy->image) {
         CFRelease(proxy->image);
@@ -807,6 +906,7 @@ void window_manager_set_normal_window_opacity(struct window_manager *wm, float o
 
 void window_manager_adjust_layer(struct window *window, int layer)
 {
+    debug("[LAYER] Adjusting layer for window %d to %d\n", window->id, layer);
     if (window->layer != LAYER_AUTO) return;
 
     scripting_addition_set_layer(window->id, layer);
@@ -816,8 +916,9 @@ bool window_manager_set_window_layer(struct window *window, int layer)
 {
     int parent_layer = layer;
     int child_layer = layer;
-
+    debug("[LAYER] Setting layer for window %d to %d\n", window->id, layer);
     if (layer == LAYER_AUTO) {
+        debug("[LAYER] Layer is set to AUTO for window %d\n", window->id);
         parent_layer = window_manager_find_managed_window(&g_window_manager, window) ? LAYER_BELOW : LAYER_NORMAL;
         child_layer = LAYER_NORMAL;
     }
@@ -1281,6 +1382,7 @@ static void window_manager_make_key_window(ProcessSerialNumber *window_psn, uint
 void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, uint32_t window_id)
 {
     TIME_FUNCTION;
+        debug("%s: focused window without raise %d\n", __FUNCTION__, window_id);
 
     if (psn_equals(window_psn, &g_window_manager.focused_window_psn)) {
         memset(g_event_bytes, 0, 0xf8);
@@ -1307,6 +1409,26 @@ void window_manager_focus_window_without_raise(ProcessSerialNumber *window_psn, 
 
     _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
     window_manager_make_key_window(window_psn, window_id);
+    /* step 1: remember the previously-focused managed window */
+    struct window *prev =
+        window_manager_find_window(&g_window_manager,
+                                g_window_manager.focused_window_id);
+
+    /* step 2: raise the one we’re about to focus */
+    struct window *curr =
+        window_manager_find_window(&g_window_manager, window_id);
+    
+    if (prev && window_manager_should_manage_window(prev)) {
+        /* demote the one that just lost focus */
+        //window_manager_adjust_layer(prev, LAYER_BELOW);
+        scripting_addition_set_layer(prev->id, -20);       // optional tidy-up
+    }
+
+    if (curr && window_manager_should_manage_window(curr)) {
+        /* raise the newly-focused pane */
+        //window_manager_adjust_layer(curr, LAYER_NORMAL);
+        scripting_addition_set_layer(curr->id, 0);       // optional tidy-up
+    }
 }
 
 void window_manager_focus_window_with_raise(ProcessSerialNumber *window_psn, uint32_t window_id, AXUIElementRef window_ref)
@@ -1317,6 +1439,28 @@ void window_manager_focus_window_with_raise(ProcessSerialNumber *window_psn, uin
     _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
     window_manager_make_key_window(window_psn, window_id);
     AXUIElementPerformAction(window_ref, kAXRaiseAction);
+    debug("%s: focused window with raise %d\n", __FUNCTION__, window_id);
+
+    /* step 1: remember the previously-focused managed window */
+    struct window *prev =
+        window_manager_find_window(&g_window_manager,
+                                g_window_manager.focused_window_id);
+
+    /* step 2: raise the one we’re about to focus */
+    struct window *curr =
+        window_manager_find_window(&g_window_manager, window_id);
+
+    if (prev ) {
+        /* demote the one that just lost focus */
+        //window_manager_adjust_layer(prev, LAYER_BELOW);
+        //scripting_addition_set_layer(prev->id, -20);       // optional tidy-up
+    }
+
+    if (curr) {
+        /* raise the newly-focused pane */
+        //window_manager_adjust_layer(curr, LAYER_NORMAL);
+        //scripting_addition_set_layer(curr->id, 0);       // optional tidy-up
+    }
 #else
     scripting_addition_focus_window(window_id);
 #endif
@@ -2178,7 +2322,7 @@ void window_manager_make_window_floating(struct space_manager *sm, struct window
             }
         }
     }
-
+    bool did_float;
     if (should_float) {
         struct view *view = window_manager_find_managed_window(wm, window);
         if (view) {
@@ -2187,9 +2331,10 @@ void window_manager_make_window_floating(struct space_manager *sm, struct window
             window_manager_purify_window(wm, window);
         }
         window_set_flag(window, WINDOW_FLOAT);
+        did_float = true;
     } else {
         window_clear_flag(window, WINDOW_FLOAT);
-
+        did_float = false;
         if (!window_check_flag(window, WINDOW_STICKY)) {
             if ((window_manager_should_manage_window(window)) && (!window_manager_find_managed_window(wm, window))) {
                 struct view *view = space_manager_tile_window_on_space(sm, window, space_manager_active_space());
@@ -2197,6 +2342,7 @@ void window_manager_make_window_floating(struct space_manager *sm, struct window
             }
         }
     }
+    push_janky_update(1227, 1, window->id, did_float);
 }
 
 void window_manager_make_window_sticky(struct space_manager *sm, struct window_manager *wm, struct window *window, bool should_sticky)
@@ -2204,6 +2350,7 @@ void window_manager_make_window_sticky(struct space_manager *sm, struct window_m
     TIME_FUNCTION;
 
     if (!window_manager_is_window_eligible(window)) return;
+    bool made_sticky;
 
     if (should_sticky) {
         if (scripting_addition_set_sticky(window->id, true)) {
@@ -2215,10 +2362,10 @@ void window_manager_make_window_sticky(struct space_manager *sm, struct window_m
             }
             window_set_flag(window, WINDOW_STICKY);
         }
+        made_sticky = true;
     } else {
         if (scripting_addition_set_sticky(window->id, false)) {
             window_clear_flag(window, WINDOW_STICKY);
-
             if (!window_check_flag(window, WINDOW_FLOAT)) {
                 if ((window_manager_should_manage_window(window)) && (!window_manager_find_managed_window(wm, window))) {
                     struct view *view = space_manager_tile_window_on_space(sm, window, space_manager_active_space());
@@ -2226,7 +2373,9 @@ void window_manager_make_window_sticky(struct space_manager *sm, struct window_m
                 }
             }
         }
+        made_sticky = false;
     }
+    push_janky_update(1008, 1, window->id, made_sticky);
 }
 
 void window_manager_toggle_window_shadow(struct window *window)
@@ -2412,6 +2561,14 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
     }
 
     scripting_addition_scale_window(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+
+    bool pip = window_check_flag(window, WINDOW_PIP);
+    if (pip) {
+        window_clear_flag(window, WINDOW_PIP);
+    } else {
+        window_set_flag(window, WINDOW_PIP);
+    }
+
 }
 
 static inline struct window *window_manager_find_scratchpad_window(struct window_manager *wm, char *label)

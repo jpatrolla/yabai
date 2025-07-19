@@ -16,14 +16,15 @@ enum rule_flag
     RULE_ROLE_EXCLUDE    = 0x040,
     RULE_SUBROLE_EXCLUDE = 0x080,
     RULE_ONE_SHOT        = 0x100,
-    RULE_ONE_SHOT_REMOVE = 0x200
+    RULE_ONE_SHOT_REMOVE = 0x200,
 };
 
 enum rule_effects_flag
 {
-    RULE_FOLLOW_SPACE = 0x01,
-    RULE_OPACITY      = 0x02,
-    RULE_LAYER        = 0x04
+    RULE_FOLLOW_SPACE       = 0x01,
+    RULE_OPACITY            = 0x02,
+    RULE_LAYER              = 0x04,
+    RULE_EFFECTS_MIN_WIDTH  = 0x08,
 };
 
 struct rule_effects
@@ -39,6 +40,7 @@ struct rule_effects
     unsigned grid[6];
     char *scratchpad;
     uint16_t flags;
+    uint32_t min_width;
 };
 
 struct rule

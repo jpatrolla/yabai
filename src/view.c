@@ -5,6 +5,49 @@ extern struct window_manager g_window_manager;
 
 #define INSERT_FEEDBACK_WIDTH 2
 #define INSERT_FEEDBACK_RADIUS 9
+
+// ---------------------------------------------------------------------------
+//  Min-width constraint helpers
+// ---------------------------------------------------------------------------
+static inline bool window_node_is_leaf(struct window_node *node)
+{
+    return node->left == NULL && node->right == NULL;
+}
+uint32_t subtree_min_width(struct window_node *node)
+{
+    if (!node) return 0;
+    debug("subtree_min_width for node %p\n", node);
+    if (window_node_is_leaf(node)) {
+        struct window *w =
+            window_manager_find_window(&g_window_manager, node->window_order[0]);
+        return w && w->min_width ? w->min_width : 500;
+    }
+
+    uint32_t l = subtree_min_width(node->left);
+    uint32_t r = subtree_min_width(node->right);
+    return l > r ? l : r;
+}
+
+void enforce_min_width_recursive(struct window_node *node)
+{
+    if (!node || window_node_is_leaf(node))
+        return;
+    debug("enforcing min-width for node %p\n", node);
+    if (node->split == SPLIT_Y) {  // vertical fence ⇒ width constraint
+        uint32_t min_left  = subtree_min_width(node->left);
+        uint32_t min_right = subtree_min_width(node->right);
+
+        float pw = (float)node->area.w;
+        float lo = clampf_range((float)min_left  / pw, 0.05f, 0.95f);
+        float hi = clampf_range(1.0f - (float)min_right / pw, 0.05f, 0.95f);
+
+        node->ratio = clampf_range(node->ratio, lo, hi);
+    }
+
+    enforce_min_width_recursive(node->left);
+    enforce_min_width_recursive(node->right);
+}
+
 void insert_feedback_show(struct window_node *node)
 {
     CFTypeRef frame_region;
@@ -181,6 +224,7 @@ static void area_make_pair(enum window_node_split split, int gap, float ratio, s
         right_area->h  = (int)right_width;
         right_area->y += (int)(left_width + 0.5f) + gap;
     }
+    
 }
 
 static void area_make_pair_for_node(struct view *view, struct window_node *node)
@@ -188,6 +232,29 @@ static void area_make_pair_for_node(struct view *view, struct window_node *node)
     enum window_node_split split = window_node_get_split(view, node);
     float ratio = window_node_get_ratio(node);
     int gap     = window_node_get_gap(view);
+
+    // Clamp ratio based on min_width for SPLIT_Y
+    if (split == SPLIT_Y) {
+        struct area *parent = &node->area;
+        float left_width  = (parent->w - gap) * ratio;
+        float right_width = (parent->w - gap) * (1 - ratio);
+
+        uint32_t min_left = node->left && node->left->window_count == 1 ?
+            window_manager_find_window(&g_window_manager, node->left->window_list[0])->min_width : 0;
+        uint32_t min_right = node->right && node->right->window_count == 1 ?
+            window_manager_find_window(&g_window_manager, node->right->window_list[0])->min_width : 0;
+
+        if (left_width < min_left || right_width < min_right) {
+            float min_ratio_left = (float)min_left / (parent->w - gap);
+            float min_ratio_right = 1.0f - (float)min_right / (parent->w - gap);
+
+            ratio = fmaxf(ratio, min_ratio_left);
+            ratio = fminf(ratio, min_ratio_right);
+
+            left_width  = (parent->w - gap) * ratio;
+            right_width = (parent->w - gap) * (1 - ratio);
+        }
+    }
 
     area_make_pair(split, gap, ratio, &node->area, &node->left->area, &node->right->area);
 
@@ -203,11 +270,6 @@ static inline bool window_node_is_occupied(struct window_node *node)
 static inline bool window_node_is_intermediate(struct window_node *node)
 {
     return node->parent != NULL;
-}
-
-static inline bool window_node_is_leaf(struct window_node *node)
-{
-    return node->left == NULL && node->right == NULL;
 }
 
 static inline bool window_node_is_left_child(struct window_node *node)
@@ -850,6 +912,9 @@ bool view_is_dirty(struct view *view)
 void view_flush(struct view *view)
 {
     if (space_is_visible(view->sid)) {
+            // Clamp fence ratios so neither side can shrink past its min_width
+        enforce_min_width_recursive(view->root);
+        window_node_update(view,view->root);        
         window_node_flush(view->root);
         view_clear_flag(view, VIEW_IS_DIRTY);
     } else {

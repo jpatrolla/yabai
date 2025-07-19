@@ -142,6 +142,7 @@ extern bool g_verbose;
 #define COMMAND_WINDOW_MOVE       "--move"
 #define COMMAND_WINDOW_RESIZE     "--resize"
 #define COMMAND_WINDOW_RATIO      "--ratio"
+#define COMMAND_WINDOW_AUTO_LAYOUT "--auto-layout"
 #define COMMAND_WINDOW_SUB_LAYER  "--sub-layer"
 #define COMMAND_WINDOW_OPACITY    "--opacity"
 #define COMMAND_WINDOW_RAISE      "--raise"
@@ -158,6 +159,7 @@ extern bool g_verbose;
 #define ARGUMENT_WINDOW_SEL_FCOUSIN     "first_cousin"
 #define ARGUMENT_WINDOW_SEL_SCOUSIN     "second_cousin"
 #define ARGUMENT_WINDOW_GRID            "%d:%d:%d:%d:%d:%d"
+#define ARGUMENT_WINDOW_AUTO_LAYOUT     "%255[^:]:%f"
 #define ARGUMENT_WINDOW_MOVE            "%255[^:]:%f:%f"
 #define ARGUMENT_WINDOW_RESIZE          "%255[^:]:%f:%f"
 #define ARGUMENT_WINDOW_RATIO           "%255[^:]:%f"
@@ -195,23 +197,23 @@ extern bool g_verbose;
 #define COMMAND_RULE_APPLY   "--apply"
 #define COMMAND_RULE_LS      "--list"
 
-#define ARGUMENT_RULE_ONE_SHOT       "--one-shot"
-#define ARGUMENT_RULE_KEY_APP        "app"
-#define ARGUMENT_RULE_KEY_TITLE      "title"
-#define ARGUMENT_RULE_KEY_ROLE       "role"
-#define ARGUMENT_RULE_KEY_SUBROLE    "subrole"
-#define ARGUMENT_RULE_KEY_DISPLAY    "display"
-#define ARGUMENT_RULE_KEY_SPACE      "space"
-#define ARGUMENT_RULE_KEY_OPACITY    "opacity"
-#define ARGUMENT_RULE_KEY_MANAGE     "manage"
-#define ARGUMENT_RULE_KEY_STICKY     "sticky"
-#define ARGUMENT_RULE_KEY_MFF        "mouse_follows_focus"
-#define ARGUMENT_RULE_KEY_SUB_LAYER  "sub-layer"
-#define ARGUMENT_RULE_KEY_FULLSCR    "native-fullscreen"
-#define ARGUMENT_RULE_KEY_GRID       "grid"
-#define ARGUMENT_RULE_KEY_LABEL      "label"
-#define ARGUMENT_RULE_KEY_SCRATCHPAD "scratchpad"
-
+#define ARGUMENT_RULE_ONE_SHOT          "--one-shot"
+#define ARGUMENT_RULE_KEY_APP           "app"
+#define ARGUMENT_RULE_KEY_TITLE         "title"
+#define ARGUMENT_RULE_KEY_ROLE          "role"
+#define ARGUMENT_RULE_KEY_SUBROLE       "subrole"
+#define ARGUMENT_RULE_KEY_DISPLAY       "display"
+#define ARGUMENT_RULE_KEY_SPACE         "space"
+#define ARGUMENT_RULE_KEY_OPACITY       "opacity"
+#define ARGUMENT_RULE_KEY_MANAGE        "manage"
+#define ARGUMENT_RULE_KEY_STICKY        "sticky"
+#define ARGUMENT_RULE_KEY_MFF           "mouse_follows_focus"
+#define ARGUMENT_RULE_KEY_SUB_LAYER     "sub-layer"
+#define ARGUMENT_RULE_KEY_FULLSCR       "native-fullscreen"
+#define ARGUMENT_RULE_KEY_GRID          "grid"
+#define ARGUMENT_RULE_KEY_LABEL         "label"
+#define ARGUMENT_RULE_KEY_SCRATCHPAD    "scratchpad"
+#define ARGUMENT_RULE_KEY_MIN_WIDTH     "min_width"
 #define ARGUMENT_RULE_VALUE_SPACE '^'
 #define ARGUMENT_RULE_VALUE_GRID  "%d:%d:%d:%d:%d:%d"
 /* ----------------------------------------------------------------------------- */
@@ -450,7 +452,6 @@ static void parse_key_value_pair(char *token, char **key, char **value, bool *ex
         } else if (fst == '=') {
             break;
         }
-
         ++token;
     }
 
@@ -2259,6 +2260,47 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } 
+        else if (token_equals(command, COMMAND_WINDOW_AUTO_LAYOUT)) {
+
+            //struct selector sel = parse_window_selector(rsp, &message, acting_window, false);
+            //if (!sel.did_parse) goto cleanup;
+
+            struct token arg_token = get_token(&message);
+            if (!token_is_valid(arg_token)) {
+                daemon_fail(rsp, "missing arguments for '--auto-layout'. Expected '<direction>:<ratio>'.\n");
+            }
+
+            char dir_str[256] = {0};
+            float ratio = 0.0f;
+            if (sscanf(arg_token.text, ARGUMENT_WINDOW_AUTO_LAYOUT, dir_str, &ratio) != 2) {
+                daemon_fail(rsp, "invalid argument for '--auto-layout'. Expected '<direction>:<ratio>'.\n");
+                //goto cleanup;
+            } 
+
+            int dir = 0;
+            if (string_equals(dir_str, "north") || string_equals(dir_str, "up")){dir = DIR_NORTH;}
+            else if (string_equals(dir_str, "east")  || string_equals(dir_str, "right")) {dir = DIR_EAST;}
+            else if (string_equals(dir_str, "south") || string_equals(dir_str, "down"))  {dir = DIR_SOUTH;}
+            else if (string_equals(dir_str, "west")  || string_equals(dir_str, "left"))  {dir = DIR_WEST;}
+            else {
+                daemon_fail(rsp, "invalid direction '%s' for '--auto-layout'.\n", dir_str);
+            }
+
+            if(acting_window){
+                debug("auto layout  hit\n");
+                window_manager_auto_layout_window(&g_space_manager,
+                                              &g_window_manager,
+                                              acting_window,
+                                              dir,
+                                              ratio);
+            } 
+            else {
+                 daemon_fail(rsp, "could not locate the window to act on!\n");
+            }
+            
+
+            //fprintf(rsp, SUCCESS_MESSAGE);
         } else if (token_equals(command, COMMAND_WINDOW_TOGGLE)) {
             struct token value = get_token(&message);
             if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_FLOAT)) {
@@ -2772,6 +2814,18 @@ static bool parse_rule(FILE *rsp, char **message, struct rule *rule, struct toke
                 rule->effects.fullscreen = RULE_PROP_ON;
             } else if (string_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
                 rule->effects.fullscreen = RULE_PROP_OFF;
+            } else {
+                daemon_fail(rsp, "invalid value '%s' for key '%s'\n", value, key);
+                did_parse = false;
+            }
+        } else if (string_equals(key, ARGUMENT_RULE_KEY_MIN_WIDTH)) {
+            if (exclusion) unsupported_exclusion = key;
+
+            uint32_t val = strtoul(value, NULL, 10);
+            if (val > 0) {
+                debug("setting min width to %d\n", val);
+                rule->effects.min_width = val;
+                rule_effects_set_flag(&rule->effects, RULE_EFFECTS_MIN_WIDTH);
             } else {
                 daemon_fail(rsp, "invalid value '%s' for key '%s'\n", value, key);
                 did_parse = false;

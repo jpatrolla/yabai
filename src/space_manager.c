@@ -10,50 +10,90 @@ static TABLE_COMPARE_FUNC(compare_view)
 {
     return *(uint64_t *) key_a == *(uint64_t *) key_b;
 }
-bool space_manager_toggle_floating_windows_on_space(struct space_manager *sm,uint64_t sid) {
-    TIME_FUNCTION;
-    debug("space_manager_toggle_floating_windows_on_space \n");
+//
+// ────────────────────────────────────────────────────────────────
+//  Floating-window helpers
+// ────────────────────────────────────────────────────────────────
+//  • hide   → hide all floating windows and remember them
+//  • show   → show everything previously hidden by us
+//  • toggle → calls hide / show depending on state
+//  • recover→ “safety net” – force-show & clear state
+//
+
+bool space_manager_hide_floating_windows_on_space(struct space_manager *sm,
+                                                  uint64_t sid)
+{
     struct view *view = space_manager_find_view(sm, sid);
     if (!view) return false;
 
-    int window_count = 0;  
-    uint32_t *window_list = space_window_list(sid, &window_count, false);
-    debug("window_list %d,  \n",  window_list);
+    int win_cnt = 0;
+    uint32_t *win_list = space_window_list(sid, &win_cnt, false);
+    if (!win_list || win_cnt == 0) return false;
 
-    if (!window_list || window_count == 0){
-        debug("No floating windows in %d space \n");
-        return false;
-    }
+    if (view_check_flag(view, VIEW_FLOAT_TOGGLED)) return false; // already hidden
 
-    bool did_toggle = false;
-    bool hiding = !view_check_flag(view, VIEW_FLOAT_TOGGLED);    
-
-   if (hiding) {
-    // hide & remember
-    for (int i = 0; i < window_count; ++i) {
-        struct window *w = window_manager_find_window(&g_window_manager, window_list[i]);
+    for (int i = 0; i < win_cnt; ++i) {
+        struct window *w = window_manager_find_window(&g_window_manager, win_list[i]);
         if (!w || !window_check_flag(w, WINDOW_FLOAT)) continue;
 
         scripting_addition_order_window(w->id, 0, 0);   // hide
         buf_push(view->hidden_floaters, w->id);         // remember
     }
     view_set_flag(view, VIEW_FLOAT_TOGGLED);
-    did_toggle = true;
-    } 
-    else {
-        // show everything we hid last time
-        for (int i = 0; i < buf_len(view->hidden_floaters); ++i) {
-            struct window *w = window_manager_find_window(&g_window_manager,
-                                                        view->hidden_floaters[i]);
-            if (w) scripting_addition_order_window(w->id, 1, 0); // show
-        }
-        buf_free(view->hidden_floaters);
-        view->hidden_floaters = NULL;
+    return true;
+}
 
-        view_clear_flag(view, VIEW_FLOAT_TOGGLED);
-        did_toggle = true;
+bool space_manager_show_floating_windows_on_space(struct space_manager *sm,
+                                                  uint64_t sid)
+{
+    struct view *view = space_manager_find_view(sm, sid);
+    if (!view) return false;
+    if (!view_check_flag(view, VIEW_FLOAT_TOGGLED)) return false; // nothing hidden
+
+    for (int i = 0; i < buf_len(view->hidden_floaters); ++i) {
+        struct window *w = window_manager_find_window(&g_window_manager,
+                                                      view->hidden_floaters[i]);
+        if (w) scripting_addition_order_window(w->id, 1, 0); // show
     }
-    return did_toggle;
+    buf_free(view->hidden_floaters);
+    view->hidden_floaters = NULL;
+    view_clear_flag(view, VIEW_FLOAT_TOGGLED);
+    return true;
+}
+
+// Safety-net: force-show and clear state regardless of flag
+bool space_manager_recover_floating_windows_on_space(struct space_manager *sm,
+                                                     uint64_t sid)
+{
+    struct view *view = space_manager_find_view(sm, sid);
+    if (!view) return false;
+
+    // if already showing, no-op
+    if (!view_check_flag(view, VIEW_FLOAT_TOGGLED))
+        return true;
+
+    // otherwise force show
+    for (int i = 0; i < buf_len(view->hidden_floaters); ++i) {
+        struct window *w = window_manager_find_window(&g_window_manager,
+                                                      view->hidden_floaters[i]);
+        if (w) scripting_addition_order_window(w->id, 1, 0);
+    }
+    buf_free(view->hidden_floaters);
+    view->hidden_floaters = NULL;
+    view_clear_flag(view, VIEW_FLOAT_TOGGLED);
+    return true;
+}
+
+bool space_manager_toggle_floating_windows_on_space(struct space_manager *sm,
+                                                    uint64_t sid)
+{
+    struct view *view = space_manager_find_view(sm, sid);
+    if (!view) return false;
+
+    if (view_check_flag(view, VIEW_FLOAT_TOGGLED))
+        return space_manager_show_floating_windows_on_space(sm, sid);
+    else
+        return space_manager_hide_floating_windows_on_space(sm, sid);
 }
 
 bool space_manager_query_space(FILE *rsp, uint64_t sid, uint64_t flags)

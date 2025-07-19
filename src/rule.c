@@ -34,6 +34,7 @@ void rule_serialize(FILE *rsp, struct rule *rule, int index)
             "\t\"native-fullscreen\":%s,\n"
             "\t\"grid\":\"%d:%d:%d:%d:%d:%d\",\n"
             "\t\"scratchpad\":\"%s\",\n"
+            "\t\"min_width\":%d,\n"
             "\t\"one-shot\":%s,\n"
             "\t\"flags\":\"0x%08x\"\n"
             "}",
@@ -56,6 +57,7 @@ void rule_serialize(FILE *rsp, struct rule *rule, int index)
             rule->effects.grid[2], rule->effects.grid[3],
             rule->effects.grid[4], rule->effects.grid[5],
             rule->effects.scratchpad ? rule->effects.scratchpad : "",
+            rule->effects.min_width ? rule->effects.min_width : 0,
             json_bool(rule_check_flag(rule, RULE_ONE_SHOT)),
             (uint32_t)(rule->effects.flags << 16) | (uint32_t)rule->flags);
 }
@@ -89,6 +91,11 @@ void rule_combine_effects(struct rule_effects *effects, struct rule_effects *res
         result->layer = effects->layer;
         rule_effects_set_flag(result, RULE_LAYER);
     }
+
+    if (rule_effects_check_flag(effects, RULE_EFFECTS_MIN_WIDTH)) {
+    result->min_width = effects->min_width;
+    rule_effects_set_flag(result, RULE_EFFECTS_MIN_WIDTH);
+}
 
     if (effects->scratchpad) {
         if (result->scratchpad) free(result->scratchpad);
@@ -147,6 +154,7 @@ bool rule_reapply_by_label(char *label)
     for (int i = 0; i < buf_len(g_window_manager.rules); ++i) {
         if (string_equals(g_window_manager.rules[i].label, label)) {
             if (!rule_check_flag(&g_window_manager.rules[i], RULE_ONE_SHOT)) {
+                
                 rule_apply(&g_window_manager.rules[i]);
             }
             return true;
@@ -166,6 +174,7 @@ void rule_apply(struct rule *rule)
                 if (window_manager_is_window_eligible(window)) {
                     window->is_eligible = true;
                     window_manager_apply_rule_effects_to_window(&g_space_manager, &g_window_manager, window, &rule->effects);
+                
                 }
             }
         }

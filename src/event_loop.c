@@ -9,6 +9,12 @@ extern int g_connection;
 extern void *g_workspace_context;
 extern int g_layer_below_window_level;
 
+void push_janky_flags(uint32_t wid,
+                      bool floating,
+                      bool sticky,
+                      bool stacked,
+                      bool pip);
+
 static void update_window_notifications(void)
 {
     int window_count = 0;
@@ -343,6 +349,7 @@ out:
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
 {
+    debug("Front application switched\n");
     struct process *process = context;
     struct application *application = window_manager_find_application(&g_window_manager, process->pid);
 
@@ -393,9 +400,29 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
         window_manager_add_lost_focused_event(&g_window_manager, application_focused_window_id);
         return;
     }
-
+    debug("window did receive focus: %s %d\n", window->application->name, window->id);
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
+
+    // logic to raise the focused managed/bsp window:
+    // TODO: add configuration option to toggle "raise managed windows"
+    struct window_manager *wm = &g_window_manager;
+    struct window *focused = window_manager_find_window(wm, window->id);
+    if (focused) {
+        debug("Raising focused window: %s %d\n", focused->application->name, focused->id);
+        window_manager_adjust_layer(focused, LAYER_NORMAL);
+        SLSSetWindowSubLevel(g_connection, focused->id, 0); // optional reset
+    }
+
+    // Push down the previously-focused managed window
+    if (wm->focused_window_id && wm->focused_window_id != window->id) {
+        struct window *prev = window_manager_find_window(wm, wm->focused_window_id);
+        if (prev) {
+            debug("Pushing down previously focused window: %s %d\n", prev->application->name, prev->id);
+            window_manager_adjust_layer(prev, LAYER_BELOW);
+            SLSSetWindowSubLevel(g_connection, prev->id, 0);
+        }
+    }
 }
 #pragma clang diagnostic pop
 
@@ -570,6 +597,13 @@ static EVENT_HANDLER(WINDOW_CREATED)
     if (window_manager_is_window_eligible(window)) {
         event_signal_push(SIGNAL_WINDOW_CREATED, window);
     }
+    
+    /* ─── Notify JankyBorders with ALL initial flags ───────────────── */
+    push_janky_flags(window->id,
+    window_check_flag(window, WINDOW_FLOAT),   // is_floating
+    window_is_sticky(window->id),              // is_sticky
+    0,   // TODO: is_stacked
+    0);    // TODO: is_pip
 
     if (workspace_is_macos_sequoia()) {
         update_window_notifications();
@@ -711,7 +745,7 @@ static EVENT_HANDLER(WINDOW_RESIZED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     event_signal_push(SIGNAL_WINDOW_RESIZED, window);
-
+    debug("✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ %d ------> %d\n", window_id, window->min_width);
     bool was_fullscreen = window_check_flag(window, WINDOW_FULLSCREEN);
 
     bool is_fullscreen = window_is_fullscreen(window);
@@ -1212,7 +1246,6 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
 
     CGPoint point = CGEventGetLocation(context);
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
-
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
         CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
                               g_mouse_state.window_frame.origin.y + (point.y - g_mouse_state.down_location.y) };

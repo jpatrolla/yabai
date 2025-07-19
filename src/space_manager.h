@@ -106,5 +106,9 @@ void space_manager_mark_spaces_invalid(struct space_manager *sm);
 bool space_manager_refresh_application_windows(struct space_manager *sm);
 void space_manager_handle_display_add(struct space_manager *sm, uint32_t did);
 void space_manager_begin(struct space_manager *sm);
-bool space_manager_toggle_floating_windows_on_space(struct space_manager *sm,uint64_t sid);
+bool space_manager_hide_floating_windows_on_space(struct space_manager *, uint64_t);
+bool space_manager_show_floating_windows_on_space(struct space_manager *, uint64_t);
+bool space_manager_recover_floating_windows_on_space(struct space_manager *, uint64_t);
+bool space_manager_toggle_floating_windows_on_space(struct space_manager *, uint64_t);
+
 #endif

@@ -403,6 +403,14 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
         fprintf(rsp, "\t\"is-grabbed\":%s", json_bool(false));
     }
 
+    if (flags & WINDOW_PROPERTY_IS_PIP) {
+        if (did_output)
+        fprintf(rsp, ",\n");
+        struct window *window = window_manager_find_window(&g_window_manager, wid);
+        bool is_pip = window_is_pip(window);
+        fprintf(rsp, "\t\"is-pip\":%s", json_bool(is_pip));
+        did_output = true;
+    }
     fprintf(rsp, "\n}");
 }
 
@@ -839,7 +847,9 @@ bool window_is_fullscreen(struct window *window)
 
     return result;
 }
-
+bool window_is_pip(struct window *window) {
+  return window && window_check_flag(window, WINDOW_PIP);
+}
 bool window_is_sticky(uint32_t wid)
 {
     bool result = false;
