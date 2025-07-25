@@ -857,6 +857,20 @@ void window_manager_set_window_frame(struct window *window, float x, float y, fl
 
     //push_jankyborders_stack(1325, window->id, stack_count, stack_index );
 
+if (window && window->id &&
+      window_manager_find_managed_window(&g_window_manager, window)) {
+    struct view *view =
+        window_manager_find_managed_window(&g_window_manager, window);
+    struct window_node *node = view_find_window_node(view, window->id);  
+        if (node && node->window_count > 1) {
+            uint32_t left_padding = 10;
+            x += left_padding;
+            //y = node->area.y;
+            width -= left_padding;
+            //height = node->area.h;
+        }
+}
+
     AX_ENHANCED_UI_WORKAROUND(window->application->ref, {
         // NOTE(koekeishiya): Due to macOS constraints (visible screen-area), we might need to resize the window *before* moving it.
         window_manager_resize_window(window, width, height);
@@ -1065,39 +1079,6 @@ static void refresh_node_order(struct window_node *n, uint64_t sid)
         }
     }
 }
-uint32_t get_top_of_stack_window(struct view *view)
-{
-    if (!view) return 0;
-
-    struct window_node *node = view->root;
-    if (!node || node->window_count == 0) return 0;
-
-    /* 1️⃣  If the currently-focused window is part of this stack, it is
-            by definition on top.  */
-    uint32_t focused = g_window_manager.focused_window_id;
-    if (focused) {
-        for (int i = 0; i < node->window_count; ++i) {
-            if (node->window_list[i] == focused) return focused;
-        }
-    }
-
-    /* 2️⃣  Otherwise consult the live WindowServer z-order to decide. */
-    int wc = 0;
-    uint32_t *wl = space_window_list(view->sid, &wc, false);
-    if (wl && wc) {
-        for (int i = 0; i < wc; ++i) {
-            for (int j = 0; j < node->window_count; ++j) {
-                if (wl[i] == node->window_list[j]) {
-                    return wl[i];          // first match in WS order
-                }
-            }
-        }
-    }
-
-    /* 3️⃣  Fallback: return first entry in our cached list. */
-    return node->window_list[0];
-}
-
 void stack_pass_begin(struct window_manager *wm)
 {
     wm->stack_gen++;
@@ -1112,31 +1093,25 @@ void stack_mark_member(struct window_manager *wm,
 {
     struct stack_state *s = table_find(&wm->stack_state, &wid);
 
-    bool is_active = (wid == top_wid) ? true : false;
-    //struct window *window = window_manager_find_window(wm, wm->focused_window_id);
-    //uint32_t top_wid = 0;
-    //if (window) {
-    //    uint64_t sid = space_manager_active_space();
-    //    struct view *view = space_manager_find_view(&g_space_manager, sid);
-    //    if (view) {
-    //        struct window_node *node = view_find_window_node(view, window->id);
-            
-    //        top_wid = get_top_of_stack_window(view);
-    //        debug("[🥞 STACK] WID: %d, INDEX: %d/%d, LIST: %d, ORDER: %d\n", wid, index, len, node->window_list[0], node->window_order[0]);
+    bool is_topmost = (wid == top_wid) ? true : false;
 
-    //        //if (node && node->window_count > 0) {
-    //        //    is_active = (node->window_order[0] == wid);
-    //        //}
-    //    }
-    //}
-    debug("😵😵😵😵 WID:%d, IS_ACTIVE: %d, STACK_INDEX: %d/%d\n", wid, is_active, index, len);
+    debug("😵😵😵😵 WID:%d, IS_TOPMOST: %d, STACK_INDEX: %d/%d\n", wid, is_topmost, index, len);
+    
     struct yb_stack_update msg = {
         .wid      = wid,
         .index    = index,
         .len      = len,
-        .is_active = is_active,
+        .is_topmost = is_topmost,
     };
-
+    //if(s){
+    //    s->topmost_wid = top_wid; // update topmost wid
+    //    //if(is_topmost){
+    //    //    s->topmost_wid = wid;
+    //        debug("[🟦 Topmost window in stack %d is now %d]\n", stack_id, wid);
+    //    //}
+    //}
+    // If we don't have a stack state for this window, create one
+    // this is a new stack
     if (!s) {
         /* allocate on the heap so it outlives this function */
         debug("[🟥 No stack state found for window %d]\n", wid);
@@ -1147,10 +1122,11 @@ void stack_mark_member(struct window_manager *wm,
         rec->len      = len;
         rec->gen      = wm->stack_gen;
         rec->in_stack = true;
+        rec->topmost_wid = top_wid; // update topmost wid
         msg.index     = index;
         msg.len       = len;
-        msg.is_active = is_active;
-        debug("[🟥 Adding stack state for window %d. stack_id: %d, index: %d/%d]\n", wid, stack_id, index, len);
+        msg.is_topmost = is_topmost;
+        debug("[🟥 Adding stack state for window %d. stack_id: %d, index: %d/%d] is_topmost: %d\n", wid, stack_id, index, len, is_topmost);
         table_add(&wm->stack_state, &wid, rec);
         push_janky_update(1337, &msg, sizeof(msg)); // ← STACK-ENTER
        
@@ -1158,31 +1134,39 @@ void stack_mark_member(struct window_manager *wm,
     }
 
     s->gen = wm->stack_gen;           // mark seen this pass
-
+   
+    // If this window is marked as not in stack, 
     if (!s->in_stack) {               // re-entered
         s->in_stack = true;
         s->stack_id = stack_id;
         s->index    = index;
         s->len      = len;
+        s->is_topmost = is_topmost;
+        s->topmost_wid = top_wid;      // update topmost wid
         msg.index   = index;
         msg.len     = len;
-        msg.is_active = is_active;
-        debug("[🟩 wid:%d still in stack_id: %d, index: %d/%d]\n", wid, stack_id, index, len);
+        msg.is_topmost = is_topmost;
+        debug("[🟩 wid:%d still in stack_id: %d, index: %d/%d] is_topmost: %d\n", wid, stack_id, index, len, is_topmost);
         push_janky_update(1338, &msg, sizeof(msg));
         return;
     }
 
     // still stacked – check for reorder/len change
-    if (s->index != (uint32_t)index || s->len != (uint32_t)len) {
+
+    if (s->topmost_wid != top_wid || s->len != (uint32_t)len) {
         s->index = index;
         s->len   = len;
+        s->topmost_wid = top_wid;
         msg.index     = index;
         msg.len    = len;
-        msg.is_active = is_active;
-        debug("[🟨 wid:%d reordered in stack_id: %d, index: %d/%d]\n", wid, stack_id, index, len);
+        debug("[🟨 wid:%d reordered in stack_id: %d, index: %d/%d] is_topmost: %d\n", wid, stack_id, index, len, is_topmost);
         push_janky_update(1339, &msg, sizeof(msg));   // ← STACK-REORDER
     }
-
+if(s){
+    if(s->topmost_wid){
+        debug("[ STACK TOPMOST: %d]\n", s->topmost_wid);
+    }
+    };
 }
 
 //static void log_real_vs_cached_order(struct window_node *n, uint64_t sid)
@@ -1219,32 +1203,36 @@ void window_manager_sweep_stacks(struct view *view,
     if (view->root) stack[top++] = view->root;
     while (top) {
         struct window_node *n = stack[--top];
-        //refresh_node_order(n, view->sid);
-        if (n->window_count > 1) {                   // it *is* a stack
-            uint32_t stack_id = n->window_order[0];  // top window == id
-            for (int i = 0; i < n->window_count; ++i) {
-                debug("[ORDER LOG] INDEX:%d WINDOW_LIST:%d: WINDOW_ORDER:%u\n",
-                      i, n->window_list[i], n->window_order[i]);
-                uint32_t top_wid = 0;
-                uint32_t window_list_index = window_manager_find_rank_of_window_in_list(n->window_order[i], n->window_list, n->window_count);
-                
-                debug("[WINDOW LIST INDEX: %d]\n", window_list_index);
-                int wc = 0;
-                uint32_t *wl = space_window_list(view->sid, &wc, false);
-                if (wl && wc) {
-                    for (int i = 0; i < wc; ++i) {
-                        for (int j = 0; j < n->window_count; ++j) {
-                            if (wl[i] == n->window_list[j]) {
-                                top_wid = wl[0];          // first match in WS order
-                            }
+
+        if (window_node_is_leaf(n) && n->window_count > 1) {
+            /* Determine the true front‑most window for this stack:
+               the first (smallest‑index) entry from wl[] that belongs
+               to n->window_list. */
+            int wc = 0;
+            uint32_t *wl = space_window_list(view->sid, &wc, false);
+            uint32_t top_wid = 0;
+            if (wl && wc) {
+                for (int i = 0; i < wc && !top_wid; ++i) {
+                    for (int j = 0; j < n->window_count; ++j) {
+                        if (wl[i] == n->window_list[j]) {
+                            top_wid = wl[i];
+                            break;          /* stop at first match */
                         }
                     }
                 }
-                debug("[TOP WINDOW: %u]\n", top_wid);
+            }
+
+            /* Fallback: use cached order[0] if we somehow didn’t find one. */
+            if (!top_wid) top_wid = n->window_order[0];
+
+            uint32_t stack_id = top_wid;   /* keep existing semantics */
+
+            /* Walk members once, using the pre‑computed top_wid. */
+            for (int j = 0; j < n->window_count; ++j) {
                 stack_mark_member(wm,
-                                  n->window_order[i],
+                                  n->window_order[j],
                                   stack_id,
-                                  i+1,
+                                  j + 1,
                                   n->window_count,
                                   top_wid);
             }
@@ -1264,25 +1252,11 @@ void stack_pass_end(struct window_manager *wm)
     debug("[🥞 STACK] Ending stack pass \n");
     table_for (struct stack_state *s, wm->stack_state, {
         /* Was in a stack last pass, but not seen this pass? */
-        bool is_active = false;
-        //struct window *window = window_manager_find_window(wm, wm->focused_window_id);
-        //if (window) {
-        //    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
-        //    if (view) {
-        //        struct window_node *node = view_find_window_node(view, window->id);
-        //        if (node && node->window_count > 0) {
-        //            //refresh_node_order(node, view->sid);
-        //            is_active = (node->window_order[0] == s->wid);
-        //        }
-        //    }
-        //}
         if (!s) return;
         if (s->in_stack && s->gen != wm->stack_gen) {
             s->in_stack = false;
             msg.wid      = s->wid;
-            msg.index    = s->index;
-            msg.len      = s->len;
-            msg.is_active = is_active;
+            msg.index    = 0;
             push_janky_update(1340, &msg, sizeof(msg));
             debug("[🥞 STACK] Window %u left stack %u at index %u/%u\n",
                   s->wid, s->stack_id, s->index, s->len);
@@ -2197,7 +2171,9 @@ enum window_op_error window_manager_stack_window(struct space_manager *sm, struc
     window_manager_add_managed_window(wm, b, a_view);
     window_manager_adjust_layer(b, LAYER_BELOW);
     scripting_addition_order_window(b->id, 1, a_node->window_order[1]);
+    if(a_node-> window_count > 0){
 
+    }
     struct area area = a_node->zoom ? a_node->zoom->area : a_node->area;
     window_manager_animate_window((struct window_capture) { b, area.x, area.y, area.w, area.h });
     debug("📚📚📚📚 window %d stacked above %d\n", b->id, a->id);

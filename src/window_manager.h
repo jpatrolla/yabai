@@ -99,7 +99,7 @@ struct yb_stack_update {
     uint32_t wid;
     uint32_t index;
     uint32_t len;
-    uint32_t is_active;
+    uint32_t is_topmost;
 };
 struct window_manager
 {
@@ -254,6 +254,8 @@ struct stack_state {
     uint32_t len;        // #windows in the stack
     uint64_t gen;        // “seen” generation
     bool     in_stack;   // currently flagged as stacked
+    uint32_t is_topmost; // is this window the topmost in the stack?
+    uint32_t topmost_wid; // topmost window ID in the stack
 };
 void stack_pass_begin(struct window_manager *wm);
 void stack_pass_end(struct window_manager *wm);

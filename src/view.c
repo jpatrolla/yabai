@@ -813,6 +813,9 @@
         
         if (node->window_count > 1) {
             // 🔍 Find the index of this window in the stack
+            //node->area.x -= 50;
+            //node->area.w += 50;
+            
             uint8_t stack_index = 0;
             for (uint8_t i = 0; i < node->window_count; ++i) {
                 if (node->window_order[i] == window->id) {
@@ -826,7 +829,7 @@
                 //.stack_id  = node->id,
                 .index     = window_node_index_of_window(node, window->id)+1,
                 .len       = node->window_count,
-                .is_active = (stack_index == 0),
+                .is_topmost = (stack_index == 0),
             };
 
             push_janky_update(1339, &msg, sizeof(msg));
