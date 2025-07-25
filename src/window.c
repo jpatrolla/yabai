@@ -850,6 +850,7 @@ bool window_is_fullscreen(struct window *window)
 bool window_is_pip(struct window *window) {
   return window && window_check_flag(window, WINDOW_PIP);
 }
+
 bool window_is_sticky(uint32_t wid)
 {
     bool result = false;

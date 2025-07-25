@@ -71,7 +71,36 @@ struct scratchpad
     char *label;
     struct window *window;
 };
+struct yb_flags {
+    uint8_t is_floating : 1;
+    uint8_t is_sticky   : 1;
+    uint8_t is_stacked  : 1;
+    uint8_t is_pip      : 1;
+};
 
+struct yb_flags_payload {
+    uint32_t event;
+    uint32_t count;
+    uint32_t window_id[512];
+    struct yb_flags flags[512];
+};
+
+struct yb_prop_update {
+    uint32_t count;
+    uint32_t wid;
+    uint32_t value;
+};
+struct yb_view_update {
+    uint32_t count;
+    uint32_t wid;
+    uint32_t value;
+};
+struct yb_stack_update {
+    uint32_t wid;
+    uint32_t index;
+    uint32_t len;
+    uint32_t is_active;
+};
 struct window_manager
 {
     AXUIElementRef system_element;
@@ -101,6 +130,8 @@ struct window_manager
     int window_animation_easing;
     struct rgba_color insert_feedback_color;
     struct scratchpad *scratchpad_window;
+    struct table stack_state;
+    uint64_t     stack_gen;
 };
 
 void window_manager_query_window_rules(FILE *rsp);
@@ -197,7 +228,7 @@ void window_manager_adjust_layer(struct window *window, int layer);
 bool window_manager_set_window_layer(struct window *window, int layer);
 void window_manager_toggle_window_shadow(struct window *window);
 void window_manager_toggle_window_zoom_parent(struct window_manager *wm, struct window *window);
-enum window_op_error window_manager_auto_layout_window(struct space_manager *sm,struct window_manager *wm, struct window *window,int direction, float ratio);
+enum window_op_error window_manager_auto_layout_window(struct window_manager *wm, struct window *window,int direction, float ratio);
 void window_manager_toggle_window_zoom_fullscreen(struct window_manager *wm, struct window *window);
 void window_manager_toggle_window_windowed_fullscreen(struct window *window);
 void window_manager_toggle_window_native_fullscreen(struct window *window);
@@ -214,5 +245,22 @@ void window_manager_correct_for_mission_control_changes(struct space_manager *sm
 void window_manager_handle_display_add_and_remove(struct space_manager *sm, struct window_manager *wm, uint32_t did);
 void window_manager_begin(struct space_manager *sm, struct window_manager *wm);
 void window_manager_init(struct window_manager *wm);
-
+void window_manager_sweep_stacks(struct view *view,
+                                        struct window_manager *wm);
+struct stack_state {
+    uint32_t wid;        // window ID
+    uint32_t stack_id;   // we’ll use top-window ID
+    uint32_t index;      // its position in current stack
+    uint32_t len;        // #windows in the stack
+    uint64_t gen;        // “seen” generation
+    bool     in_stack;   // currently flagged as stacked
+};
+void stack_pass_begin(struct window_manager *wm);
+void stack_pass_end(struct window_manager *wm);
+void stack_mark_member(struct window_manager *wm,
+                                     uint32_t wid,
+                                     uint32_t stack_id,
+                                     int index,
+                                     int len,
+                                     uint32_t top_wid);
 #endif

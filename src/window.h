@@ -100,7 +100,7 @@ struct window
     bool is_eligible;
     uint8_t notification;
     uint8_t rule_flags;
-    uint8_t flags;
+    uint32_t flags;
     uint32_t min_width;
     float opacity;
     int layer;

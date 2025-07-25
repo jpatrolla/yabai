@@ -2289,7 +2289,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
 
             if(acting_window){
                 debug("auto layout  hit\n");
-                window_manager_auto_layout_window(&g_space_manager,
+                window_manager_auto_layout_window(
                                               &g_window_manager,
                                               acting_window,
                                               dir,

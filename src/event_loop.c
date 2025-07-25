@@ -8,7 +8,7 @@ extern enum mission_control_mode g_mission_control_mode;
 extern int g_connection;
 extern void *g_workspace_context;
 extern int g_layer_below_window_level;
-
+void push_janky_update(uint32_t code, const void *payload, size_t size);
 void push_janky_flags(uint32_t wid,
                       bool floating,
                       bool sticky,
@@ -56,20 +56,20 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     wm->focused_window_psn = window->application->psn;
     ms->ffm_window_id = 0;
 
-    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
-    if (!view) return;
+    //struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    //if (!view) return;
 
-    struct window_node *node = view_find_window_node(view, window->id);
-    if (node->window_count <= 1) return;
+    //struct window_node *node = view_find_window_node(view, window->id);
+    //if (node->window_count <= 1) return;
 
-    for (int i = 0; i < node->window_count; ++i) {
-        if (node->window_order[i] != window->id) continue;
+    //for (int i = 0; i < node->window_count; ++i) {
+    //    if (node->window_order[i] != window->id) continue;
 
-        memmove(node->window_order + 1, node->window_order, sizeof(uint32_t) * i);
-        node->window_order[0] = window->id;
-
-        break;
-    }
+    //    memmove(node->window_order + 1, node->window_order, sizeof(uint32_t) * i);
+    //    node->window_order[0] = window->id;
+    //    debug("🥶🥶🥶 window %d is now focused, ORDER: %d\n", window->id, node->window_order[0]);
+    //    break;
+    //}
 }
 
 #pragma clang diagnostic push
@@ -404,25 +404,26 @@ static EVENT_HANDLER(APPLICATION_FRONT_SWITCHED)
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 
+    
     // logic to raise the focused managed/bsp window:
     // TODO: add configuration option to toggle "raise managed windows"
-    struct window_manager *wm = &g_window_manager;
-    struct window *focused = window_manager_find_window(wm, window->id);
-    if (focused) {
-        debug("Raising focused window: %s %d\n", focused->application->name, focused->id);
-        window_manager_adjust_layer(focused, LAYER_NORMAL);
-        SLSSetWindowSubLevel(g_connection, focused->id, 0); // optional reset
-    }
+    //struct window_manager *wm = &g_window_manager;
+    //struct window *focused = window_manager_find_window(wm, window->id);
+    //if (focused) {
+    //    debug("Raising focused window: %s %d\n", focused->application->name, focused->id);
+    //    window_manager_adjust_layer(focused, LAYER_NORMAL);
+    //    //SLSSetWindowSubLevel(g_connection, focused->id, 0); // optional reset
+    //}
 
-    // Push down the previously-focused managed window
-    if (wm->focused_window_id && wm->focused_window_id != window->id) {
-        struct window *prev = window_manager_find_window(wm, wm->focused_window_id);
-        if (prev) {
-            debug("Pushing down previously focused window: %s %d\n", prev->application->name, prev->id);
-            window_manager_adjust_layer(prev, LAYER_BELOW);
-            SLSSetWindowSubLevel(g_connection, prev->id, 0);
-        }
-    }
+    //// Push down the previously-focused managed window
+    //if (wm->focused_window_id && wm->focused_window_id != window->id) {
+    //    struct window *prev = window_manager_find_window(wm, wm->focused_window_id);
+    //    if (prev) {
+    //        debug("Pushing down previously focused window: %s %d\n", prev->application->name, prev->id);
+    //        window_manager_adjust_layer(prev, LAYER_BELOW);
+    //        //SLSSetWindowSubLevel(g_connection, prev->id, 0);
+    //    }
+    //}
 }
 #pragma clang diagnostic pop
 
@@ -667,15 +668,18 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
     }
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
+    
+    
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
+    
 }
 
 static EVENT_HANDLER(WINDOW_MOVED)
 {
+
     uint32_t window_id = (uint32_t)(intptr_t) context;
     struct window *window = window_manager_find_window(&g_window_manager, window_id);
-    if (!window) return;
 
     if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, window_id);
@@ -692,7 +696,7 @@ static EVENT_HANDLER(WINDOW_MOVED)
         debug("%s:DEBOUNCED %s %d\n", __FUNCTION__, window->application->name, window->id);
         return;
     }
-
+    
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     event_signal_push(SIGNAL_WINDOW_MOVED, window);
     bool windowed_fullscreen = CGRectEqualToRect(window->windowed_frame, window->frame);
@@ -945,7 +949,15 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     uint32_t wid = (uint64_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, wid);
     struct window_node *node = table_find(&g_window_manager.insert_feedback, &wid);
+    
+    
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
+    
+    struct window *window = window_manager_find_window(&g_window_manager, wid);
+    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+
+    window_manager_sweep_stacks(view, &g_window_manager);
+     debug("🧨🧨🧨🧨 window ordered\n");
 }
 
 static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
@@ -954,6 +966,7 @@ static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
     debug("%s: %d\n", __FUNCTION__, wid);
 
     struct window *window = window_manager_find_window(&g_window_manager, wid);
+
     if (!window) return;
 
     if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
@@ -992,6 +1005,7 @@ static EVENT_HANDLER(SLS_SPACE_DESTROYED)
 
 static EVENT_HANDLER(SPACE_CHANGED)
 {
+    debug("🧨🧨🧨🧨 space changed\n");
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = space_manager_active_space();
 
@@ -1117,10 +1131,10 @@ static EVENT_HANDLER(MOUSE_DOWN)
 {
     if (mission_control_is_active())                     goto out;
     if (g_mouse_state.current_action != MOUSE_MODE_NONE) goto out;
-
+    //struct mouse_window_info info;
+    //mouse_window_info_populate(&g_mouse_state, &info);
     CGPoint point = CGEventGetLocation(context);
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
-
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;
 
@@ -1128,6 +1142,7 @@ static EVENT_HANDLER(MOUSE_DOWN)
     g_mouse_state.window_frame = g_mouse_state.window->frame;
     g_mouse_state.down_location = point;
     g_mouse_state.direction = 0;
+
 
     int64_t button = CGEventGetIntegerValueField(context, kCGMouseEventButtonNumber);
     uint8_t mod = (uint8_t) param1;
@@ -1145,6 +1160,9 @@ static EVENT_HANDLER(MOUSE_DOWN)
         if (point.x > frame_mid.x) g_mouse_state.direction |= HANDLE_RIGHT;
         if (point.y > frame_mid.y) g_mouse_state.direction |= HANDLE_BOTTOM;
     }
+    //uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
+    //struct window *windowclicked = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
+    //debug("mouse clicked at: %d\n", window ? window->id : 0); 
 
 out:
     CFRelease(context);
