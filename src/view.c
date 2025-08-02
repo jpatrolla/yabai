@@ -959,7 +959,7 @@
         } else {
             view_set_flag(view, VIEW_IS_DIRTY);
         }
-        debug("sweeping at view_flush\n");
+        debug("[SWEEP 🧹🧹🧹] Sweeping at view_flush\n");
         window_manager_sweep_stacks(view,  &g_window_manager);
     }
 

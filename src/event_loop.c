@@ -597,14 +597,16 @@ static EVENT_HANDLER(WINDOW_CREATED)
 
     if (window_manager_is_window_eligible(window)) {
         event_signal_push(SIGNAL_WINDOW_CREATED, window);
+
+        /* ─── Notify JankyBorders with ALL initial flags ───────────────── */
+        push_janky_flags(window->id,
+        window_check_flag(window, WINDOW_FLOAT),   // is_floating
+        window_is_sticky(window->id),              // is_sticky
+        0,   // TODO: is_stacked
+        0);    // TODO: is_pip
     }
     
-    /* ─── Notify JankyBorders with ALL initial flags ───────────────── */
-    push_janky_flags(window->id,
-    window_check_flag(window, WINDOW_FLOAT),   // is_floating
-    window_is_sticky(window->id),              // is_sticky
-    0,   // TODO: is_stacked
-    0);    // TODO: is_pip
+    
 
     if (workspace_is_macos_sequoia()) {
         update_window_notifications();
@@ -680,6 +682,10 @@ static EVENT_HANDLER(WINDOW_MOVED)
 
     uint32_t window_id = (uint32_t)(intptr_t) context;
     struct window *window = window_manager_find_window(&g_window_manager, window_id);
+    if (!window) {
+        debug("EVENT_HANDLER_WINDOW_MOVED: no window for id %d\n", window_id);
+        return;
+    }
 
     if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, window_id);
@@ -954,7 +960,16 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
     
     struct window *window = window_manager_find_window(&g_window_manager, wid);
+    if (!window) {
+        debug("%s: no window for wid %d\n", __FUNCTION__, wid);
+        return;
+    }
+
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    if (!view) {
+        debug("%s: no view for window %d\n", __FUNCTION__, window->id);
+        return;
+    }
 
     window_manager_sweep_stacks(view, &g_window_manager);
      debug("🧨🧨🧨🧨 window ordered\n");
