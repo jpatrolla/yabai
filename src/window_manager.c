@@ -863,7 +863,7 @@ if (window && window->id &&
         window_manager_find_managed_window(&g_window_manager, window);
     struct window_node *node = view_find_window_node(view, window->id);  
         if (node && node->window_count > 1) {
-            uint32_t left_padding = 10;
+            uint32_t left_padding = 0;
             x += left_padding;
             //y = node->area.y;
             width -= left_padding;

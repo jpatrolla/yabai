@@ -9,6 +9,14 @@
 
     // ---------------------------------------------------------------------------
     //  Min-width constraint helpers
+    // TODO: Overall  smarter handling of min-width constraints
+    //       and dynamic resizing of windows.
+    //       [] Need to decide what happens when:
+    //          - min-width is violated and:
+    //            - [x] the adjacent nodes have  enough space to resize
+    //            - [ ] the adjacent nodes do not have enough space to resize
+    //                  - [ ] add an option for "enforce min-width"  which automatically floats overflowing  windows
+    //       [] Prevent/block resizing on mouse drag, not just mouse up
     // ---------------------------------------------------------------------------
     static inline bool window_node_is_leaf(struct window_node *node)
     {
