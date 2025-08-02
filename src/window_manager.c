@@ -1318,7 +1318,29 @@ struct window *window_manager_find_closest_managed_window_in_direction(struct wi
     struct window_node *closest = view_find_window_node_in_direction(view, node, direction);
     if (!closest) return NULL;
 
-    return window_manager_find_window(wm, closest->window_order[0]);
+    // Check if it's a stacked node
+    struct window *w;
+    struct window_node *n = closest;
+    
+    if (n->window_count > 1) {
+        w = window_manager_find_topmost_window_in_stack(wm, n);
+        if (w) return w;
+    }
+    return window_manager_find_window(wm, n->window_order[0]);
+}
+
+struct window *window_manager_find_topmost_window_in_stack(struct window_manager *wm, struct window_node *node)
+{
+    if (!node || node->window_count <= 1) return NULL;
+
+    // Use the first window’s stack_state to fetch the topmost WID
+    struct stack_state *s = table_find(&wm->stack_state, &node->window_order[0]);
+    if (s && s->topmost_wid) {
+        return window_manager_find_window(wm, s->topmost_wid);
+    }
+
+    // Fallback to first window if no stack state is found
+    return window_manager_find_window(wm, node->window_order[0]);
 }
 
 struct window *window_manager_find_prev_managed_window(struct space_manager *sm, struct window_manager *wm, struct window *window)

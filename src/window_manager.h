@@ -257,6 +257,7 @@ struct stack_state {
     uint32_t is_topmost; // is this window the topmost in the stack?
     uint32_t topmost_wid; // topmost window ID in the stack
 };
+struct window *window_manager_find_topmost_window_in_stack(struct window_manager *wm, struct window_node *node);
 void stack_pass_begin(struct window_manager *wm);
 void stack_pass_end(struct window_manager *wm);
 void stack_mark_member(struct window_manager *wm,
