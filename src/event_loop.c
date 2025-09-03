@@ -1162,12 +1162,7 @@ static EVENT_HANDLER(MOUSE_DOWN)
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;
 
     g_mouse_state.window = window;
-    // For PIP windows, use the original pip_frame as the reference point for mouse operations
-    if (window_check_flag(g_mouse_state.window, WINDOW_PIP)) {
-        g_mouse_state.window_frame = g_mouse_state.window->pip_frame;
-    } else {
-        g_mouse_state.window_frame = g_mouse_state.window->frame;
-    }
+    g_mouse_state.window_frame = g_mouse_state.window->frame;
     g_mouse_state.down_location = point;
     g_mouse_state.direction = 0;
 

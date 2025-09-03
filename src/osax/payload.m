@@ -611,7 +611,8 @@ static void do_window_scale(char *message)
 
         CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
         CGFloat transformed_y = -dy;
-
+        printf("x scale: %f, y scale: %f, transformed_x: %f, transformed_y: %f\n", x_scale, y_scale, transformed_x, transformed_y);
+        
         CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
         CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
         SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);

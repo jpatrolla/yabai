@@ -2843,15 +2843,63 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
     
     // Try to apply the scaling first
     bool scale_success = scripting_addition_scale_window(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
-    
+
     if (scale_success) {
         // Only update the flag if scaling succeeded
         if (!was_pip) {
             // Entering PIP mode - store the original frame coordinates
             window->pip_frame = window->frame;
+            
+            // Calculate scaled frame based on do_window_scale logic
+            // Using display bounds (without padding adjustments) for consistency with do_window_scale
+            CGRect display_bounds = display_bounds_constrained(did, false);
+            float dx = display_bounds.origin.x;
+            float dy = display_bounds.origin.y;
+            float dw = display_bounds.size.width;
+            float dh = display_bounds.size.height;
+
+            // Calculate target dimensions (1/4 scale)
+            int target_width = dw / 4;
+            int target_height = target_width / (window->frame.size.width / window->frame.size.height);
+            
+            // Calculate scale factors
+            float x_scale = window->frame.size.width / target_width;
+            float y_scale = window->frame.size.height / target_height;
+            
+            // Store scale factors for mouse handling
+            window->pip_scale_x = x_scale;
+            window->pip_scale_y = y_scale;
+            
+            // Calculate position (top-right corner positioning logic from do_window_scale)
+            // Note: do_window_scale uses -(dx+dw) for top-right positioning
+            CGFloat transformed_x = -(dx + dw) + (window->frame.size.width * (1/x_scale));
+            CGFloat transformed_y = -dy;
+            
+            // Calculate the actual scaled frame position
+            window->scaled_frame.size.width = target_width;
+            window->scaled_frame.size.height = target_height;
+            window->scaled_frame.origin.x = window->frame.origin.x + transformed_x;
+            window->scaled_frame.origin.y = window->frame.origin.y + transformed_y;
+            
+            // Debug logging
+            printf("[PIP] Original frame: (%.1f, %.1f, %.1f, %.1f)\n", 
+                   window->frame.origin.x, window->frame.origin.y, 
+                   window->frame.size.width, window->frame.size.height);
+            printf("[PIP] Display bounds: (%.1f, %.1f, %.1f, %.1f)\n", dx, dy, dw, dh);
+            printf("[PIP] Target dimensions: %d x %d (scale: %.2fx%.2f)\n", 
+                   target_width, target_height, x_scale, y_scale);
+            printf("[PIP] Transform offset: (%.1f, %.1f)\n", transformed_x, transformed_y);
+            printf("[PIP] Scaled frame: (%.1f, %.1f, %.1f, %.1f)\n", 
+                   window->scaled_frame.origin.x, window->scaled_frame.origin.y,
+                   window->scaled_frame.size.width, window->scaled_frame.size.height);
+
             window_set_flag(window, WINDOW_PIP);
         } else {
             // Exiting PIP mode - restore original coordinates
+            printf("[PIP] Restoring to original frame: (%.1f, %.1f, %.1f, %.1f)\n", 
+                   window->pip_frame.origin.x, window->pip_frame.origin.y,
+                   window->pip_frame.size.width, window->pip_frame.size.height);
+            
             window_manager_animate_window((struct window_capture) {
                 .window = window,
                 .x = window->pip_frame.origin.x,
@@ -2859,6 +2907,7 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
                 .w = window->pip_frame.size.width,
                 .h = window->pip_frame.size.height
             });
+            
             window_clear_flag(window, WINDOW_PIP);
         }
         

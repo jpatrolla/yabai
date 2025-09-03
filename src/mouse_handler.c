@@ -73,26 +73,11 @@ static MOUSE_HANDLER(mouse_handler)
 void mouse_window_info_populate(struct mouse_state *ms, struct mouse_window_info *info)
 {
     CGRect frame = ms->window->frame;
-    CGRect reference_frame = ms->window_frame;
-    
-    // For PIP windows, use the original pip_frame as reference for movement calculations
-    if (window_check_flag(ms->window, WINDOW_PIP)) {
-        reference_frame = ms->window->pip_frame;
-        
-        // Calculate deltas relative to the original PIP frame position
-        info->dx = frame.origin.x - reference_frame.origin.x;
-        info->dy = frame.origin.y - reference_frame.origin.y;
-        
-        // Size should remain relative to current window size vs original PIP frame
-        info->dw = frame.size.width  - reference_frame.size.width;
-        info->dh = frame.size.height - reference_frame.size.height;
-    } else {
-        // Normal window behavior
-        info->dx = frame.origin.x    - reference_frame.origin.x;
-        info->dy = frame.origin.y    - reference_frame.origin.y;
-        info->dw = frame.size.width  - reference_frame.size.width;
-        info->dh = frame.size.height - reference_frame.size.height;
-    }
+
+    info->dx = frame.origin.x    - ms->window_frame.origin.x;
+    info->dy = frame.origin.y    - ms->window_frame.origin.y;
+    info->dw = frame.size.width  - ms->window_frame.size.width;
+    info->dh = frame.size.height - ms->window_frame.size.height;
 
     info->changed_x = info->dx != 0.0f;
     info->changed_y = info->dy != 0.0f;

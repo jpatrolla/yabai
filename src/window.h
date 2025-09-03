@@ -97,6 +97,9 @@ struct window
     CGRect frame;
     CGRect windowed_frame;
     CGRect pip_frame;
+    CGRect scaled_frame;
+    float pip_scale_x;
+    float pip_scale_y;
     bool is_root;
     bool is_eligible;
     uint8_t notification;
