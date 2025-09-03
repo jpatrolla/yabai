@@ -15,6 +15,11 @@ void push_janky_flags(uint32_t wid,
                       bool stacked,
                       bool pip);
 
+// Forward declaration for space indicator
+struct space_indicator;
+void space_indicator_update(struct space_indicator *indicator, uint64_t sid);
+extern struct space_indicator g_space_indicator;
+
 static void update_window_notifications(void)
 {
     int window_count = 0;
@@ -1024,6 +1029,9 @@ static EVENT_HANDLER(SPACE_CHANGED)
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = space_manager_active_space();
 
+    // Update space indicator on space change
+    space_indicator_update(&g_space_indicator, g_space_manager.current_space_id);
+
     if (g_window_manager.menubar_opacity != 1.0f) {
         float alpha = space_is_fullscreen(g_space_manager.current_space_id) ? 1.0f : g_window_manager.menubar_opacity;
         SLSSetMenuBarInsetAndAlpha(g_connection, 0, 1, alpha);
@@ -1154,7 +1162,12 @@ static EVENT_HANDLER(MOUSE_DOWN)
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;
 
     g_mouse_state.window = window;
-    g_mouse_state.window_frame = g_mouse_state.window->frame;
+    // For PIP windows, use the original pip_frame as the reference point for mouse operations
+    if (window_check_flag(g_mouse_state.window, WINDOW_PIP)) {
+        g_mouse_state.window_frame = g_mouse_state.window->pip_frame;
+    } else {
+        g_mouse_state.window_frame = g_mouse_state.window->frame;
+    }
     g_mouse_state.down_location = point;
     g_mouse_state.direction = 0;
 

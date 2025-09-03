@@ -1775,9 +1775,13 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                     daemon_fail(rsp, "cannot focus space because the display is in the middle of an animation.\n");
-                } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
-                    daemon_fail(rsp, "cannot focus space because mission-control is active.\n");
-                } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+                }
+                // else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                //    debug("mission control is active");
+                //    //daemon_fail(rsp, "cannot focus space because mission-control is active.\n");
+
+                //} 
+                else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
                     daemon_fail(rsp, "cannot focus space due to an error with the scripting-addition.\n");
                 }
             }
@@ -2273,7 +2277,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
 
             char dir_str[256] = {0};
             float ratio = 0.0f;
-            if (sscanf(arg_token.text, ARGUMENT_WINDOW_AUTO_LAYOUT, dir_str, &ratio) != 2) {
+            if (sscanf(arg_token.text, ARGUMENT_WINDOW_AUTO_LAYOUT, dir_str, &ratio) != 3) {
                 daemon_fail(rsp, "invalid argument for '--auto-layout'. Expected '<direction>:<ratio>'.\n");
                 //goto cleanup;
             } 
@@ -2283,6 +2287,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             else if (string_equals(dir_str, "east")  || string_equals(dir_str, "right")) {dir = DIR_EAST;}
             else if (string_equals(dir_str, "south") || string_equals(dir_str, "down"))  {dir = DIR_SOUTH;}
             else if (string_equals(dir_str, "west")  || string_equals(dir_str, "left"))  {dir = DIR_WEST;}
+            //else if (string_equals(dir_str, "center")  || string_equals(dir_str, "middle"))  {dir = DIR_CENTER;}
             else {
                 daemon_fail(rsp, "invalid direction '%s' for '--auto-layout'.\n", dir_str);
             }
@@ -2294,13 +2299,9 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                                               acting_window,
                                               dir,
                                               ratio);
-            } 
-            else {
-                 daemon_fail(rsp, "could not locate the window to act on!\n");
+            } else {
+                daemon_fail(rsp, "could not locate the window to act on!\n");
             }
-            
-
-            //fprintf(rsp, SUCCESS_MESSAGE);
         } else if (token_equals(command, COMMAND_WINDOW_TOGGLE)) {
             struct token value = get_token(&message);
             if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_FLOAT)) {

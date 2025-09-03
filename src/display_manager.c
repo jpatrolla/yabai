@@ -458,9 +458,9 @@ void display_manager_focus_display(uint32_t did, uint64_t sid)
 
 enum space_op_error display_manager_focus_space(uint32_t did, uint64_t sid)
 {
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
+    //bool is_in_mc = mission_control_is_active();
+    //if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+    debug("attempting to bypass space op error");
     bool is_animating = display_manager_display_is_animating(did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 

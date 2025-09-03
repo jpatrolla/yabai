@@ -56,6 +56,7 @@
 #include "misc/hashtable.h"
 #undef HASHTABLE_IMPLEMENTATION
 #include "misc/service.h"
+#include "misc/symbolic_hotkeys.h"
 
 #include "osax/common.h"
 
@@ -94,3 +95,5 @@
 #include "window_manager.c"
 #include "mouse_handler.c"
 #include "yabai.c"
+#include "misc/symbolic_hotkeys.c"
+#include "space_indicator.c"

@@ -539,6 +539,7 @@ bool scripting_addition_scale_window(uint32_t wid, float x, float y, float w, fl
     pack(y);
     pack(w);
     pack(h);
+    printf("Sending window scale: wid=%d, x=%f, y=%f, w=%f, h=%f\n", wid, x, y, w, h);
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE);
 }
 

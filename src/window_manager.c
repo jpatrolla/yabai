@@ -351,7 +351,7 @@ enum window_op_error window_manager_adjust_window_ratio(struct window_manager *w
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
-// Auto layout a window to a given ratio in the split axis, cycling if already at target.
+
 enum window_op_error window_manager_auto_layout_window(struct window_manager *wm, struct window *window, int direction, float ratio)
 {
     TIME_FUNCTION;
@@ -378,6 +378,8 @@ enum window_op_error window_manager_auto_layout_window(struct window_manager *wm
         bool y_direction = (direction == DIR_NORTH || direction == DIR_SOUTH);
 
         bool is_valid_direction = (split == SPLIT_X && y_direction) || (split == SPLIT_Y && x_direction);
+        // if ratio > .5 perform a
+         // check for any windows that have a min_width attribute
 
         if (is_valid_direction) {
             debug("[AUTO_LAYOUT] Current ratio: %.2f | Target ratio: %.2f\n", rounded, ratio);
@@ -422,7 +424,28 @@ enum window_op_error window_manager_auto_layout_window(struct window_manager *wm
             return WINDOW_OP_ERROR_INVALID_OPERATION;
         }
     } else {
-        debug("[AUTO_LAYOUT] Not yet implemented for unmanaged windows.\n");
+        // floating window logic
+        // todo: sides, tops, corners center
+
+        //screen_width = wm->screen.frame.size.width;
+        //screen_height = wm->screen.frame.size.height;
+        //// space padding
+        //// convert ratio to pixel values
+        //// (screen width - padding)*ratio
+        //float padding = 0.0f; // TODO: get actual padding values
+        //float target_width = (screen_width - padding) * ratio;
+        //float target_height = (screen_height - padding) * ratio;
+        //// target x,y
+        //// if ratio =< .5, move window
+        
+        //// else: Calculate cycle sizes + coords
+        //// logic for sides (w based)
+        //// logic for tops (h based)
+        //// logic for corners (w,h based)
+        //// logic for center
+
+       
+        //debug("[AUTO_LAYOUT] Not yet implemented for unmanaged windows.\n");
         return WINDOW_OP_ERROR_SUCCESS;
     }
 }
@@ -2815,28 +2838,37 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
         bounds.origin.y    += dview->top_padding;
         bounds.size.height -= (dview->top_padding + dview->bottom_padding);
     }
-    bool pip = window_check_flag(window, WINDOW_PIP);
-    bool is_pip = 0;
-    if (!pip) {
-        window_set_flag(window, WINDOW_PIP);
-        is_pip = 1;
-    } else {
-        window_clear_flag(window, WINDOW_PIP);
-        is_pip = 0;
+    
+    bool was_pip = window_check_flag(window, WINDOW_PIP);
+    
+    // Try to apply the scaling first
+    bool scale_success = scripting_addition_scale_window(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+    
+    if (scale_success) {
+        // Only update the flag if scaling succeeded
+        if (!was_pip) {
+            // Entering PIP mode - store the original frame coordinates
+            window->pip_frame = window->frame;
+            window_set_flag(window, WINDOW_PIP);
+        } else {
+            // Exiting PIP mode - restore original coordinates
+            window_manager_animate_window((struct window_capture) {
+                .window = window,
+                .x = window->pip_frame.origin.x,
+                .y = window->pip_frame.origin.y,
+                .w = window->pip_frame.size.width,
+                .h = window->pip_frame.size.height
+            });
+            window_clear_flag(window, WINDOW_PIP);
+        }
+        
+        struct yb_prop_update msg = {
+            .count = 1,
+            .wid   = window->id,
+            .value = !was_pip ? 1 : 0
+        };
+        push_janky_update(1117, &msg, sizeof(msg));
     }
-    
-    struct yb_prop_update msg = {
-        .count = 1,
-        .wid   = window->id,
-        .value = is_pip
-    };
-    scripting_addition_scale_window(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
-
-    
-    debug("is-pip: %d\n", is_pip);
-    
-    push_janky_update(1117, &msg , sizeof(msg));
-    
 }
 
 static inline struct window *window_manager_find_scratchpad_window(struct window_manager *wm, char *label)
@@ -3045,7 +3077,7 @@ void window_manager_validate_and_check_for_windows_on_space(struct space_manager
 
     //
     // @cleanup
-    //
+    // 
     // :AXBatching
     //
     // NOTE(koekeishiya): Flush previously batched operations if the view is marked as dirty.
@@ -3099,7 +3131,7 @@ void window_manager_handle_display_add_and_remove(struct space_manager *sm, stru
             uint32_t *window_list = space_window_list(space_list[i], &window_count, false);
             if (window_list) {
                 struct view *view = space_manager_find_view(sm, space_list[i]);
-                if (view->layout != VIEW_FLOAT) {
+                if (view->layout != VIEW_FLOAT && view->layout != VIEW_BSP) {
                     window_manager_check_for_windows_on_space(wm, view, window_list, window_count);
                 }
             }

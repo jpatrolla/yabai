@@ -368,6 +368,7 @@ int main(int argc, char **argv)
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 804, NULL);
     }
 
+    set_next_space_shortcut((1<<3)|(1<<1), 124);
     window_manager_init(&g_window_manager);
     space_manager_begin(&g_space_manager);
     window_manager_begin(&g_space_manager, &g_window_manager);
