@@ -1034,8 +1034,7 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
             display_manager_focus_display(new_did, sid);
         }
         
-        // Load the saved color for the new space
-        space_widget_load_color_for_space(&g_space_widget, sid);
+        // TODO: Update widget state for new space when implementing space-specific functionality
     } else {
         // If space change failed, correct the indicator back to current space
         space_indicator_update(&g_space_indicator, cur_sid);
@@ -1044,6 +1043,10 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
 
     // Update indicator on successful space change (fallback/correction)
     space_indicator_update(&g_space_indicator, sid);
+    
+    // Update widget to show windows from new space
+    space_widget_refresh(&g_space_widget);
+    
     return SPACE_OP_ERROR_SUCCESS;
 }
 
@@ -1291,8 +1294,6 @@ void space_manager_begin(struct space_manager *sm)
     // Initialize space widget
     space_widget_create(&g_space_widget);
     
-    // Set initial color for the current space
-    uint64_t current_space = space_manager_active_space();
-    space_widget_load_color_for_space(&g_space_widget, current_space);
+    // TODO: Initialize widget state for current space when implementing space-specific functionality
 
 }

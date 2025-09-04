@@ -2632,20 +2632,27 @@ static void handle_domain_query(FILE *rsp, struct token domain, char *message)
         fprintf(rsp, "\"%s\"\n", mission_control_mode_str[g_mission_control_mode]);
     } else if (token_equals(command, COMMAND_QUERY_WIDGET)) {
         extern struct space_widget g_space_widget;
-        const char *colors[] = {"white", "red", "blue"};
-        fprintf(rsp, "{\"active\":%s,\"color\":\"%s\"}\n", 
-                g_space_widget.is_active ? "true" : "false",
-                g_space_widget.is_active ? colors[g_space_widget.current_color] : "none");
+        // Get current space windows for display
+        uint64_t current_space_id = space_manager_active_space();
+        int window_count = 0;
+        uint32_t *window_list = space_window_list(current_space_id, &window_count, false);
+        
+        fprintf(rsp, "{\"active\":%s,\"space_id\":%llu,\"window_count\":%d,\"window_ids\":[", 
+                g_space_widget.is_active ? "true" : "false", current_space_id, window_count);
+        
+        if (window_list && window_count > 0) {
+            for (int i = 0; i < window_count; i++) {
+                fprintf(rsp, "%u%s", window_list[i], (i < window_count - 1) ? "," : "");
+            }
+        }
+        fprintf(rsp, "]}\n");
     } else if (token_equals(command, COMMAND_QUERY_WIDGET_TEST)) {
         extern struct space_widget g_space_widget;
-        extern void space_widget_test_cycle(struct space_widget *widget);
         
         printf("DEBUG: Manual widget test triggered\n");
-        space_widget_test_cycle(&g_space_widget);
+        // TODO: Implement test functionality for individual icon interactions
         
-        const char *colors[] = {"white", "red", "blue"};
-        fprintf(rsp, "{\"test\":\"triggered\",\"new_color\":\"%s\"}\n",
-                g_space_widget.is_active ? colors[g_space_widget.current_color] : "none");
+        fprintf(rsp, "{\"test\":\"triggered\",\"status\":\"icons_logged\"}\n");
     } else {
         daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);
     }

@@ -1,13 +1,282 @@
 #include <Carbon/Carbon.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <libproc.h>
+#include <Cocoa/Cocoa.h>
 #include "space_widget.h"
 #include "display_manager.h"
 #include "workspace.h"
+#include "space.h"
+#include "space_manager.h"
 #include "misc/extern.h"
 
 extern struct display_manager g_display_manager;
 extern int g_connection;
 
 #define WIDGET_RADIUS 12.0f
+#define WIDGET_GAP 8.0f
+#define WIDGET_ICON_SIZE 44.0f
+
+// Dynamic window list - will be populated with current space windows
+static uint32_t *widget_window_ids = NULL;
+static int widget_window_count = 0;
+
+// Simple icon cache
+typedef struct {
+    uint32_t window_id;
+    CGImageRef icon;
+} icon_cache_entry;
+
+static icon_cache_entry *icon_cache = NULL;
+static int icon_cache_size = 0;
+
+typedef struct {
+    float x;
+    float y;
+} widget_position;
+
+// Helper function to get app icon for a window
+static CGImageRef widget_get_window_icon(uint32_t window_id)
+{
+    // Check cache first
+    for (int i = 0; i < icon_cache_size; i++) {
+        if (icon_cache[i].window_id == window_id) {
+            return icon_cache[i].icon;
+        }
+    }
+    
+    // Get the window and its application
+    struct window *window = window_manager_find_window(&g_window_manager, window_id);
+    if (!window || !window->application) {
+        return NULL;
+    }
+    
+    // Get the application path using proc_pidpathinfo
+    static char app_path[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(window->application->pid, app_path, sizeof(app_path)) <= 0) {
+        return NULL;
+    }
+    
+    NSString *appPath = [NSString stringWithUTF8String:app_path];
+    if (!appPath) {
+        return NULL;
+    }
+    
+    // Extract icon using NSWorkspace
+    NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:appPath];
+    if (!icon) {
+        return NULL;
+    }
+    
+    // Convert NSImage to CGImage
+    NSData *imageData = [icon TIFFRepresentation];
+    CGImageSourceRef source = CGImageSourceCreateWithData((CFDataRef)imageData, NULL);
+    if (!source) {
+        return NULL;
+    }
+    
+    CGImageRef cgImage = CGImageSourceCreateImageAtIndex(source, 0, NULL);
+    CFRelease(source);
+    
+    if (cgImage) {
+        // Add to cache
+        icon_cache = realloc(icon_cache, (icon_cache_size + 1) * sizeof(icon_cache_entry));
+        icon_cache[icon_cache_size].window_id = window_id;
+        icon_cache[icon_cache_size].icon = cgImage;
+        icon_cache_size++;
+    }
+    
+    return cgImage;
+}
+
+// Helper function to get all windows in the current space
+static void widget_update_window_list(void)
+{
+    // Free previous list if it exists
+    if (widget_window_ids) {
+        free(widget_window_ids);
+        widget_window_ids = NULL;
+        widget_window_count = 0;
+    }
+    
+    // Get current space ID
+    uint64_t current_space_id = space_manager_active_space();
+    if (!current_space_id) {
+        printf("DEBUG: Could not get current space ID\n");
+        return;
+    }
+    
+    // Get window list for current space (exclude minimized windows)
+    int temp_window_count = 0;
+    uint32_t *temp_window_list = space_window_list(current_space_id, &temp_window_count, false);
+    
+    printf("DEBUG: Found %d windows in current space (ID: %llu)\n", temp_window_count, current_space_id);
+    
+    if (temp_window_list && temp_window_count > 0) {
+        // Copy window IDs to our own allocated memory
+        widget_window_ids = malloc(temp_window_count * sizeof(uint32_t));
+        if (widget_window_ids) {
+            memcpy(widget_window_ids, temp_window_list, temp_window_count * sizeof(uint32_t));
+            widget_window_count = temp_window_count;
+            
+            printf("DEBUG: Window IDs: ");
+            for (int i = 0; i < widget_window_count; i++) {
+                printf("%u%s", widget_window_ids[i], (i < widget_window_count - 1) ? ", " : "");
+            }
+            printf("\n");
+        } else {
+            printf("DEBUG: Failed to allocate memory for %d window IDs\n", temp_window_count);
+            widget_window_count = 0;
+        }
+    }
+    
+    // Note: temp_window_list is managed by yabai's ts system, don't free it
+}
+
+// Widget layout icons helper - generates x,y coordinates for icons with WIDGET_GAP spacing
+static void widget_layout_calculate_positions(widget_position *positions, int count, CGRect container_frame)
+{
+    if (count <= 0) return;
+    
+    float total_height = (count * WIDGET_ICON_SIZE) + ((count - 1) * WIDGET_GAP);
+    float start_y = (container_frame.size.height - total_height) / 2.0f;
+    float center_x = (container_frame.size.width - WIDGET_ICON_SIZE) / 2.0f;
+    
+    // Handle case where we have more icons than can fit vertically
+    if (total_height > container_frame.size.height) {
+        printf("DEBUG: Too many windows (%d) for display height, starting from top\n", count);
+        start_y = WIDGET_GAP; // Start from top with small margin
+    }
+    
+    for (int i = 0; i < count; i++) {
+        positions[i].x = center_x;
+        positions[i].y = start_y + (i * (WIDGET_ICON_SIZE + WIDGET_GAP));
+    }
+}
+
+// Helper function to get color components for widget color enum
+static void widget_get_color_components(enum space_widget_color color, float *r, float *g, float *b, float *a)
+{
+    switch (color) {
+        case SPACE_WIDGET_COLOR_RED:
+            *r = 1.0f; *g = 0.0f; *b = 0.0f; *a = 1.0f;
+            break;
+        case SPACE_WIDGET_COLOR_BLUE:
+            *r = 0.0f; *g = 0.0f; *b = 1.0f; *a = 1.0f;
+            break;
+        case SPACE_WIDGET_COLOR_WHITE:
+            *r = 1.0f; *g = 1.0f; *b = 1.0f; *a = 0.8f;
+            break;
+        default:
+            *r = 0.5f; *g = 0.5f; *b = 0.5f; *a = 1.0f;
+            break;
+    }
+}
+
+// Helper function to get app title from window ID
+static char* widget_get_app_title(uint32_t window_id)
+{
+    CFTypeRef app_name = NULL;
+    char* app_title = NULL;
+    
+    // Try to get the window's title first
+    if (SLSCopyWindowProperty(g_connection, window_id, CFSTR("kCGSWindowTitle"), &app_name) == kCGErrorSuccess && app_name) {
+        CFStringRef title_string = (CFStringRef)app_name;
+        CFIndex length = CFStringGetLength(title_string);
+        CFIndex max_size = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+        app_title = malloc(max_size);
+        
+        if (app_title && CFStringGetCString(title_string, app_title, max_size, kCFStringEncodingUTF8)) {
+            CFRelease(app_name);
+            return app_title;
+        }
+        
+        if (app_title) {
+            free(app_title);
+            app_title = NULL;
+        }
+        CFRelease(app_name);
+    }
+    
+    // Fallback: return a copy of "Unknown App"
+    app_title = malloc(12);
+    if (app_title) {
+        strcpy(app_title, "Unknown App");
+    }
+    return app_title;
+}
+
+// Helper function to log window ID and app title
+static void widget_log_window_info(uint32_t window_id, int index)
+{
+    char* app_title = widget_get_app_title(window_id);
+    printf("Widget Icon [%d]: Window ID=%u, App Title='%s'\n", index, window_id, app_title ? app_title : "Unknown");
+    
+    if (app_title) {
+        free(app_title);
+    }
+}
+
+// Helper function to get color based on window ID (for visual distinction)
+static enum space_widget_color widget_get_color_for_window(uint32_t window_id)
+{
+    // Use a simple hash to assign colors based on window ID
+    switch (window_id % 3) {
+        case 0: return SPACE_WIDGET_COLOR_RED;
+        case 1: return SPACE_WIDGET_COLOR_BLUE;
+        case 2: return SPACE_WIDGET_COLOR_WHITE;
+        default: return SPACE_WIDGET_COLOR_WHITE;
+    }
+}
+
+// Render helper function - generates rounded rectangle icons
+static void widget_render_icon(CGContextRef context, widget_position position, uint32_t window_id, int index)
+{
+    // Log the window information to console
+    widget_log_window_info(window_id, index);
+    
+    CGRect rect = CGRectMake(position.x, position.y, WIDGET_ICON_SIZE, WIDGET_ICON_SIZE);
+    CGPathRef path = CGPathCreateWithRoundedRect(rect, WIDGET_RADIUS, WIDGET_RADIUS, NULL);
+    
+    // Try to get the app icon
+    CGImageRef icon = widget_get_window_icon(window_id);
+    
+    if (icon) {
+        // Draw the icon
+        CGContextSaveGState(context);
+        CGContextAddPath(context, path);
+        CGContextClip(context);
+        CGContextDrawImage(context, rect, icon);
+        CGContextRestoreGState(context);
+    } else {
+        // Fallback to colored rectangle if no icon found
+        enum space_widget_color color = widget_get_color_for_window(window_id);
+        float r, g, b, a;
+        widget_get_color_components(color, &r, &g, &b, &a);
+        
+        CGContextSetRGBFillColor(context, r, g, b, a);
+        CGContextAddPath(context, path);
+        CGContextFillPath(context);
+    }
+    
+    CGPathRelease(path);
+}
+
+// Helper function to clean up icon cache
+static void widget_cleanup_icon_cache(void)
+{
+    for (int i = 0; i < icon_cache_size; i++) {
+        if (icon_cache[i].icon) {
+            CGImageRelease(icon_cache[i].icon);
+        }
+    }
+    if (icon_cache) {
+        free(icon_cache);
+        icon_cache = NULL;
+        icon_cache_size = 0;
+    }
+}
 
 void space_widget_create(struct space_widget *widget)
 {
@@ -40,16 +309,11 @@ void space_widget_create(struct space_widget *widget)
         SLSSetWindowAlpha(g_connection, widget->id, 1.0f); // Make window fully opaque for drawing
         SLSSetWindowLevel(g_connection, widget->id, CGWindowLevelForKey(kCGFloatingWindowLevelKey));
         
-        // Draw rounded rectangle
+        // Draw all icons using the helper functions
         CGContextRef context = SLWindowContextCreate(g_connection, widget->id, 0);
         if (context) {
-            // Calculate rectangle position - centered in the region
-            float rect_width = 44.0f;
-            float rect_height = 44.0f;
-            float rect_x = (60.0f - rect_width) / 2.0f;
-            float rect_y = (display_frame.size.height - rect_height) / 2.0f;
-            
-            CGRect rect = CGRectMake(rect_x, rect_y, rect_width, rect_height);
+            // Update window list from current space
+            widget_update_window_list();
             
             SLSDisableUpdate(g_connection);
             
@@ -60,16 +324,29 @@ void space_widget_create(struct space_widget *widget)
             CGContextFillRect(context, local_frame);
             CGContextSetBlendMode(context, kCGBlendModeNormal);
             
-            // Draw rounded rectangle with 50% red
-            CGPathRef path = CGPathCreateWithRoundedRect(rect, WIDGET_RADIUS, WIDGET_RADIUS, NULL);
-            CGContextSetRGBFillColor(context, 1.0f, 0.0f, 0.0f, 1.0f);
-            CGContextAddPath(context, path);
-            CGContextFillPath(context);
+            // Only render if we have windows
+            if (widget_window_ids && widget_window_count > 0) {
+                // Allocate positions array for current window count
+                widget_position *positions = malloc(widget_window_count * sizeof(widget_position));
+                if (positions) {
+                    widget_layout_calculate_positions(positions, widget_window_count, frame);
+                    
+                    // Render each icon using the dynamic window ID array
+                    for (int i = 0; i < widget_window_count; i++) {
+                        widget_render_icon(context, positions[i], widget_window_ids[i], i);
+                    }
+                    
+                    free(positions);
+                } else {
+                    printf("DEBUG: Failed to allocate positions array for %d windows\n", widget_window_count);
+                }
+            } else {
+                printf("DEBUG: No windows found in current space - widget will be empty\n");
+            }
             
             CGContextFlush(context);
             SLSReenableUpdate(g_connection);
             
-            CGPathRelease(path);
             CFRelease(context);
         }
         
@@ -88,12 +365,67 @@ void space_widget_destroy(struct space_widget *widget)
         SLSReleaseWindow(g_connection, widget->id);
         widget->id = 0;
     }
+    
+    // Clean up dynamic window list
+    if (widget_window_ids) {
+        free(widget_window_ids);
+        widget_window_ids = NULL;
+        widget_window_count = 0;
+    }
+    
+    // Clean up icon cache
+    widget_cleanup_icon_cache();
+    
     widget->is_active = false;
 }
 
-// Placeholder functions to maintain API compatibility
-void space_widget_cycle_color(struct space_widget *widget) { }
-void space_widget_update_color(struct space_widget *widget) { }
-void space_widget_test_cycle(struct space_widget *widget) { }
-void space_widget_set_color_for_space(struct space_widget *widget, uint64_t space_id, enum space_widget_color color) { }
-void space_widget_load_color_for_space(struct space_widget *widget, uint64_t space_id) { }
+void space_widget_refresh(struct space_widget *widget)
+{
+    if (!widget->is_active) return;
+    
+    // Get display frame
+    uint32_t did = display_manager_main_display_id();
+    CGRect display_frame = display_bounds_constrained(did, false);
+    CGRect frame = {{0, 0}, {50, display_frame.size.height}};
+    
+    // Redraw the widget with updated window list
+    CGContextRef context = SLWindowContextCreate(g_connection, widget->id, 0);
+    if (context) {
+        // Update window list from current space
+        widget_update_window_list();
+        
+        SLSDisableUpdate(g_connection);
+        
+        // Clear to transparent background
+        CGRect local_frame = {{0, 0}, {frame.size.width, frame.size.height}};
+        CGContextClearRect(context, local_frame);
+        CGContextSetBlendMode(context, kCGBlendModeClear);
+        CGContextFillRect(context, local_frame);
+        CGContextSetBlendMode(context, kCGBlendModeNormal);
+        
+        // Only render if we have windows
+        if (widget_window_ids && widget_window_count > 0) {
+            // Allocate positions array for current window count
+            widget_position *positions = malloc(widget_window_count * sizeof(widget_position));
+            if (positions) {
+                widget_layout_calculate_positions(positions, widget_window_count, frame);
+                
+                // Render each icon using the dynamic window ID array
+                for (int i = 0; i < widget_window_count; i++) {
+                    widget_render_icon(context, positions[i], widget_window_ids[i], i);
+                }
+                
+                free(positions);
+            } else {
+                printf("DEBUG: Failed to allocate positions array for %d windows\n", widget_window_count);
+            }
+        } else {
+            printf("DEBUG: No windows found in current space - widget will be empty\n");
+        }
+        
+        CGContextFlush(context);
+        SLSReenableUpdate(g_connection);
+        
+        CFRelease(context);
+    }
+}

@@ -14,7 +14,7 @@ extern struct display_manager g_display_manager;
 extern struct space_manager g_space_manager;
 extern int g_connection;
 
-#define INDICATOR_HEIGHT 3
+#define INDICATOR_HEIGHT 8.0f
 #define ANIMATION_DURATION 0.1f  // 100ms animation
 
 void space_indicator_create(struct space_indicator *indicator)

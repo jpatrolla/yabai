@@ -613,6 +613,12 @@ static EVENT_HANDLER(WINDOW_CREATED)
         window_is_sticky(window->id),              // is_sticky
         0,   // TODO: is_stacked
         0);    // TODO: is_pip
+        
+        // Refresh widget if window was added to current space
+        uint64_t current_space_id = space_manager_active_space();
+        if (space_manager_is_window_on_space(current_space_id, window)) {
+            space_widget_refresh(&g_space_widget);
+        }
     }
     if (workspace_is_macos_sequoia()) {
         update_window_notifications();
@@ -639,6 +645,9 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
 
     if (window->is_eligible) {
         event_signal_push(SIGNAL_WINDOW_DESTROYED, window);
+        
+        // Refresh widget since a window was removed (refresh will update for current space)
+        space_widget_refresh(&g_space_widget);
     }
 
     window_manager_remove_scratchpad_for_window(&g_window_manager, window, false);
@@ -1036,6 +1045,9 @@ static EVENT_HANDLER(SPACE_CHANGED)
 
     // Update space indicator on space change
     space_indicator_update(&g_space_indicator, g_space_manager.current_space_id);
+    
+    // Update space widget to show windows from new space
+    space_widget_refresh(&g_space_widget);
 
     if (g_window_manager.menubar_opacity != 1.0f) {
         float alpha = space_is_fullscreen(g_space_manager.current_space_id) ? 1.0f : g_window_manager.menubar_opacity;
@@ -1174,17 +1186,16 @@ static EVENT_HANDLER(MOUSE_DOWN)
         
         if (contains) {
             printf("DEBUG: *** SPACE WIDGET CLICKED! ***\n");
-            printf("DEBUG: Current color before cycle: %d\n", g_space_widget.current_color);
             
             debug("Space widget clicked at: %.2f, %.2f\n", point.x, point.y);
-            space_widget_cycle_color(&g_space_widget);
+            // TODO: Replace with individual icon click detection
+            printf("DEBUG: Widget click detected - implementing individual icon detection next\n");
             
-            printf("DEBUG: Current color after cycle: %d\n", g_space_widget.current_color);
             printf("DEBUG: Consuming click event\n");
             goto out;  // Consume the event
         }
     } else {
-        printf("DEBUG: Widget active: false\n");
+        //printf("DEBUG: Widget active: false\n");
     }
     
     if (mission_control_is_active())                     goto out;
@@ -1225,9 +1236,9 @@ static EVENT_HANDLER(MOUSE_DOWN)
         if (point.x > frame_mid.x) g_mouse_state.direction |= HANDLE_RIGHT;
         if (point.y > frame_mid.y) g_mouse_state.direction |= HANDLE_BOTTOM;
     }
-    debug("[MOUSE DOWN] Window Frame: (%.2f, %.2f, %.2f, %.2f)\n",
-        g_mouse_state.window->frame.origin.x, g_mouse_state.window->frame.origin.y,
-        g_mouse_state.window->frame.size.width, g_mouse_state.window->frame.size.height);
+    //debug("[MOUSE DOWN] Window Frame: (%.2f, %.2f, %.2f, %.2f)\n",
+    //    g_mouse_state.window->frame.origin.x, g_mouse_state.window->frame.origin.y,
+    //    g_mouse_state.window->frame.size.width, g_mouse_state.window->frame.size.height);
     
     if (window_check_flag(g_mouse_state.window, WINDOW_PIP)) {
         debug("[MOUSE DOWN] PIP Origin: (%.2f, %.2f), Current: (%.2f, %.2f), Scale: (%.2fx%.2f)\n",
