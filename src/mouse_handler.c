@@ -34,7 +34,6 @@ static MOUSE_HANDLER(mouse_handler)
         struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
         bool is_pip = window && window_check_flag(window, WINDOW_PIP);
         if (mod == mouse_state->modifier || is_pip) {
-                debug("🚨🚨🚨🚨🚨\n");
                 mouse_state->consume_mouse_click = true;
                 mouse_state->consumed_event = (CGEventRef) CFRetain(event);
             return NULL;

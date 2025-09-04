@@ -139,28 +139,59 @@ static void widget_update_window_list(void)
         return;
     }
     
-    // Get window list for current space (exclude minimized windows)
+    // Get ALL window list for current space (including minimized windows)
     int temp_window_count = 0;
-    uint32_t *temp_window_list = space_window_list(current_space_id, &temp_window_count, false);
+    uint32_t *temp_window_list = space_window_list(current_space_id, &temp_window_count, true);
     
-    printf("DEBUG: Found %d windows in current space (ID: %llu)\n", temp_window_count, current_space_id);
+    printf("DEBUG: Found %d total windows in current space (ID: %llu)\n", temp_window_count, current_space_id);
     
     if (temp_window_list && temp_window_count > 0) {
-        // Copy window IDs to our own allocated memory
-        widget_window_ids = malloc(temp_window_count * sizeof(uint32_t));
-        if (widget_window_ids) {
-            memcpy(widget_window_ids, temp_window_list, temp_window_count * sizeof(uint32_t));
-            widget_window_count = temp_window_count;
+        // Create temporary filtered list
+        uint32_t *filtered_windows = malloc(temp_window_count * sizeof(uint32_t));
+        int filtered_count = 0;
+        
+        // Filter for minimized, hidden, or scratched windows only
+        for (int i = 0; i < temp_window_count; i++) {
+            struct window *window = window_manager_find_window(&g_window_manager, temp_window_list[i]);
+            if (!window) continue;
             
-            printf("DEBUG: Window IDs: ");
-            for (int i = 0; i < widget_window_count; i++) {
-                printf("%u%s", widget_window_ids[i], (i < widget_window_count - 1) ? ", " : "");
+            bool is_minimized = window_check_flag(window, WINDOW_MINIMIZE);
+            bool is_hidden = window->application->is_hidden;
+            bool is_scratched = window_check_flag(window, WINDOW_SCRATCHED);
+            
+            if (is_minimized || is_hidden || is_scratched) {
+                filtered_windows[filtered_count] = temp_window_list[i];
+                filtered_count++;
+                printf("DEBUG: Including window %u - minimized:%s hidden:%s scratched:%s\n", 
+                       temp_window_list[i], 
+                       is_minimized ? "true" : "false",
+                       is_hidden ? "true" : "false", 
+                       is_scratched ? "true" : "false");
             }
-            printf("\n");
-        } else {
-            printf("DEBUG: Failed to allocate memory for %d window IDs\n", temp_window_count);
-            widget_window_count = 0;
         }
+        
+        if (filtered_count > 0) {
+            // Allocate exact size needed and copy filtered results
+            widget_window_ids = malloc(filtered_count * sizeof(uint32_t));
+            if (widget_window_ids) {
+                memcpy(widget_window_ids, filtered_windows, filtered_count * sizeof(uint32_t));
+                widget_window_count = filtered_count;
+                
+                printf("DEBUG: Filtered to %d hidden/minimized/scratched windows: ", widget_window_count);
+                for (int i = 0; i < widget_window_count; i++) {
+                    printf("%u%s", widget_window_ids[i], (i < widget_window_count - 1) ? ", " : "");
+                }
+                printf("\n");
+            } else {
+                printf("DEBUG: Failed to allocate memory for filtered window list\n");
+            }
+        } else {
+            printf("DEBUG: No hidden, minimized, or scratched windows found\n");
+        }
+        
+        free(filtered_windows);
+    } else {
+        printf("DEBUG: No windows found in current space\n");
     }
     
     // Note: temp_window_list is managed by yabai's ts system, don't free it
@@ -185,6 +216,64 @@ static void widget_layout_calculate_positions(widget_position *positions, int co
         positions[i].x = center_x;
         positions[i].y = start_y + (i * (WIDGET_ICON_SIZE + WIDGET_GAP));
     }
+}
+
+// Function to detect which icon was clicked based on mouse position
+uint32_t space_widget_get_clicked_window_id(CGPoint click_point, CGRect widget_frame)
+{
+    if (!widget_window_ids || widget_window_count <= 0) {
+        printf("DEBUG: No window IDs available for click detection\n");
+        return 0;
+    }
+    
+    // Calculate relative click position within widget
+    CGPoint relative_point = {
+        .x = click_point.x - widget_frame.origin.x,
+        .y = click_point.y - widget_frame.origin.y
+    };
+    
+    printf("DEBUG: Relative click point: (%.2f, %.2f)\n", relative_point.x, relative_point.y);
+    
+    // Calculate icon positions using same logic as renderer
+    widget_position *positions = malloc(widget_window_count * sizeof(widget_position));
+    if (!positions) {
+        printf("DEBUG: Failed to allocate positions for click detection\n");
+        return 0;
+    }
+    
+    widget_layout_calculate_positions(positions, widget_window_count, widget_frame);
+    
+    // Check which icon (if any) contains the click point
+    for (int i = 0; i < widget_window_count; i++) {
+        CGRect icon_rect = {
+            .origin = { positions[i].x, positions[i].y },
+            .size = { WIDGET_ICON_SIZE, WIDGET_ICON_SIZE }
+        };
+        
+        // Convert to absolute coordinates for comparison
+        CGRect abs_icon_rect = {
+            .origin = { 
+                widget_frame.origin.x + icon_rect.origin.x,
+                widget_frame.origin.y + icon_rect.origin.y 
+            },
+            .size = icon_rect.size
+        };
+        
+        printf("DEBUG: Icon %d rect: (%.2f, %.2f, %.2f, %.2f)\n", 
+               i, abs_icon_rect.origin.x, abs_icon_rect.origin.y,
+               abs_icon_rect.size.width, abs_icon_rect.size.height);
+        
+        if (CGRectContainsPoint(abs_icon_rect, click_point)) {
+            uint32_t window_id = widget_window_ids[i];
+            printf("DEBUG: *** ICON CLICK DETECTED *** Window ID: %u at index %d\n", window_id, i);
+            free(positions);
+            return window_id;
+        }
+    }
+    
+    free(positions);
+    printf("DEBUG: Click was within widget but not on any specific icon\n");
+    return 0;
 }
 
 // Helper function to get color components for widget color enum

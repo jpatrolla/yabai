@@ -708,6 +708,13 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
         did_output = true;
     }
 
+    if (flags & WINDOW_PROPERTY_IS_SCRATCHED) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"is-scratched\":%s", json_bool(window_check_flag(window, WINDOW_SCRATCHED)));
+        did_output = true;
+    }
+
     if (flags & WINDOW_PROPERTY_IS_STICKY) {
         if (did_output) fprintf(rsp, ",\n");
 

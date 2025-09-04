@@ -40,9 +40,14 @@ bool space_manager_hide_floating_windows_on_space(struct space_manager *sm,
         if (!w || !window_check_flag(w, WINDOW_FLOAT)) continue;
 
         scripting_addition_order_window(w->id, 0, 0);   // hide
+        window_set_flag(w, WINDOW_SCRATCHED);           // mark as scratched
         buf_push(view->hidden_floaters, w->id);         // remember
     }
     view_set_flag(view, VIEW_FLOAT_TOGGLED);
+    
+    // Update widget when floating windows are hidden (scratched)
+    space_widget_refresh(&g_space_widget);
+    
     return true;
 }
 
@@ -56,11 +61,18 @@ bool space_manager_show_floating_windows_on_space(struct space_manager *sm,
     for (int i = 0; i < buf_len(view->hidden_floaters); ++i) {
         struct window *w = window_manager_find_window(&g_window_manager,
                                                       view->hidden_floaters[i]);
-        if (w) scripting_addition_order_window(w->id, 1, 0); // show
+        if (w) {
+            scripting_addition_order_window(w->id, 1, 0); // show
+            window_clear_flag(w, WINDOW_SCRATCHED);       // clear scratched flag
+        }
     }
     buf_free(view->hidden_floaters);
     view->hidden_floaters = NULL;
     view_clear_flag(view, VIEW_FLOAT_TOGGLED);
+    
+    // Update widget when floating windows are shown (unscratched)
+    space_widget_refresh(&g_space_widget);
+    
     return true;
 }
 
@@ -79,11 +91,18 @@ bool space_manager_recover_floating_windows_on_space(struct space_manager *sm,
     for (int i = 0; i < buf_len(view->hidden_floaters); ++i) {
         struct window *w = window_manager_find_window(&g_window_manager,
                                                       view->hidden_floaters[i]);
-        if (w) scripting_addition_order_window(w->id, 1, 0);
+        if (w) {
+            scripting_addition_order_window(w->id, 1, 0);
+            window_clear_flag(w, WINDOW_SCRATCHED);       // clear scratched flag
+        }
     }
     buf_free(view->hidden_floaters);
     view->hidden_floaters = NULL;
     view_clear_flag(view, VIEW_FLOAT_TOGGLED);
+    
+    // Update widget when floating windows are recovered (unscratched)
+    space_widget_refresh(&g_space_widget);
+    
     return true;
 }
 
@@ -97,6 +116,17 @@ bool space_manager_toggle_floating_windows_on_space(struct space_manager *sm,
         return space_manager_show_floating_windows_on_space(sm, sid);
     else
         return space_manager_hide_floating_windows_on_space(sm, sid);
+}
+
+bool space_manager_has_hidden_floating_windows_on_space(struct space_manager *sm,
+                                                        uint64_t sid)
+{
+    struct view *view = space_manager_find_view(sm, sid);
+    if (!view) return false;
+    
+    return view_check_flag(view, VIEW_FLOAT_TOGGLED) && 
+           view->hidden_floaters && 
+           buf_len(view->hidden_floaters) > 0;
 }
 
 bool space_manager_query_space(FILE *rsp, uint64_t sid, uint64_t flags)

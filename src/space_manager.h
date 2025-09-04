@@ -110,5 +110,6 @@ bool space_manager_hide_floating_windows_on_space(struct space_manager *, uint64
 bool space_manager_show_floating_windows_on_space(struct space_manager *, uint64_t);
 bool space_manager_recover_floating_windows_on_space(struct space_manager *, uint64_t);
 bool space_manager_toggle_floating_windows_on_space(struct space_manager *, uint64_t);
+bool space_manager_has_hidden_floating_windows_on_space(struct space_manager *, uint64_t);
 
 #endif

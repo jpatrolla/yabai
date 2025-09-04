@@ -22,6 +22,7 @@ extern struct space_indicator g_space_indicator;
 
 // Space widget
 #include "space_widget.h"
+#include "window_manager.h"
 extern struct space_widget g_space_widget;
 
 static void update_window_notifications(void)
@@ -497,6 +498,9 @@ static EVENT_HANDLER(APPLICATION_VISIBLE)
         view_clear_flag(view, VIEW_IS_DIRTY);
     }
 
+    // Update widget when application becomes visible (affects window visibility)
+    space_widget_refresh(&g_space_widget);
+
     event_signal_push(SIGNAL_APPLICATION_VISIBLE, application);
 }
 
@@ -557,6 +561,9 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
         window_node_flush(view->root);
         view_clear_flag(view, VIEW_IS_DIRTY);
     }
+
+    // Update widget when application is hidden (affects window visibility)
+    space_widget_refresh(&g_space_widget);
 
     event_signal_push(SIGNAL_APPLICATION_HIDDEN, application);
 }
@@ -895,6 +902,9 @@ static EVENT_HANDLER(WINDOW_MINIMIZED)
         window_manager_purify_window(&g_window_manager, window);
     }
 
+    // Update widget when window is minimized
+    space_widget_refresh(&g_space_widget);
+
     event_signal_push(SIGNAL_WINDOW_MINIMIZED, window);
 }
 
@@ -945,6 +955,9 @@ static EVENT_HANDLER(WINDOW_DEMINIMIZED)
         event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) window->id, 0);
         window_manager_remove_lost_focused_event(&g_window_manager, window->id);
     }
+
+    // Update widget when window is deminimized
+    space_widget_refresh(&g_space_widget);
 
     event_signal_push(SIGNAL_WINDOW_DEMINIMIZED, window);
 }
@@ -1188,8 +1201,53 @@ static EVENT_HANDLER(MOUSE_DOWN)
             printf("DEBUG: *** SPACE WIDGET CLICKED! ***\n");
             
             debug("Space widget clicked at: %.2f, %.2f\n", point.x, point.y);
-            // TODO: Replace with individual icon click detection
-            printf("DEBUG: Widget click detected - implementing individual icon detection next\n");
+            
+            // Check if click was on a specific icon
+            uint32_t clicked_window_id = space_widget_get_clicked_window_id(point, g_space_widget.frame);
+            
+            if (clicked_window_id) {
+                printf("*** WINDOW ICON CLICKED *** Window ID: %u\n", clicked_window_id);
+                
+                // Find the window object
+                struct window *clicked_window = window_manager_find_window(&g_window_manager, clicked_window_id);
+                if (clicked_window) {
+                    printf("DEBUG: Found window object for ID %u\n", clicked_window_id);
+                    
+                    // Check if window is minimized and deminimize if needed
+                    if (window_check_flag(clicked_window, WINDOW_MINIMIZE)) {
+                        printf("DEBUG: Window is minimized, attempting to deminimize...\n");
+                        enum window_op_error deminimize_result = window_manager_deminimize_window(clicked_window);
+                        if (deminimize_result == WINDOW_OP_ERROR_SUCCESS) {
+                            printf("DEBUG: Successfully deminimized window %u\n", clicked_window_id);
+                        } else {
+                            printf("DEBUG: Failed to deminimize window %u (error: %d)\n", clicked_window_id, deminimize_result);
+                        }
+                    }
+                    
+                    // Try to unhide/show window using scripting addition
+                    printf("DEBUG: Attempting to show window using scripting_addition_order_window...\n");
+                    scripting_addition_order_window(clicked_window->id, 1, 0);
+                    
+                    // Focus and raise the window
+                    printf("DEBUG: Focusing and raising window...\n");
+                    window_manager_focus_window_with_raise(&clicked_window->application->psn, 
+                                                          clicked_window->id, 
+                                                          clicked_window->ref);
+                    
+                    // If window's application is hidden, try to unhide it
+                    if (clicked_window->application->is_hidden) {
+                        printf("DEBUG: Application is hidden, attempting to unhide application...\n");
+                        // The focus_window_with_raise should handle this, but we'll log it
+                    }
+                    
+                    printf("DEBUG: Window activation complete for ID %u\n", clicked_window_id);
+                } else {
+                    printf("DEBUG: Could not find window object for ID %u\n", clicked_window_id);
+                }
+                
+            } else {
+                printf("DEBUG: Widget clicked but no specific icon hit\n");
+            }
             
             printf("DEBUG: Consuming click event\n");
             goto out;  // Consume the event
