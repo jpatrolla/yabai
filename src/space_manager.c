@@ -20,7 +20,9 @@ static TABLE_COMPARE_FUNC(compare_view)
 //  • recover→ “safety net” – force-show & clear state
 //
 #include "space_indicator.h"
+#include "space_widget.h"
 struct space_indicator g_space_indicator = {0};
+struct space_widget g_space_widget = {0};
 bool space_manager_hide_floating_windows_on_space(struct space_manager *sm,
                                                   uint64_t sid)
 {
@@ -1031,6 +1033,9 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
         if (focus_display) {
             display_manager_focus_display(new_did, sid);
         }
+        
+        // Load the saved color for the new space
+        space_widget_load_color_for_space(&g_space_widget, sid);
     } else {
         // If space change failed, correct the indicator back to current space
         space_indicator_update(&g_space_indicator, cur_sid);
@@ -1282,5 +1287,12 @@ void space_manager_begin(struct space_manager *sm)
 
     // Initialize space indicator
     space_indicator_create(&g_space_indicator);
+    
+    // Initialize space widget
+    space_widget_create(&g_space_widget);
+    
+    // Set initial color for the current space
+    uint64_t current_space = space_manager_active_space();
+    space_widget_load_color_for_space(&g_space_widget, current_space);
 
 }

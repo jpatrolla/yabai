@@ -20,6 +20,10 @@ struct space_indicator;
 void space_indicator_update(struct space_indicator *indicator, uint64_t sid);
 extern struct space_indicator g_space_indicator;
 
+// Space widget
+#include "space_widget.h"
+extern struct space_widget g_space_widget;
+
 static void update_window_notifications(void)
 {
     int window_count = 0;
@@ -1153,11 +1157,40 @@ static EVENT_HANDLER(DISPLAY_RESIZED)
 
 static EVENT_HANDLER(MOUSE_DOWN)
 {
+    CGPoint point = CGEventGetLocation(context);
+    
+    // Always log mouse clicks for debugging
+    printf("DEBUG: Mouse click at: %.2f, %.2f\n", point.x, point.y);
+    
+    // Check if click is on space widget
+    if (g_space_widget.is_active) {
+        printf("DEBUG: Widget active: true\n");
+        printf("DEBUG: Widget frame: (%.2f, %.2f, %.2f, %.2f)\n", 
+               g_space_widget.frame.origin.x, g_space_widget.frame.origin.y,
+               g_space_widget.frame.size.width, g_space_widget.frame.size.height);
+        
+        bool contains = CGRectContainsPoint(g_space_widget.frame, point);
+        printf("DEBUG: Click contains point: %s\n", contains ? "YES" : "NO");
+        
+        if (contains) {
+            printf("DEBUG: *** SPACE WIDGET CLICKED! ***\n");
+            printf("DEBUG: Current color before cycle: %d\n", g_space_widget.current_color);
+            
+            debug("Space widget clicked at: %.2f, %.2f\n", point.x, point.y);
+            space_widget_cycle_color(&g_space_widget);
+            
+            printf("DEBUG: Current color after cycle: %d\n", g_space_widget.current_color);
+            printf("DEBUG: Consuming click event\n");
+            goto out;  // Consume the event
+        }
+    } else {
+        printf("DEBUG: Widget active: false\n");
+    }
+    
     if (mission_control_is_active())                     goto out;
     if (g_mouse_state.current_action != MOUSE_MODE_NONE) goto out;
     //struct mouse_window_info info;
     //mouse_window_info_populate(&g_mouse_state, &info);
-    CGPoint point = CGEventGetLocation(context);
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;

@@ -97,3 +97,4 @@
 #include "yabai.c"
 #include "misc/symbolic_hotkeys.c"
 #include "space_indicator.c"
+#include "space_widget.c"

@@ -187,6 +187,8 @@ extern bool g_verbose;
 #define COMMAND_QUERY_SPACES   "--spaces"
 #define COMMAND_QUERY_WINDOWS  "--windows"
 #define COMMAND_QUERY_MC       "--mc"
+#define COMMAND_QUERY_WIDGET   "--widget"
+#define COMMAND_QUERY_WIDGET_TEST "--widget-test"
 
 #define ARGUMENT_QUERY_DISPLAY "--display"
 #define ARGUMENT_QUERY_SPACE   "--space"
@@ -2628,6 +2630,22 @@ static void handle_domain_query(FILE *rsp, struct token domain, char *message)
     } else if (token_equals(command, COMMAND_QUERY_MC)) {
         extern const char *mission_control_mode_str[];
         fprintf(rsp, "\"%s\"\n", mission_control_mode_str[g_mission_control_mode]);
+    } else if (token_equals(command, COMMAND_QUERY_WIDGET)) {
+        extern struct space_widget g_space_widget;
+        const char *colors[] = {"white", "red", "blue"};
+        fprintf(rsp, "{\"active\":%s,\"color\":\"%s\"}\n", 
+                g_space_widget.is_active ? "true" : "false",
+                g_space_widget.is_active ? colors[g_space_widget.current_color] : "none");
+    } else if (token_equals(command, COMMAND_QUERY_WIDGET_TEST)) {
+        extern struct space_widget g_space_widget;
+        extern void space_widget_test_cycle(struct space_widget *widget);
+        
+        printf("DEBUG: Manual widget test triggered\n");
+        space_widget_test_cycle(&g_space_widget);
+        
+        const char *colors[] = {"white", "red", "blue"};
+        fprintf(rsp, "{\"test\":\"triggered\",\"new_color\":\"%s\"}\n",
+                g_space_widget.is_active ? colors[g_space_widget.current_color] : "none");
     } else {
         daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);
     }
