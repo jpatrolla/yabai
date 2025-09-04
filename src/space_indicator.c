@@ -14,12 +14,35 @@ extern struct display_manager g_display_manager;
 extern struct space_manager g_space_manager;
 extern int g_connection;
 
-#define INDICATOR_HEIGHT 8.0f
 #define ANIMATION_DURATION 0.1f  // 100ms animation
+
+static void space_indicator_redraw(struct space_indicator *indicator)
+{
+    if (!indicator->is_active) return;
+    
+    // Create drawing context and set color from config
+    CGContextRef context = SLWindowContextCreate(g_connection, indicator->id, 0);
+    if (context) {
+        CGRect local_frame = {{0, 0}, {indicator->frame.size.width, indicator->frame.size.height}};
+        
+        // Extract RGBA from the color config (format: 0xAARRGGBB)
+        float alpha = ((indicator->config.indicator_color >> 24) & 0xFF) / 255.0f;
+        float red   = ((indicator->config.indicator_color >> 16) & 0xFF) / 255.0f;
+        float green = ((indicator->config.indicator_color >> 8) & 0xFF) / 255.0f;
+        float blue  = (indicator->config.indicator_color & 0xFF) / 255.0f;
+        
+        CGContextSetRGBFillColor(context, red, green, blue, alpha);
+        SLSDisableUpdate(g_connection);
+        CGContextFillRect(context, local_frame);
+        CGContextFlush(context);
+        SLSReenableUpdate(g_connection);
+        CFRelease(context);
+    }
+}
 
 void space_indicator_create(struct space_indicator *indicator)
 {
-    if (indicator->is_active) return;
+    if (indicator->is_active || !indicator->config.enabled) return;
     
     // Get main display dimensions
     uint32_t did = display_manager_main_display_id();
@@ -35,12 +58,17 @@ void space_indicator_create(struct space_indicator *indicator)
     
     float x_position = (current_space_index - 1) * indicator_width;
     
+    // Calculate y position based on config
+    float y_position = indicator->config.position == 0 ? 
+                       0 : // top
+                       display_frame.size.height - indicator->config.indicator_height; // bottom
+    
     // Create window frame
     indicator->frame = (CGRect) {
         .origin.x = x_position,
-        .origin.y = display_frame.size.height - INDICATOR_HEIGHT,
+        .origin.y = y_position,
         .size.width = indicator_width,
-        .size.height = INDICATOR_HEIGHT
+        .size.height = indicator->config.indicator_height
     };
     
     // Initialize animation fields
@@ -66,23 +94,14 @@ void space_indicator_create(struct space_indicator *indicator)
     SLSSetWindowOpacity(g_connection, indicator->id, 0);
     SLSSetWindowLevel(g_connection, indicator->id, CGWindowLevelForKey(kCGFloatingWindowLevelKey));
     
-    // Create drawing context and set color
-    CGContextRef context = SLWindowContextCreate(g_connection, indicator->id, 0);
-    if (context) {
-        CGRect local_frame = {{0, 0}, {indicator->frame.size.width, indicator->frame.size.height}};
-        CGContextSetRGBFillColor(context, 1.0f, 1.0f, 1.0f, 1.0f);  // White
-        SLSDisableUpdate(g_connection);
-        CGContextFillRect(context, local_frame);
-        CGContextFlush(context);
-        SLSReenableUpdate(g_connection);
-        CFRelease(context);
-    }
-    
     // Order the window
     SLSOrderWindow(g_connection, indicator->id, 1, 0);
     
     CFRelease(frame_region);
     indicator->is_active = true;
+    
+    // Draw the indicator with the correct color
+    space_indicator_redraw(indicator);
 }
 
 void space_indicator_destroy(struct space_indicator *indicator)
@@ -96,7 +115,7 @@ void space_indicator_destroy(struct space_indicator *indicator)
 
 void space_indicator_update(struct space_indicator *indicator, uint64_t sid)
 {
-    if (!indicator->is_active) return;
+    if (!indicator->is_active || !indicator->config.enabled) return;
     
     // Get display dimensions
     uint32_t did = display_manager_main_display_id();
@@ -111,13 +130,18 @@ void space_indicator_update(struct space_indicator *indicator, uint64_t sid)
     if (space_index < 1) space_index = 1;
     
     float x_position = (space_index - 1) * indicator_width;
+    
+    // Calculate y position based on config
+    float y_position = indicator->config.position == 0 ? 
+                       0 : // top
+                       display_frame.size.height - indicator->config.indicator_height; // bottom
 
     // Set target frame for animation
     CGRect new_target = {
         .origin.x = x_position,
-        .origin.y = display_frame.size.height - INDICATOR_HEIGHT,
+        .origin.y = y_position,
         .size.width = indicator_width,
-        .size.height = INDICATOR_HEIGHT
+        .size.height = indicator->config.indicator_height
     };
     
     // Check if position actually changed
@@ -144,7 +168,7 @@ void space_indicator_update(struct space_indicator *indicator, uint64_t sid)
 
 void space_indicator_update_optimistic(struct space_indicator *indicator, uint64_t sid)
 {
-    if (!indicator->is_active) return;
+    if (!indicator->is_active || !indicator->config.enabled) return;
     
     // Get display dimensions
     uint32_t did = display_manager_main_display_id();
@@ -159,13 +183,18 @@ void space_indicator_update_optimistic(struct space_indicator *indicator, uint64
     if (space_index < 1) space_index = 1;
     
     float x_position = (space_index - 1) * indicator_width;
+    
+    // Calculate y position based on config
+    float y_position = indicator->config.position == 0 ? 
+                       0 : // top
+                       display_frame.size.height - indicator->config.indicator_height; // bottom
 
     // Set target frame for animation
     CGRect new_target = {
         .origin.x = x_position,
-        .origin.y = display_frame.size.height - INDICATOR_HEIGHT,
+        .origin.y = y_position,
         .size.width = indicator_width,
-        .size.height = INDICATOR_HEIGHT
+        .size.height = indicator->config.indicator_height
     };
     
     // Check if position actually changed
@@ -193,6 +222,8 @@ void space_indicator_refresh(struct space_indicator *indicator)
     if (!indicator->is_active) return;
     
     space_indicator_update(indicator, g_space_manager.current_space_id);
+    // Also redraw to apply any config changes
+    space_indicator_redraw(indicator);
 }
 
 void space_indicator_animate_step(struct space_indicator *indicator)
@@ -228,6 +259,9 @@ void space_indicator_animate_step(struct space_indicator *indicator)
     CGSNewRegionWithRect(&indicator->frame, &frame_region);
     SLSSetWindowShape(g_connection, indicator->id, 0, 0, frame_region);
     CFRelease(frame_region);
+    
+    // Redraw the indicator with the correct color
+    space_indicator_redraw(indicator);
     
     // Schedule next animation step if still animating
     if (indicator->is_animating) {

@@ -83,6 +83,7 @@
 #include "event_signal.c"
 #include "workspace.m"
 #include "rule.c"
+#include "space_indicator.h"
 #include "message.c"
 #include "display.c"
 #include "space.c"

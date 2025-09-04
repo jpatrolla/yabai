@@ -1,6 +1,13 @@
 #ifndef SPACE_INDICATOR_H
 #define SPACE_INDICATOR_H
 
+struct space_indicator_config {
+    bool enabled;
+    float indicator_height;
+    int position; // 0 = top, 1 = bottom
+    uint32_t indicator_color;
+};
+
 struct space_indicator {
     uint32_t id;
     CGRect frame;
@@ -9,6 +16,7 @@ struct space_indicator {
     bool is_animating;
     float animation_progress;
     uint64_t animation_start_time;
+    struct space_indicator_config config;
 };
 
 void space_indicator_create(struct space_indicator *indicator);

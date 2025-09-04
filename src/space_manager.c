@@ -21,7 +21,14 @@ static TABLE_COMPARE_FUNC(compare_view)
 //
 #include "space_indicator.h"
 #include "space_widget.h"
-struct space_indicator g_space_indicator = {0};
+struct space_indicator g_space_indicator = {
+    .config = {
+        .enabled = false,
+        .indicator_height = 8.0f,
+        .position = 1, // bottom
+        .indicator_color = 0xffffffff // white default
+    }
+};
 struct space_widget g_space_widget = {0};
 bool space_manager_hide_floating_windows_on_space(struct space_manager *sm,
                                                   uint64_t sid)
@@ -383,12 +390,19 @@ void space_manager_toggle_mission_control(uint64_t sid) {
             .y = bounds.origin.y + 20
         };
         CGWarpMouseCursorPosition(top_center);
+        
+        // Hide cursor
+        CGDisplayHideCursor(CGMainDisplayID());
 
     } else {
         CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
 
         // restore previous mouse position
         CGWarpMouseCursorPosition(saved_mouse_position);
+        
+        // Show cursor
+        CGDisplayShowCursor(CGMainDisplayID());
+        
         space_manager_focus_space(sid);
     }
 }

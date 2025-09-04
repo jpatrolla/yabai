@@ -52,6 +52,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MOUSE_ACTION2         "mouse_action2"
 #define COMMAND_CONFIG_MOUSE_DROP_ACTION     "mouse_drop_action"
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
+#define COMMAND_CONFIG_SPACE_INDICATOR       "space_indicator"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -87,6 +88,14 @@ extern bool g_verbose;
 #define ARGUMENT_CONFIG_EXTERNAL_BAR_MAIN     "main"
 #define ARGUMENT_CONFIG_EXTERNAL_BAR_ALL      "all"
 #define ARGUMENT_CONFIG_EXTERNAL_BAR          "%5[^:]:%d:%d"
+
+#define ARGUMENT_SPACE_INDICATOR_KEY_ENABLED    "enabled"
+#define ARGUMENT_SPACE_INDICATOR_KEY_HEIGHT     "indicator_height"
+#define ARGUMENT_SPACE_INDICATOR_KEY_POSITION   "position"
+#define ARGUMENT_SPACE_INDICATOR_KEY_COLOR      "indicator_color"
+#define ARGUMENT_SPACE_INDICATOR_VAL_TOP        "top"
+#define ARGUMENT_SPACE_INDICATOR_VAL_BOTTOM     "bottom"
+
 /* ----------------------------------------------------------------------------- */
 
 /* --------------------------------DOMAIN DISPLAY------------------------------- */
@@ -1684,6 +1693,89 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 }
             } else {
                 fprintf(rsp, "%s:%d:%d\n", external_bar_mode_str[g_display_manager.mode], g_display_manager.top_padding, g_display_manager.bottom_padding);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_INDICATOR)) {
+            extern struct space_indicator g_space_indicator;
+            
+            struct token token = get_token(&message);
+            if (!token_is_valid(token)) {
+                // Display current config
+                fprintf(rsp, "enabled=%s indicator_height=%.2f position=%s indicator_color=0x%08x\n",
+                        bool_str[g_space_indicator.config.enabled],
+                        g_space_indicator.config.indicator_height,
+                        g_space_indicator.config.position == 0 ? "top" : "bottom",
+                        g_space_indicator.config.indicator_color);
+            } else {
+                // Parse key-value pairs like rule command
+                bool did_parse = true;
+                for (; token_is_valid(token); token = get_token(&message)) {
+                    char *key = NULL;
+                    char *value = NULL;
+                    bool exclusion = false;
+                    parse_key_value_pair(token.text, &key, &value, &exclusion);
+
+                    if (!key || !value) {
+                        daemon_fail(rsp, "invalid key-value pair '%s'\n", token.text);
+                        did_parse = false;
+                        continue;
+                    }
+
+                    if (exclusion) {
+                        daemon_fail(rsp, "unsupported token '!' (exclusion) given for key '%s'\n", key);
+                        did_parse = false;
+                        continue;
+                    }
+
+                    if (string_equals(key, ARGUMENT_SPACE_INDICATOR_KEY_ENABLED)) {
+                        if (string_equals(value, ARGUMENT_COMMON_VAL_ON) || string_equals(value, "true")) {
+                            g_space_indicator.config.enabled = true;
+                        } else if (string_equals(value, ARGUMENT_COMMON_VAL_OFF) || string_equals(value, "false")) {
+                            g_space_indicator.config.enabled = false;
+                        } else {
+                            daemon_fail(rsp, "invalid value '%s' for key '%s'\n", value, key);
+                            did_parse = false;
+                        }
+                    } else if (string_equals(key, ARGUMENT_SPACE_INDICATOR_KEY_HEIGHT)) {
+                        float height = strtof(value, NULL);
+                        if (height > 0.0f && height <= 50.0f) {
+                            g_space_indicator.config.indicator_height = height;
+                        } else {
+                            daemon_fail(rsp, "invalid value '%s' for key '%s' (must be between 0.1 and 50.0)\n", value, key);
+                            did_parse = false;
+                        }
+                    } else if (string_equals(key, ARGUMENT_SPACE_INDICATOR_KEY_POSITION)) {
+                        if (string_equals(value, ARGUMENT_SPACE_INDICATOR_VAL_TOP)) {
+                            g_space_indicator.config.position = 0;
+                        } else if (string_equals(value, ARGUMENT_SPACE_INDICATOR_VAL_BOTTOM)) {
+                            g_space_indicator.config.position = 1;
+                        } else {
+                            daemon_fail(rsp, "invalid value '%s' for key '%s' (must be 'top' or 'bottom')\n", value, key);
+                            did_parse = false;
+                        }
+                    } else if (string_equals(key, ARGUMENT_SPACE_INDICATOR_KEY_COLOR)) {
+                        uint32_t color;
+                        if (sscanf(value, "0x%x", &color) == 1 || sscanf(value, "%x", &color) == 1) {
+                            g_space_indicator.config.indicator_color = color;
+                        } else {
+                            daemon_fail(rsp, "invalid value '%s' for key '%s' (must be hex color like 0xff800080)\n", value, key);
+                            did_parse = false;
+                        }
+                    } else {
+                        daemon_fail(rsp, "unknown key '%s'\n", key);
+                        did_parse = false;
+                    }
+                }
+                
+                if (did_parse) {
+                    // Apply changes if indicator is active
+                    if (g_space_indicator.is_active && g_space_indicator.config.enabled) {
+                        space_indicator_refresh(&g_space_indicator);
+                    } else if (!g_space_indicator.config.enabled && g_space_indicator.is_active) {
+                        space_indicator_destroy(&g_space_indicator);
+                    } else if (g_space_indicator.config.enabled && !g_space_indicator.is_active) {
+                        space_indicator_create(&g_space_indicator);
+                    }
+                }
             }
         } else {
             daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);
