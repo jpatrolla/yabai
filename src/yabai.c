@@ -372,6 +372,10 @@ int main(int argc, char **argv)
     window_manager_init(&g_window_manager);
     space_manager_begin(&g_space_manager);
     window_manager_begin(&g_space_manager, &g_window_manager);
+    
+    // Refresh space widget after window manager has finished initializing
+    extern struct space_widget g_space_widget;
+    space_widget_refresh(&g_space_widget);
 
     if (workspace_is_macos_sequoia()) {
         update_window_notifications();

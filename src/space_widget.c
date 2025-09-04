@@ -22,9 +22,9 @@ extern int g_connection;
 static uint32_t *widget_window_ids = NULL;
 static int widget_window_count = 0;
 
-// Simple icon cache
+// Simple icon cache - cache by application path instead of window ID
 typedef struct {
-    uint32_t window_id;
+    char *app_path;
     CGImageRef icon;
 } icon_cache_entry;
 
@@ -39,26 +39,49 @@ typedef struct {
 // Helper function to get app icon for a window
 static CGImageRef widget_get_window_icon(uint32_t window_id)
 {
-    // Check cache first
-    for (int i = 0; i < icon_cache_size; i++) {
-        if (icon_cache[i].window_id == window_id) {
-            return icon_cache[i].icon;
-        }
-    }
+    printf("DEBUG: widget_get_window_icon called for window %u\n", window_id);
     
-    // Get the window and its application
+    // Get the window and its application first to get the app path
     struct window *window = window_manager_find_window(&g_window_manager, window_id);
     if (!window || !window->application) {
+        printf("DEBUG: Window %u has no application associated yet\n", window_id);
         return NULL;
     }
     
     // Get the application path using proc_pidpathinfo
     static char app_path[PROC_PIDPATHINFO_MAXSIZE];
     if (proc_pidpath(window->application->pid, app_path, sizeof(app_path)) <= 0) {
+        printf("DEBUG: Failed to get path for window %u (pid: %d)\n", window_id, window->application->pid);
         return NULL;
     }
     
-    NSString *appPath = [NSString stringWithUTF8String:app_path];
+    printf("DEBUG: Window %u -> App path: %s (PID: %d)\n", window_id, app_path, window->application->pid);
+    
+    // Convert executable path to app bundle path
+    // Find .app/ in the path and truncate there to get the bundle path
+    char bundle_path[PROC_PIDPATHINFO_MAXSIZE];
+    strcpy(bundle_path, app_path);
+    
+    char *app_suffix = strstr(bundle_path, ".app/");
+    if (app_suffix) {
+        // Include the .app but exclude everything after it
+        app_suffix[4] = '\0';  // Keep ".app" and null-terminate
+        printf("DEBUG: Converted to bundle path: %s\n", bundle_path);
+    } else {
+        printf("DEBUG: No .app found in path, using original: %s\n", bundle_path);
+    }
+    
+    // Check cache first - now by app bundle path instead of executable path
+    for (int i = 0; i < icon_cache_size; i++) {
+        if (icon_cache[i].app_path && strcmp(icon_cache[i].app_path, bundle_path) == 0) {
+            printf("DEBUG: Found cached icon for app path %s at index %d\n", bundle_path, i);
+            printf("DEBUG: 🎨 ICON REUSED - App: %s | Path: %s\n", (window->application->name ? window->application->name : "Unknown"), bundle_path);
+            return icon_cache[i].icon;
+        }
+    }
+    printf("DEBUG: No cached icon found for app path %s (cache has %d entries)\n", bundle_path, icon_cache_size);
+    
+    NSString *appPath = [NSString stringWithUTF8String:bundle_path];
     if (!appPath) {
         return NULL;
     }
@@ -66,13 +89,17 @@ static CGImageRef widget_get_window_icon(uint32_t window_id)
     // Extract icon using NSWorkspace
     NSImage *icon = [[NSWorkspace sharedWorkspace] iconForFile:appPath];
     if (!icon) {
+        printf("DEBUG: NSWorkspace failed to get icon for bundle path: %s\n", bundle_path);
         return NULL;
     }
+    
+    printf("DEBUG: Got NSImage for bundle path %s, converting to CGImage\n", bundle_path);
     
     // Convert NSImage to CGImage
     NSData *imageData = [icon TIFFRepresentation];
     CGImageSourceRef source = CGImageSourceCreateWithData((CFDataRef)imageData, NULL);
     if (!source) {
+        printf("DEBUG: Failed to create CGImageSource\n");
         return NULL;
     }
     
@@ -80,11 +107,16 @@ static CGImageRef widget_get_window_icon(uint32_t window_id)
     CFRelease(source);
     
     if (cgImage) {
+        printf("DEBUG: Successfully created CGImage for app path %s, adding to cache\n", bundle_path);
+        printf("DEBUG: 🎨 ICON SAVED - App: %s | Path: %s\n", (window->application->name ? window->application->name : "Unknown"), bundle_path);
         // Add to cache
         icon_cache = realloc(icon_cache, (icon_cache_size + 1) * sizeof(icon_cache_entry));
-        icon_cache[icon_cache_size].window_id = window_id;
+        icon_cache[icon_cache_size].app_path = strdup(bundle_path);  // Store copy of bundle path
         icon_cache[icon_cache_size].icon = cgImage;
         icon_cache_size++;
+        printf("DEBUG: Cache now has %d entries\n", icon_cache_size);
+    } else {
+        printf("DEBUG: Failed to create CGImage from source\n");
     }
     
     return cgImage;
@@ -243,13 +275,28 @@ static void widget_render_icon(CGContextRef context, widget_position position, u
     CGImageRef icon = widget_get_window_icon(window_id);
     
     if (icon) {
-        // Draw the icon
+        printf("DEBUG: Successfully got icon for window %u, drawing it\n", window_id);
+        printf("DEBUG: 🖼️  DRAWING ICON - CGImage dimensions: %zux%zu, Drawing rect: (%.1f,%.1f,%.1f,%.1f)\n", 
+               CGImageGetWidth(icon), CGImageGetHeight(icon), 
+               rect.origin.x, rect.origin.y, rect.size.width, rect.size.height);
+        
+        // Draw the icon without clipping first to test
         CGContextSaveGState(context);
-        CGContextAddPath(context, path);
-        CGContextClip(context);
+        
+        // Ensure we're drawing with normal blend mode and full opacity
+        CGContextSetBlendMode(context, kCGBlendModeNormal);
+        CGContextSetAlpha(context, 1.0);
+        
+        // Try drawing without clipping first to see if clipping is the issue
+        printf("DEBUG: About to call CGContextDrawImage (no clipping)...\n");
         CGContextDrawImage(context, rect, icon);
+        printf("DEBUG: CGContextDrawImage completed (no clipping)\n");
+        
         CGContextRestoreGState(context);
+        printf("DEBUG: ✅ Icon drawing completed for window %u (no clipping test)\n", window_id);
     } else {
+        printf("DEBUG: No icon found for window %u, using colored rectangle\n", window_id);
+        printf("DEBUG: 🎨 FALLBACK DRAWING - Using colored rectangle for window %u\n", window_id);
         // Fallback to colored rectangle if no icon found
         enum space_widget_color color = widget_get_color_for_window(window_id);
         float r, g, b, a;
@@ -258,6 +305,7 @@ static void widget_render_icon(CGContextRef context, widget_position position, u
         CGContextSetRGBFillColor(context, r, g, b, a);
         CGContextAddPath(context, path);
         CGContextFillPath(context);
+        printf("DEBUG: ✅ Colored rectangle drawing completed for window %u\n", window_id);
     }
     
     CGPathRelease(path);
@@ -266,9 +314,16 @@ static void widget_render_icon(CGContextRef context, widget_position position, u
 // Helper function to clean up icon cache
 static void widget_cleanup_icon_cache(void)
 {
+    printf("DEBUG: 🧹 CLEANING UP ICON CACHE - %d entries:\n", icon_cache_size);
     for (int i = 0; i < icon_cache_size; i++) {
+        if (icon_cache[i].app_path) {
+            printf("DEBUG:   [%d] %s\n", i, icon_cache[i].app_path);
+        }
         if (icon_cache[i].icon) {
             CGImageRelease(icon_cache[i].icon);
+        }
+        if (icon_cache[i].app_path) {
+            free(icon_cache[i].app_path);
         }
     }
     if (icon_cache) {
@@ -354,6 +409,10 @@ void space_widget_create(struct space_widget *widget)
     }
 
     CFRelease(frame_region);
+    
+    // Don't populate window list immediately - let window manager finish initializing first
+    // The list will be populated on the first space change or manual refresh
+    
     widget->is_active = true;
 }
 
