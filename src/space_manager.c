@@ -1012,19 +1012,7 @@ enum space_op_error space_manager_move_space_to_display(struct space_manager *sm
 
 enum space_op_error space_manager_focus_space(uint64_t sid)
 {
-    // If Mission Control is showing, we’ll still switch and then re-open it
-    bool is_in_mc = mission_control_is_active();
-    if (is_in_mc) {
-
-        // trigger next space shortcut
-        trigger_next_space_shortcut();
-        // Update indicator on successful space change
-        space_indicator_update(&g_space_indicator, sid);
-        return SPACE_OP_ERROR_SUCCESS;
-    }
-
-
-    debug("[SPACE MANAGER] attempting to bypass space op error\n");
+    debug("[SPACE MANAGER] attempting to focus space %llu\n", sid);
 
     uint64_t cur_sid = space_manager_active_space();
     if (cur_sid == sid) return SPACE_OP_ERROR_SAME_SPACE;
@@ -1036,17 +1024,21 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
     bool is_animating = display_manager_display_is_animating(new_did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
+    // Optimistically animate the indicator immediately for snappy response
+    space_indicator_update_optimistic(&g_space_indicator, sid);
+
     if (scripting_addition_focus_space(sid)) {
         if (focus_display) {
             display_manager_focus_display(new_did, sid);
         }
     } else {
+        // If space change failed, correct the indicator back to current space
+        space_indicator_update(&g_space_indicator, cur_sid);
         return SPACE_OP_ERROR_SCRIPTING_ADDITION;
     }
 
-    // Update indicator on successful space change
+    // Update indicator on successful space change (fallback/correction)
     space_indicator_update(&g_space_indicator, sid);
-    printf("space change success\n");
     return SPACE_OP_ERROR_SUCCESS;
 }
 
@@ -1067,6 +1059,9 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
     bool is_dst_animating = display_manager_display_is_animating(did);
     if (is_dst_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
+    // Optimistically animate the indicator immediately for snappy response
+    space_indicator_update_optimistic(&g_space_indicator, sid);
+
     if (cur_did != did) {
         space_manager_swap_space_with_space_on_display(cur_did, cur_sid, did, sid);
         display_manager_focus_display(cur_did, cur_sid);
@@ -1078,6 +1073,9 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
     enum space_op_error result = scripting_addition_focus_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
     if (result == SPACE_OP_ERROR_SUCCESS) {
         space_indicator_update(&g_space_indicator, sid);
+    } else {
+        // If space change failed, correct the indicator back to current space
+        space_indicator_update(&g_space_indicator, cur_sid);
     }
     return result;
     

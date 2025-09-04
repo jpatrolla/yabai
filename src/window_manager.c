@@ -537,6 +537,7 @@ enum window_op_error window_manager_resize_window_relative(struct window_manager
 
 void window_manager_move_window(struct window *window, float x, float y)
 {
+    printf("window_manager_move_window\n");
     CGPoint position = CGPointMake(x, y);
     CFTypeRef position_ref = AXValueCreate(kAXValueTypeCGPoint, (void *) &position);
     if (!position_ref) return;
@@ -548,9 +549,10 @@ void window_manager_move_window(struct window *window, float x, float y)
     if (view) {
        debug("sweeping at window_manager_move_window %llu\n", view->sid);
        window_manager_sweep_stacks(view, &g_window_manager);
-   }    
+   }
 
 }
+
 
 void window_manager_resize_window(struct window *window, float width, float height)
 {
@@ -2821,6 +2823,50 @@ void window_manager_toggle_window_expose(struct window *window)
     CoreDockSendNotification(CFSTR("com.apple.expose.front.awake"), 0);
 }
 
+CGPoint window_manager_calculate_scaled_points(struct space_manager *sm, struct window *window)
+{
+    uint32_t did = window_display_id(window->id);
+    if (!did) return CGPointZero;
+
+    uint64_t sid = display_space_id(did);
+    struct view *dview = space_manager_find_view(sm, sid);
+
+    CGRect bounds = display_bounds_constrained(did, false);
+    if (dview && view_check_flag(dview, VIEW_ENABLE_PADDING)) {
+        bounds.origin.x    += dview->left_padding;
+        bounds.size.width  -= (dview->left_padding + dview->right_padding);
+        bounds.origin.y    += dview->top_padding;
+        bounds.size.height -= (dview->top_padding + dview->bottom_padding);
+    }
+
+    // Store original frame
+    window->pip_frame.origin = window->frame.origin;
+    window->pip_frame.size = window->frame.size;
+    
+    // Calculate target dimensions (1/4 scale)
+    float dw = bounds.size.width;
+    int target_width = dw / 4;
+    int target_height = target_width / (window->frame.size.width / window->frame.size.height);
+    
+    // Calculate scale factors
+    window->pip_frame.scale_x = window->frame.size.width / target_width;
+    window->pip_frame.scale_y = window->frame.size.height / target_height;
+    
+    // Store current dimensions for tracking
+    window->pip_frame.current_size.width = target_width;
+    window->pip_frame.current_size.height = target_height;
+    
+    // Calculate position (top-right corner)
+    CGFloat transformed_x = (bounds.origin.x + dw) - target_width;
+    CGFloat transformed_y = bounds.origin.y;
+    window->pip_frame.origin.x = transformed_x;
+    window->pip_frame.origin.y = transformed_y;
+    // Store current position for tracking
+    window->pip_frame.current.x = transformed_x;
+    window->pip_frame.current.y = transformed_y;
+    
+    return CGPointMake(transformed_x, transformed_y);
+}
 void window_manager_toggle_window_pip(struct space_manager *sm, struct window *window)
 {
     TIME_FUNCTION;
@@ -2847,66 +2893,22 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
     if (scale_success) {
         // Only update the flag if scaling succeeded
         if (!was_pip) {
-            // Entering PIP mode - store the original frame coordinates
-            window->pip_frame = window->frame;
+            // Entering PIP mode - use the calculate function to set everything up
+            CGPoint scaled_position = window_manager_calculate_scaled_points(sm, window);
             
-            // Calculate scaled frame based on do_window_scale logic
-            // Using display bounds (without padding adjustments) for consistency with do_window_scale
-            CGRect display_bounds = display_bounds_constrained(did, false);
-            float dx = display_bounds.origin.x;
-            float dy = display_bounds.origin.y;
-            float dw = display_bounds.size.width;
-            float dh = display_bounds.size.height;
-
-            // Calculate target dimensions (1/4 scale)
-            int target_width = dw / 4;
-            int target_height = target_width / (window->frame.size.width / window->frame.size.height);
+            debug("values before pip: (%.1f, %.1f, %.1f, %.1f)\n",
+                window->pip_frame.origin.x, window->pip_frame.origin.y, 
+                window->pip_frame.size.width, window->pip_frame.size.height);
+            debug("calculated scaled position: (%.1f, %.1f)\n", scaled_position.x, scaled_position.y);
+            debug("scale factors: %.2fx%.2f\n", window->pip_frame.scale_x, window->pip_frame.scale_y);
+            debug("current dimensions: %.1fx%.1f\n", window->pip_frame.current_size.width, window->pip_frame.current_size.height);
             
-            // Calculate scale factors
-            float x_scale = window->frame.size.width / target_width;
-            float y_scale = window->frame.size.height / target_height;
-            
-            // Store scale factors for mouse handling
-            window->pip_scale_x = x_scale;
-            window->pip_scale_y = y_scale;
-            
-            // Calculate position (top-right corner positioning logic from do_window_scale)
-            // Note: do_window_scale uses -(dx+dw) for top-right positioning
-            CGFloat transformed_x = -(dx + dw) + (window->frame.size.width * (1/x_scale));
-            CGFloat transformed_y = -dy;
-            
-            // Calculate the actual scaled frame position
-            window->scaled_frame.size.width = target_width;
-            window->scaled_frame.size.height = target_height;
-            window->scaled_frame.origin.x = window->frame.origin.x + transformed_x;
-            window->scaled_frame.origin.y = window->frame.origin.y + transformed_y;
-            
-            // Debug logging
-            printf("[PIP] Original frame: (%.1f, %.1f, %.1f, %.1f)\n", 
-                   window->frame.origin.x, window->frame.origin.y, 
-                   window->frame.size.width, window->frame.size.height);
-            printf("[PIP] Display bounds: (%.1f, %.1f, %.1f, %.1f)\n", dx, dy, dw, dh);
-            printf("[PIP] Target dimensions: %d x %d (scale: %.2fx%.2f)\n", 
-                   target_width, target_height, x_scale, y_scale);
-            printf("[PIP] Transform offset: (%.1f, %.1f)\n", transformed_x, transformed_y);
-            printf("[PIP] Scaled frame: (%.1f, %.1f, %.1f, %.1f)\n", 
-                   window->scaled_frame.origin.x, window->scaled_frame.origin.y,
-                   window->scaled_frame.size.width, window->scaled_frame.size.height);
-
             window_set_flag(window, WINDOW_PIP);
         } else {
             // Exiting PIP mode - restore original coordinates
-            printf("[PIP] Restoring to original frame: (%.1f, %.1f, %.1f, %.1f)\n", 
+            debug("[PIP] Restoring to original frame: (%.1f, %.1f, %.1f, %.1f)\n", 
                    window->pip_frame.origin.x, window->pip_frame.origin.y,
                    window->pip_frame.size.width, window->pip_frame.size.height);
-            
-            window_manager_animate_window((struct window_capture) {
-                .window = window,
-                .x = window->pip_frame.origin.x,
-                .y = window->pip_frame.origin.y,
-                .w = window->pip_frame.size.width,
-                .h = window->pip_frame.size.height
-            });
             
             window_clear_flag(window, WINDOW_PIP);
         }

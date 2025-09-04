@@ -484,6 +484,7 @@ bool scripting_addition_move_space_after_space(uint64_t src_sid, uint64_t dst_si
 
 bool scripting_addition_move_window(uint32_t wid, int x, int y)
 {
+    printf("scripting_addition_move_window: wid=%d, x=%d, y=%d\n", wid, x, y);
     sa_payload_init();
     pack(wid);
     pack(x);

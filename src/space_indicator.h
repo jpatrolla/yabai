@@ -14,6 +14,7 @@ struct space_indicator {
 void space_indicator_create(struct space_indicator *indicator);
 void space_indicator_destroy(struct space_indicator *indicator);
 void space_indicator_update(struct space_indicator *indicator, uint64_t sid);
+void space_indicator_update_optimistic(struct space_indicator *indicator, uint64_t sid);
 void space_indicator_refresh(struct space_indicator *indicator);
 void space_indicator_animate_step(struct space_indicator *indicator);
 

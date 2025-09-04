@@ -30,10 +30,13 @@ static MOUSE_HANDLER(mouse_handler)
     case kCGEventRightMouseDown: {
         uint8_t mod = mouse_mod_from_cgflags(CGEventGetFlags(event));
         event_loop_post(&g_event_loop, MOUSE_DOWN, (void *) CFRetain(event), mod);
-
-        if (mod == mouse_state->modifier) {
-            mouse_state->consume_mouse_click = true;
-            mouse_state->consumed_event = (CGEventRef) CFRetain(event);
+        CGPoint point = CGEventGetLocation(event);
+        struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
+        bool is_pip = window && window_check_flag(window, WINDOW_PIP);
+        if (mod == mouse_state->modifier || is_pip) {
+                debug("🚨🚨🚨🚨🚨\n");
+                mouse_state->consume_mouse_click = true;
+                mouse_state->consumed_event = (CGEventRef) CFRetain(event);
             return NULL;
         }
     } break;

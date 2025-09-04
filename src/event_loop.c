@@ -1,4 +1,4 @@
-extern struct event_loop g_event_loop;
+extern struct event_loop g_event_loop; 
 extern struct process_manager g_process_manager;
 extern struct display_manager g_display_manager;
 extern struct space_manager g_space_manager;
@@ -610,9 +610,6 @@ static EVENT_HANDLER(WINDOW_CREATED)
         0,   // TODO: is_stacked
         0);    // TODO: is_pip
     }
-    
-    
-
     if (workspace_is_macos_sequoia()) {
         update_window_notifications();
     }
@@ -691,7 +688,11 @@ static EVENT_HANDLER(WINDOW_MOVED)
         debug("EVENT_HANDLER_WINDOW_MOVED: no window for id %d\n", window_id);
         return;
     }
-
+    if(window_check_flag(window, WINDOW_PIP)) {
+        // Handle PIP window movement
+        debug("WINDOW MOVED HANDLER [PIP] EXITTTT %d\n", window_id);
+        return;
+    }
     if (!__sync_bool_compare_and_swap(&window->id_ptr, &window->id, &window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, window_id);
         return;
@@ -1175,6 +1176,14 @@ static EVENT_HANDLER(MOUSE_DOWN)
     } else if (button == kCGMouseButtonRight && g_mouse_state.modifier == mod) {
         g_mouse_state.current_action = g_mouse_state.action2;
     }
+    
+    // Special handling for PIP windows: force move mode on any left-click
+    // This ensures titlebar dragging works properly with our scaling logic
+    bool is_pip = window_check_flag(window, WINDOW_PIP);
+    if (is_pip && button == kCGMouseButtonLeft) {
+        g_mouse_state.current_action = MOUSE_MODE_MOVE;
+        return; // Don't call CFRelease(context) - this consumes the event
+    }
 
     if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         CGPoint frame_mid = { CGRectGetMidX(g_mouse_state.window_frame), CGRectGetMidY(g_mouse_state.window_frame) };
@@ -1183,16 +1192,24 @@ static EVENT_HANDLER(MOUSE_DOWN)
         if (point.x > frame_mid.x) g_mouse_state.direction |= HANDLE_RIGHT;
         if (point.y > frame_mid.y) g_mouse_state.direction |= HANDLE_BOTTOM;
     }
-    //uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
-    //struct window *windowclicked = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
-    //debug("mouse clicked at: %d\n", window ? window->id : 0); 
-
+    debug("[MOUSE DOWN] Window Frame: (%.2f, %.2f, %.2f, %.2f)\n",
+        g_mouse_state.window->frame.origin.x, g_mouse_state.window->frame.origin.y,
+        g_mouse_state.window->frame.size.width, g_mouse_state.window->frame.size.height);
+    
+    if (window_check_flag(g_mouse_state.window, WINDOW_PIP)) {
+        debug("[MOUSE DOWN] PIP Origin: (%.2f, %.2f), Current: (%.2f, %.2f), Scale: (%.2fx%.2f)\n",
+            g_mouse_state.window->pip_frame.origin.x, g_mouse_state.window->pip_frame.origin.y,
+            g_mouse_state.window->pip_frame.current.x, g_mouse_state.window->pip_frame.current.y,
+            g_mouse_state.window->pip_frame.scale_x, g_mouse_state.window->pip_frame.scale_y);
+    }
 out:
     CFRelease(context);
 }
 
 static EVENT_HANDLER(MOUSE_UP)
 {
+    CGPoint point = CGEventGetLocation(context);
+    
     if (mission_control_is_active()) goto out;
     if (!g_mouse_state.window)       goto res;
 
@@ -1205,10 +1222,35 @@ static EVENT_HANDLER(MOUSE_UP)
         debug("%s: %d is transitioning into native-fullscreen mode, ignoring event..\n", __FUNCTION__, g_mouse_state.window->id);
         goto err;
     }
-
-    CGPoint point = CGEventGetLocation(context);
+    debug("[MOUSE UP 🔺🔺] Window Frame: (%.2f, %.2f, %.2f, %.2f)\n",
+        g_mouse_state.window->frame.origin.x, g_mouse_state.window->frame.origin.y,
+        g_mouse_state.window->frame.size.width, g_mouse_state.window->frame.size.height);
+    debug("[MOUSE UP 🔺🔺] PIP Current: (%.2f, %.2f), Scale: (%.2fx%.2f)\n",
+        g_mouse_state.window->pip_frame.current.x, g_mouse_state.window->pip_frame.current.y,
+        g_mouse_state.window->pip_frame.scale_x, g_mouse_state.window->pip_frame.scale_y);
     debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
-
+    
+    
+    if (g_mouse_state.window && window_check_flag(g_mouse_state.window, WINDOW_PIP)) {
+        //    // Calculate the new current position using the same logic as MOUSE_DRAGGED
+        CGPoint new_current_pip = { 
+            (g_mouse_state.window->pip_frame.current.x / g_mouse_state.window->pip_frame.scale_x) + (point.x - g_mouse_state.down_location.x),
+            (g_mouse_state.window->pip_frame.current.y / g_mouse_state.window->pip_frame.scale_y) + (point.y - g_mouse_state.down_location.y)
+        };
+        
+        // Update current position in pip_frame
+        g_mouse_state.window->pip_frame.current.x = new_current_pip.x * g_mouse_state.window->pip_frame.scale_x;
+        g_mouse_state.window->pip_frame.current.y = new_current_pip.y * g_mouse_state.window->pip_frame.scale_y;
+        //g_mouse_state.window->pip_frame.origin.x = new_current_pip.x * g_mouse_state.window->pip_frame.scale_x;
+        //g_mouse_state.window->pip_frame.origin.y = new_current_pip.y * g_mouse_state.window->pip_frame.scale_y;
+        //g_mouse_state.window_frame.origin.x = new_current_pip.x * g_mouse_state.window->pip_frame.scale_x;
+        //g_mouse_state.window_frame.origin.y = new_current_pip.y * g_mouse_state.window->pip_frame.scale_y;
+        //debug("[🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺🔺] \n");
+            //debug("[PIP MOUSE_UP] Updated current position: (%.2f, %.2f)\n", 
+            //      g_mouse_state.window->pip_frame.current.x, g_mouse_state.window->pip_frame.current.y);
+            //debug("[PIP MOUSE_UP] Calculated PIP position: (%.2f, %.2f)\n", 
+            //      new_current_pip.x, new_current_pip.y);
+        }
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
     if (!src_view) goto err;
 
@@ -1216,12 +1258,15 @@ static EVENT_HANDLER(MOUSE_UP)
     mouse_window_info_populate(&g_mouse_state, &info);
 
     if (info.changed_position && !info.changed_size) {
+        
         uint64_t cursor_sid = display_space_id(display_manager_point_display_id(point));
         struct view *dst_view = space_manager_find_view(&g_space_manager, cursor_sid);
 
         struct window *window = window_manager_find_window_at_point_filtering_window(&g_window_manager, point, g_mouse_state.window->id);
         if (!window) window = window_manager_find_window_at_point(&g_window_manager, point);
-        if (window == g_mouse_state.window) window = NULL;
+        if (window == g_mouse_state.window){
+            
+            window = NULL;}
 
         struct window_node *a_node = view_find_window_node(src_view, g_mouse_state.window->id);
         struct window_node *b_node = window ? view_find_window_node(dst_view, window->id) : NULL;
@@ -1263,19 +1308,21 @@ static EVENT_HANDLER(MOUSE_UP)
     } else if (info.changed_position || info.changed_size) {
         mouse_drop_try_adjust_bsp_grid(&g_window_manager, src_view, g_mouse_state.window, &info);
     }
-
+    
 err:
     g_mouse_state.window = NULL;
 res:
     g_mouse_state.current_action = MOUSE_MODE_NONE;
 out:
+    
     CFRelease(context);
 }
 
-static EVENT_HANDLER(MOUSE_DRAGGED)
-{
+static EVENT_HANDLER(MOUSE_DRAGGED){
     if (mission_control_is_active()) goto out;
-    if (!g_mouse_state.window)       goto out;
+    if (!g_mouse_state.window){
+        goto out;
+    }
 
     if (!__sync_bool_compare_and_swap(&g_mouse_state.window->id_ptr, &g_mouse_state.window->id, &g_mouse_state.window->id)) {
         debug("%s: %d has been marked invalid by the system, ignoring event..\n", __FUNCTION__, g_mouse_state.window->id);
@@ -1290,16 +1337,43 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
         CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
                               g_mouse_state.window_frame.origin.y + (point.y - g_mouse_state.down_location.y) };
-
+        
         uint32_t did = display_manager_point_display_id(new_point);
         if (did) {
             CGRect bounds = display_bounds_constrained(did, false);
             if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
         }
-
-        if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) {
+       
+        bool is_pip = window_check_flag(g_mouse_state.window, WINDOW_PIP);
+            
+        if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) { 
             window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
+        } 
+       
+        if (is_pip) {
+            // Calculate new position accounting for PIP scaling
+            CGPoint mouse_delta = { 
+                point.x - g_mouse_state.down_location.x,
+                point.y - g_mouse_state.down_location.y
+            };
+            
+            CGPoint new_point_pip = { 
+                (g_mouse_state.window->pip_frame.current.x / g_mouse_state.window->pip_frame.scale_x) + mouse_delta.x,
+                (g_mouse_state.window->pip_frame.current.y / g_mouse_state.window->pip_frame.scale_y) + mouse_delta.y
+            };
+            
+            debug("🟥[FR] Current: (%.2f, %.2f)", 
+                  g_mouse_state.window_frame.origin.x, g_mouse_state.window_frame.origin.y);
+            debug("🟩[PO] (%.2f, %.2f)", 
+                  g_mouse_state.window->pip_frame.origin.x, g_mouse_state.window->pip_frame.origin.y);
+            debug("🟦[PC] (%.2f, %.2f)\n",
+                  g_mouse_state.window->pip_frame.current.x, g_mouse_state.window->pip_frame.current.y);
+
+            scripting_addition_move_window(g_mouse_state.window->id, new_point_pip.x, new_point_pip.y);
+            // Don't update pip_frame.current here - only in MOUSE_UP
+            goto out;
         }
+        
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = read_os_timer();
         float dt = ((float) event_time - g_mouse_state.last_moved_time) * (1000.0f / (float)read_os_freq());
@@ -1313,9 +1387,10 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
         g_mouse_state.last_moved_time = event_time;
         g_mouse_state.down_location = point;
     }
-
     struct view *src_view = window_manager_find_managed_window(&g_window_manager, g_mouse_state.window);
-    if (!src_view) goto out;
+    if (!src_view) {
+        goto out;
+    }
 
     struct mouse_window_info info;
     mouse_window_info_populate(&g_mouse_state, &info);
@@ -1376,8 +1451,8 @@ static EVENT_HANDLER(MOUSE_DRAGGED)
             }
         }
     }
-
-out:
+    //printf("p1 🟦🟦🟦🟦🟦🟦🟦\n");
+    out:
     CFRelease(context);
 }
 

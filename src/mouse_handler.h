@@ -75,6 +75,7 @@ struct mouse_state
     CGRect window_frame;
     uint32_t ffm_window_id;
     uint8_t direction;
+    CGPoint pip_initial_offset; // Offset from mouse down location to window origin for PIP windows
     struct window_node *feedback_node;
 };
 

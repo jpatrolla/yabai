@@ -411,6 +411,13 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
         fprintf(rsp, "\t\"is-pip\":%s", json_bool(is_pip));
         did_output = true;
     }
+
+    if (flags & WINDOW_PROPERTY_TAGS) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        uint64_t tags = window_tags(wid);
+        fprintf(rsp, "\t\"tags\":%llu", tags);
+    }
     fprintf(rsp, "\n}");
 }
 
@@ -713,6 +720,14 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
 
         bool grabbed = window == g_mouse_state.window;
         fprintf(rsp, "\t\"is-grabbed\":%s", json_bool(grabbed));
+        did_output = true;
+    }
+
+    if (flags & WINDOW_PROPERTY_TAGS) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        uint64_t tags = window_tags(window->id);
+        fprintf(rsp, "\t\"tags\":%llu", tags);
     }
 
     fprintf(rsp, "\n}");

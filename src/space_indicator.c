@@ -142,6 +142,52 @@ void space_indicator_update(struct space_indicator *indicator, uint64_t sid)
     space_indicator_animate_step(indicator);
 }
 
+void space_indicator_update_optimistic(struct space_indicator *indicator, uint64_t sid)
+{
+    if (!indicator->is_active) return;
+    
+    // Get display dimensions
+    uint32_t did = display_manager_main_display_id();
+    CGRect display_frame = display_bounds_constrained(did, false);
+    
+    // Calculate new position
+    int space_count = display_space_count(did);
+    if (space_count <= 0) return;
+    
+    float indicator_width = display_frame.size.width / space_count;
+    int space_index = space_manager_mission_control_index(sid);
+    if (space_index < 1) space_index = 1;
+    
+    float x_position = (space_index - 1) * indicator_width;
+
+    // Set target frame for animation
+    CGRect new_target = {
+        .origin.x = x_position,
+        .origin.y = display_frame.size.height - INDICATOR_HEIGHT,
+        .size.width = indicator_width,
+        .size.height = INDICATOR_HEIGHT
+    };
+    
+    // Check if position actually changed
+    if (fabs(indicator->target_frame.origin.x - new_target.origin.x) < 1.0f) {
+        return; // No significant change, skip animation
+    }
+    
+    // Always start from current position for optimistic animation
+    // Get current position from the window
+    CGRect current_bounds;
+    SLSGetWindowBounds(g_connection, indicator->id, &current_bounds);
+    indicator->frame = current_bounds;
+    
+    // Set new target and start animation immediately (optimistic)
+    indicator->target_frame = new_target;
+    indicator->is_animating = true;
+    indicator->animation_start_time = read_os_timer();
+    
+    // Start the animation
+    space_indicator_animate_step(indicator);
+}
+
 void space_indicator_refresh(struct space_indicator *indicator)
 {
     if (!indicator->is_active) return;

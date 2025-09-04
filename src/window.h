@@ -62,7 +62,8 @@ static CFStringRef ax_window_notification[] =
     WINDOW_PROPERTY_ENTRY("is-floating",          WINDOW_PROPERTY_IS_FLOATING,         0x040000000) \
     WINDOW_PROPERTY_ENTRY("is-sticky",            WINDOW_PROPERTY_IS_STICKY,           0x080000000) \
     WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000) \
-    WINDOW_PROPERTY_ENTRY("is-pip",               WINDOW_PROPERTY_IS_PIP,              0x200000000)
+    WINDOW_PROPERTY_ENTRY("is-pip",               WINDOW_PROPERTY_IS_PIP,              0x200000000) \
+    WINDOW_PROPERTY_ENTRY("tags",                 WINDOW_PROPERTY_TAGS,                0x400000000)
 
 enum window_property
 {
@@ -96,10 +97,18 @@ struct window
     CFStringRef title;
     CGRect frame;
     CGRect windowed_frame;
-    CGRect pip_frame;
+    
+    // PIP frame information
+    struct {
+        CGPoint origin;    // Initial position when PIP was toggled
+        CGSize size;       // Original size for restoration
+        float scale_x;     // Scale factor X
+        float scale_y;     // Scale factor Y
+        CGPoint current;   // Current position (updated on every move)
+        CGSize current_size; // Current size (updated on every resize)
+    } pip_frame;
+    
     CGRect scaled_frame;
-    float pip_scale_x;
-    float pip_scale_y;
     bool is_root;
     bool is_eligible;
     uint8_t notification;

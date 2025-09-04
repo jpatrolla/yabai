@@ -32,7 +32,7 @@ enum mission_control_mode
     MISSION_CONTROL_MODE_SHOW_DESKTOP       = 4
 };
 
-static const char *mission_control_mode_str[] = {
+const char *mission_control_mode_str[] = {
     [MISSION_CONTROL_MODE_INACTIVE]           = "inactive",
     [MISSION_CONTROL_MODE_SHOW]               = "show",
     [MISSION_CONTROL_MODE_SHOW_ALL_WINDOWS]   = "show-all-windows",

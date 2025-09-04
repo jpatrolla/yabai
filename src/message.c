@@ -9,6 +9,7 @@ extern struct display_manager g_display_manager;
 extern struct space_manager g_space_manager;
 extern struct window_manager g_window_manager;
 extern struct mouse_state g_mouse_state;
+extern enum mission_control_mode g_mission_control_mode;
 extern bool g_verbose;
 
 #define DOMAIN_CONFIG  "config"
@@ -185,6 +186,7 @@ extern bool g_verbose;
 #define COMMAND_QUERY_DISPLAYS "--displays"
 #define COMMAND_QUERY_SPACES   "--spaces"
 #define COMMAND_QUERY_WINDOWS  "--windows"
+#define COMMAND_QUERY_MC       "--mc"
 
 #define ARGUMENT_QUERY_DISPLAY "--display"
 #define ARGUMENT_QUERY_SPACE   "--space"
@@ -2623,6 +2625,9 @@ static void handle_domain_query(FILE *rsp, struct token domain, char *message)
         } else {
             window_manager_query_windows_for_displays(rsp, properties.flags);
         }
+    } else if (token_equals(command, COMMAND_QUERY_MC)) {
+        extern const char *mission_control_mode_str[];
+        fprintf(rsp, "\"%s\"\n", mission_control_mode_str[g_mission_control_mode]);
     } else {
         daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);
     }
