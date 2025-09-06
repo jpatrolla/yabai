@@ -22,7 +22,9 @@
     ANIMATION_EASING_TYPE_ENTRY(ease_in_out_expo) \
     ANIMATION_EASING_TYPE_ENTRY(ease_in_circ) \
     ANIMATION_EASING_TYPE_ENTRY(ease_out_circ) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_circ)
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_circ) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_back) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_elastic)
 
 enum animation_easing_type
 {
@@ -142,6 +144,25 @@ static inline float ease_out_circ(float t)
 static inline float ease_in_out_circ(float t)
 {
     return t < 0.5f ? (1.0f - sqrtf(1.0f - powf(2.0f * t, 2.0f))) / 2.0f : (sqrtf(1.0f - powf(-2.0f * t + 2.0f, 2.0f)) + 1.0f) / 2.0f;
+}
+
+static inline float ease_out_back(float t)
+{
+    const float c1 = 1.70158f;
+    const float c3 = c1 + 1.0f;
+
+    return 1.0f + c3 * powf(t - 1.0f, 3.0f) + c1 * powf(t - 1.0f, 2.0f);
+}
+
+static inline float ease_out_elastic(float t)
+{
+    const float c4 = (2.0f * M_PI) / 3.0f;
+
+    return t == 0.0f
+      ? 0.0f
+      : t == 1.0f
+      ? 1.0f
+      : powf(2.0f, -10.0f * t) * sinf((t * 10.0f - 0.75f) * c4) + 1.0f;
 }
 
 #pragma clang diagnostic push
