@@ -1395,7 +1395,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
     // Check if any of these windows are already being animated
     for (int i = 0; i < window_count; ++i) {
         if (table_find(&g_window_manager.window_animations_table, &window_list[i].window->id)) {
-            debug("🎬 Window %d already animating, skipping frame-based animation", window_list[i].window->id);
             // Fallback to immediate positioning for all windows
             for (int j = 0; j < window_count; ++j) {
                 window_manager_set_window_frame(window_list[j].window, 
@@ -1408,21 +1407,18 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         }
     }
     
-    // Add a small delay to batch rapid successive commands
-    // This helps prevent multiple animations for commands like: --resize left:100:0 --resize right:100:0
-    static uint64_t last_animation_time = 0;
+    //static uint64_t last_animation_time = 0;
     
-    uint64_t current_time = mach_absolute_time();
-    uint64_t time_diff = current_time - last_animation_time;
-    double time_diff_ms = (double)time_diff / (double)g_cv_host_clock_frequency * 1000.0;
+    //uint64_t current_time = mach_absolute_time();
+    //uint64_t time_diff = current_time - last_animation_time;
+    //double time_diff_ms = (double)time_diff / (double)g_cv_host_clock_frequency * 1000.0;
     
-    // If another animation was triggered very recently, delay this one slightly
-    if (time_diff_ms < 100.0 && last_animation_time > 0) {
-        debug("🎬 Delaying animation to batch with recent call (%.1fms ago)", time_diff_ms);
-        usleep(100000); // Wait 100ms to see if more commands are coming
-    }
-    
-    last_animation_time = mach_absolute_time();
+    //// If another animation was triggered very recently, delay this one slightly
+    //if (time_diff_ms < 100.0 && last_animation_time > 0) {
+    //    debug("🎬 Delaying animation to batch with recent call (%.1fms ago)", time_diff_ms);
+    //    usleep(100000); // Wait 100ms to see if more commands are coming
+    //}
+    //last_animation_time = mach_absolute_time();
     
     // Animation data structure
     struct {
@@ -1455,19 +1451,11 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             animation_data[i].original_frame.size.width = starting_w;
             animation_data[i].original_frame.size.height = starting_h;
             
-            debug("🎬 Applied starting size multiplier %.2f: target=%.0fx%.0f starting=%.0fx%.0f", 
-                  size_multiplier, target_w, target_h, starting_w, starting_h);
         }
         
         // Simple anchor calculation for POC
-        animation_data[i].anchor_point = 0; // Default to top-left for now
-        
-        debug("🎬 Window %d: src=(%.1f,%.1f,%.1fx%.1f) dst=(%.1f,%.1f,%.1fx%.1f)", 
-              window_list[i].window->id,
-              animation_data[i].original_frame.origin.x, animation_data[i].original_frame.origin.y,
-              animation_data[i].original_frame.size.width, animation_data[i].original_frame.size.height,
-              window_list[i].x, window_list[i].y, window_list[i].w, window_list[i].h);
-        
+        animation_data[i].anchor_point = 0; // Default to top-left for now        
+
         // Add a dummy entry to prevent duplicate animations
         static struct window_animation dummy_animation = {0};
         table_add(&g_window_manager.window_animations_table, &window_list[i].window->id, &dummy_animation);
@@ -1485,10 +1473,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
     
     double frame_duration = duration / total_frames;
     
-    debug("🎬 Animation: duration=%.1fs, frame_rate=%.1f fps, total_frames=%d, frame_duration=%.3fs", 
-          duration, frame_rate, total_frames, frame_duration);
-    
-    // Animate frame by frame using PiP scaling (synchronous for now)
     for (int frame = 0; frame <= total_frames; ++frame) {
         double t = (double)frame / (double)total_frames;
         if (t > 1.0) t = 1.0;
@@ -1508,8 +1492,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             }
         }
         
-        debug("🎬 Frame %d/%d: t=%.3f mt=%.3f (easing=%d)", frame, total_frames, t, mt, easing);
-        
         // Update each window for this frame using PiP scaling animation
         for (int i = 0; i < window_count; ++i) {
             // Interpolate position and size
@@ -1528,32 +1510,28 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             float current_w = start_w + (end_w - start_w) * mt;
             float current_h = start_h + (end_h - start_h) * mt;
             
-            // Determine PiP mode based on animation frame
-            //int pip_mode;
-            scripting_addition_move_window(animation_data[i].capture.window->id, current_x, current_y);
+            //scripting_addition_move_window(animation_data[i].capture.window->id, current_x, current_y);
+            window_manager_move_window(animation_data[i].capture.window, current_x, current_y);
             
             // Apply opacity fade transition if enabled
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
-            
-            if (frame == 0) {
-                window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
 
-                //pip_mode = 1; // Create PiP at starting position
+            // Determine PiP mode based on animation frame
+            if (frame == 0) {
+                // resize the window straight away
+                window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
                 scripting_addition_create_pip(animation_data[i].capture.window->id,
                                               current_x,
                                               current_y,
                                               current_w,
                                               current_h);
-                
-                // Start with reduced opacity and fade in
+            
                 if (use_opacity_fade) {
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 0.3f, 0.0f); // Set initial low opacity
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration); // Fade in
                 }
                 
-                debug("🎬 Creating PiP for window %d at (%.1f,%.1f,%.1fx%.1f) with opacity fade", 
-                      animation_data[i].capture.window->id, current_x, current_y, current_w, current_h);
             } else if (frame == total_frames) {
                 // Fade out before restoring
                 if (use_opacity_fade) {
@@ -1567,22 +1545,12 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration * 0.5f);
                 }
                 
-                //pip_mode = 3; // Restore from PiP (coordinates will be ignored)
-                debug("🎬 Restoring PiP for window %d with opacity fade", animation_data[i].capture.window->id);
+                // Restore from PiP (coordinates will be ignored)
             } else {
                 scripting_addition_move_pip(animation_data[i].capture.window->id,
                                          current_x,
                                          current_y);
                 
-                // Optional: Add subtle opacity pulsing during animation for extra visual feedback
-                if (use_opacity_fade && (frame % 5 == 0)) { // Every 5 frames for smooth pulsing
-                    float pulse_opacity = 0.85f + 0.15f * sinf(t * 3.14159f); // Subtle pulse between 0.85 and 1.0
-                    scripting_addition_set_opacity(animation_data[i].capture.window->id, pulse_opacity, 0.1f);
-                }
-                
-                //pip_mode = 2; // Animate PiP bounds
-                debug("🎬 Animating PiP for window %d to (%.1f,%.1f,%.1fx%.1f)", 
-                      animation_data[i].capture.window->id, current_x, current_y, current_w, current_h);
             }
             
             // Use PiP scaling animation instead of AX API
