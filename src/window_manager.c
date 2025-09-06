@@ -1385,6 +1385,387 @@ void window_manager_animate_window_list_async(struct window_capture *window_list
     CVDisplayLinkStart(link);
 }
 
+// Frame-based animation context structure
+struct window_frame_animation_context {
+    int animation_connection;
+    int animation_count;
+    struct window_frame_animation *animation_list;
+    double animation_duration;
+    int animation_easing;
+    float animation_frame_rate;
+    uint64_t animation_clock;
+    pthread_t animation_thread;
+    bool animation_running;
+};
+
+// Frame-based animation data structure
+struct window_frame_animation {
+    struct window *window;
+    uint32_t wid;
+    float x, y, w, h;
+    CGRect original_frame;
+    bool is_two_phase;
+    float original_w, original_h;
+    int resize_anchor;
+    float size_ratio;
+    bool skip;
+};
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-parameter"
+static void *window_manager_animate_window_list_frame_based_thread_proc(void *data)
+{
+    struct window_frame_animation_context *context = data;
+    int animation_count = context->animation_count;
+    
+    debug("🎬 Frame-based async animation thread started for %d windows", animation_count);
+    
+    // Animation parameters
+    double duration = context->animation_duration;
+    int easing = context->animation_easing;
+    float frame_rate = context->animation_frame_rate;
+    
+    // Calculate frame timing
+    int total_frames = (int)(duration * frame_rate);
+    if (total_frames < 2) total_frames = 2; // Minimum 2 frames
+    if (total_frames > 120) total_frames = 120; // Maximum 120 frames (2 seconds at 60fps)
+    
+    double frame_duration = duration / total_frames;
+    
+    debug("🎬 Async frame animation: duration=%.1fs, frame_rate=%.1f fps, total_frames=%d, frame_duration=%.3fs", 
+          duration, frame_rate, total_frames, frame_duration);
+    
+    context->animation_clock = mach_absolute_time();
+    
+    // Animate frame by frame using PiP scaling (asynchronous)
+    for (int frame = 0; frame <= total_frames && context->animation_running; ++frame) {
+        uint64_t frame_start_time = mach_absolute_time();
+        
+        double t = (double)frame / (double)total_frames;
+        if (t > 1.0) t = 1.0;
+        
+        // Apply easing function like the proxy animation system
+        float mt;
+        if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
+            // Use linear interpolation for simplified/fast mode
+            mt = t;
+        } else {
+            // Use configured easing function
+            switch (easing) {
+#define ANIMATION_EASING_TYPE_ENTRY(value) case value##_type: mt = value(t); break;
+                ANIMATION_EASING_TYPE_LIST
+#undef ANIMATION_EASING_TYPE_ENTRY
+                default: mt = t; // Linear fallback
+            }
+        }
+        
+        debug("🎬 Async Frame %d/%d: t=%.3f mt=%.3f (easing=%d)", frame, total_frames, t, mt, easing);
+        
+        // Update each window for this frame using PiP scaling animation with 2-phase support
+        for (int i = 0; i < animation_count; ++i) {
+            if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
+            
+            float start_x = context->animation_list[i].original_frame.origin.x;
+            float start_y = context->animation_list[i].original_frame.origin.y;
+            float start_w = context->animation_list[i].original_frame.size.width;
+            float start_h = context->animation_list[i].original_frame.size.height;
+            
+            float end_x = context->animation_list[i].x;
+            float end_y = context->animation_list[i].y;
+            float end_w = context->animation_list[i].w;
+            float end_h = context->animation_list[i].h;
+            
+            float current_x, current_y, current_w, current_h;
+            
+            // Apply 2-phase animation logic if enabled for this window
+            if (context->animation_list[i].is_two_phase) {
+                float slide_duration = g_window_manager.window_animation_slide_ratio;
+                
+                if (t <= slide_duration) {
+                    // Phase 1: Slide - move to new position, keep original size
+                    float slide_t = t / slide_duration;
+                    float slide_mt = ease_out_circ(slide_t); // Use different easing for slide phase
+                    
+                    // Interpolate position only
+                    current_x = start_x + (end_x - start_x) * slide_mt;
+                    current_y = start_y + (end_y - start_y) * slide_mt;
+                    // Keep original size during slide phase
+                    current_w = context->animation_list[i].original_w;
+                    current_h = context->animation_list[i].original_h;
+                    
+                    debug("🎬 Async Frame %d/%d Window %d: SLIDE PHASE t=%.3f slide_mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f)", 
+                          frame, total_frames, context->animation_list[i].wid, t, slide_mt, current_x, current_y, current_w, current_h);
+                } else {
+                    // Phase 2: Resize at final position with proper anchor
+                    float resize_t = (t - slide_duration) / (1.0f - slide_duration);
+                    float resize_mt = ease_in_out_cubic(resize_t); // Use different easing for resize phase
+                    
+                    // Smoothly interpolate size from original to final
+                    current_w = context->animation_list[i].original_w + (end_w - context->animation_list[i].original_w) * resize_mt;
+                    current_h = context->animation_list[i].original_h + (end_h - context->animation_list[i].original_h) * resize_mt;
+                    
+                    // Calculate position based on resize anchor to maintain proper anchoring
+                    switch (context->animation_list[i].resize_anchor) {
+                        case 0: // top-left anchor (default)
+                            current_x = end_x;
+                            current_y = end_y;
+                            break;
+                        case 1: // top-right anchor
+                            current_x = end_x + (end_w - current_w);
+                            current_y = end_y;
+                            break;
+                        case 2: // bottom-left anchor  
+                            current_x = end_x;
+                            current_y = end_y + (end_h - current_h);
+                            break;
+                        case 3: // bottom-right anchor
+                            current_x = end_x + (end_w - current_w);
+                            current_y = end_y + (end_h - current_h);
+                            break;
+                        default:
+                            current_x = end_x;
+                            current_y = end_y;
+                            break;
+                    }
+                    
+                    debug("🎬 Async Frame %d/%d Window %d: RESIZE PHASE t=%.3f resize_mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d", 
+                          frame, total_frames, context->animation_list[i].wid, t, resize_mt, current_x, current_y, current_w, current_h, context->animation_list[i].resize_anchor);
+                }
+            } else {
+                // Standard single-phase animation - interpolate position and size simultaneously
+                current_x = start_x + (end_x - start_x) * mt;
+                current_y = start_y + (end_y - start_y) * mt;
+                current_w = start_w + (end_w - start_w) * mt;
+                current_h = start_h + (end_h - start_h) * mt;
+                
+                debug("🎬 Async Frame %d/%d Window %d: SINGLE PHASE t=%.3f mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f)", 
+                      frame, total_frames, context->animation_list[i].wid, t, mt, current_x, current_y, current_w, current_h);
+            }
+            
+            // Execute PiP animation for this frame
+            if (frame == 0) {
+                // First frame: create PiP
+                window_manager_resize_window(context->animation_list[i].window, end_w, end_h);
+                scripting_addition_create_pip(context->animation_list[i].wid, current_x, current_y, current_w, current_h);
+                
+                // Apply opacity fade transition if enabled
+                float opacity_fade_duration = g_window_manager.window_opacity_duration;
+                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
+                    scripting_addition_set_opacity(context->animation_list[i].wid, 0.3f, 0.0f); // Set initial low opacity
+                    scripting_addition_set_opacity(context->animation_list[i].wid, 1.0f, opacity_fade_duration); // Fade in
+                }
+                
+                debug("🎬 Async Creating PiP for window %d at (%.1f,%.1f,%.1fx%.1f)", 
+                      context->animation_list[i].wid, current_x, current_y, current_w, current_h);
+            } else if (frame == total_frames) {
+                // Last frame: restore PiP
+                float opacity_fade_duration = g_window_manager.window_opacity_duration;
+                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
+                    scripting_addition_set_opacity(context->animation_list[i].wid, 0.7f, opacity_fade_duration * 0.5f);
+                }
+                
+                scripting_addition_restore_pip(context->animation_list[i].wid);
+                
+                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
+                    scripting_addition_set_opacity(context->animation_list[i].wid, 1.0f, opacity_fade_duration * 0.5f);
+                }
+                
+                debug("🎬 Async Restoring PiP for window %d", context->animation_list[i].wid);
+            } else {
+                // Middle frames: animate PiP
+                scripting_addition_move_pip(context->animation_list[i].wid, current_x, current_y);
+                
+                // Optional: Add subtle opacity pulsing during animation for extra visual feedback
+                float opacity_fade_duration = g_window_manager.window_opacity_duration;
+                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled && (frame % 5 == 0)) {
+                    float pulse_opacity = 0.85f + 0.15f * sinf(t * 3.14159f); // Subtle pulse between 0.85 and 1.0
+                    scripting_addition_set_opacity(context->animation_list[i].wid, pulse_opacity, 0.1f);
+                }
+                
+                debug("🎬 Async Animating PiP for window %d to (%.1f,%.1f,%.1fx%.1f)", 
+                      context->animation_list[i].wid, current_x, current_y, current_w, current_h);
+            }
+        }
+        
+        // Wait for next frame (unless this is the last frame)
+        if (frame < total_frames && context->animation_running) {
+            uint64_t frame_end_time = mach_absolute_time();
+            uint64_t frame_elapsed_time = frame_end_time - frame_start_time;
+            double frame_elapsed_ms = (double)frame_elapsed_time / (double)g_cv_host_clock_frequency * 1000.0;
+            
+            // Calculate remaining time for this frame
+            double target_frame_ms = frame_duration * 1000.0;
+            double sleep_ms = target_frame_ms - frame_elapsed_ms;
+            
+            if (sleep_ms > 0.0) {
+                usleep((useconds_t)(sleep_ms * 1000)); // Convert ms to µs
+            }
+            
+            debug("🎬 Async Frame timing: elapsed=%.2fms, target=%.2fms, sleep=%.2fms", 
+                  frame_elapsed_ms, target_frame_ms, sleep_ms);
+        }
+    }
+    
+    // Clean up
+    pthread_mutex_lock(&g_window_manager.window_animations_lock);
+    for (int i = 0; i < animation_count; ++i) {
+        // Remove from animation table
+        table_remove(&g_window_manager.window_animations_table, &context->animation_list[i].wid);
+        
+        // Ensure PiP is properly restored (safety cleanup)
+        scripting_addition_restore_pip(context->animation_list[i].wid);
+        
+        // Restore normal opacity (safety cleanup)
+        if (g_window_manager.window_opacity_duration > 0.0f && g_window_manager.window_animation_opacity_enabled) {
+            scripting_addition_set_opacity(context->animation_list[i].wid, 1.0f, 0.0f);
+        }
+        
+        // Ensure final position is exact using the standard method
+        window_manager_set_window_frame(context->animation_list[i].window, 
+                                      context->animation_list[i].x, 
+                                      context->animation_list[i].y, 
+                                      context->animation_list[i].w, 
+                                      context->animation_list[i].h);
+    }
+    pthread_mutex_unlock(&g_window_manager.window_animations_lock);
+    
+    // Free context
+    free(context->animation_list);
+    free(context);
+    
+    debug("🎬 Frame-based async animation thread completed");
+    return NULL;
+}
+#pragma clang diagnostic pop
+
+void window_manager_animate_window_list_frame_based_async(struct window_capture *window_list, int window_count)
+{
+    TIME_FUNCTION;
+    
+    debug("🎬 Starting frame-based ASYNC animation for %d windows (frame_rate=%.1f fps)", 
+          window_count, g_window_manager.window_animation_frame_rate);
+    
+    // Check if any of these windows are already being animated
+    for (int i = 0; i < window_count; ++i) {
+        if (table_find(&g_window_manager.window_animations_table, &window_list[i].window->id)) {
+            debug("🎬 Window %d already animating, skipping frame-based async animation", window_list[i].window->id);
+            // Fallback to immediate positioning for all windows
+            for (int j = 0; j < window_count; ++j) {
+                window_manager_set_window_frame(window_list[j].window, 
+                                              window_list[j].x, 
+                                              window_list[j].y, 
+                                              window_list[j].w, 
+                                              window_list[j].h);
+            }
+            return;
+        }
+    }
+    
+    // Create animation context
+    struct window_frame_animation_context *context = malloc(sizeof(struct window_frame_animation_context));
+    context->animation_count = window_count;
+    context->animation_list = malloc(window_count * sizeof(struct window_frame_animation));
+    context->animation_duration = g_window_manager.window_animation_duration;
+    context->animation_easing = g_window_manager.window_animation_easing;
+    context->animation_frame_rate = g_window_manager.window_animation_frame_rate;
+    context->animation_clock = 0;
+    context->animation_running = true;
+    
+    // Prepare animation data and mark windows as animating
+    pthread_mutex_lock(&g_window_manager.window_animations_lock);
+    for (int i = 0; i < window_count; ++i) {
+        context->animation_list[i].window = window_list[i].window;
+        context->animation_list[i].wid = window_list[i].window->id;
+        context->animation_list[i].x = window_list[i].x;
+        context->animation_list[i].y = window_list[i].y;
+        context->animation_list[i].w = window_list[i].w;
+        context->animation_list[i].h = window_list[i].h;
+        context->animation_list[i].skip = false;
+        
+        SLSGetWindowBounds(g_connection, window_list[i].window->id, &context->animation_list[i].original_frame);
+        
+        // Store original dimensions for 2-phase logic
+        context->animation_list[i].original_w = context->animation_list[i].original_frame.size.width;
+        context->animation_list[i].original_h = context->animation_list[i].original_frame.size.height;
+        
+        // Calculate size difference ratio to determine if 2-phase animation is beneficial
+        context->animation_list[i].size_ratio = calculate_size_difference_ratio(
+            context->animation_list[i].original_w, context->animation_list[i].original_h,
+            window_list[i].w, window_list[i].h
+        );
+        
+        // Enable 2-phase animation for significant size changes (integrated from proxy system)
+        context->animation_list[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled && 
+                                                 window_count >= 2 && 
+                                                 context->animation_list[i].size_ratio > g_window_manager.window_animation_fade_threshold);
+        
+        if (context->animation_list[i].is_two_phase) {
+            // Calculate optimal resize anchor based on window positioning
+            float src_x = context->animation_list[i].original_frame.origin.x;
+            float src_y = context->animation_list[i].original_frame.origin.y;
+            float dst_x = window_list[i].x;
+            float dst_y = window_list[i].y;
+            
+            // Simple anchor calculation based on position change
+            bool moves_right = (dst_x > src_x);
+            bool moves_down = (dst_y > src_y);
+            
+            if (!moves_right && !moves_down) {
+                context->animation_list[i].resize_anchor = 0; // top-left
+            } else if (moves_right && !moves_down) {
+                context->animation_list[i].resize_anchor = 1; // top-right
+            } else if (!moves_right && moves_down) {
+                context->animation_list[i].resize_anchor = 2; // bottom-left
+            } else {
+                context->animation_list[i].resize_anchor = 3; // bottom-right
+            }
+            
+            debug("🎬 Async 2-Phase enabled for window %d: size_ratio=%.2f, anchor=%d", 
+                  window_list[i].window->id, context->animation_list[i].size_ratio, context->animation_list[i].resize_anchor);
+        } else {
+            context->animation_list[i].resize_anchor = 0; // Default to top-left
+        }
+        
+        debug("🎬 Async Window %d: src=(%.1f,%.1f,%.1fx%.1f) dst=(%.1f,%.1f,%.1fx%.1f) two_phase=%s", 
+              window_list[i].window->id,
+              context->animation_list[i].original_frame.origin.x, context->animation_list[i].original_frame.origin.y,
+              context->animation_list[i].original_frame.size.width, context->animation_list[i].original_frame.size.height,
+              window_list[i].x, window_list[i].y, window_list[i].w, window_list[i].h,
+              context->animation_list[i].is_two_phase ? "YES" : "NO");
+        
+        // Add a dummy entry to prevent duplicate animations
+        static struct window_animation dummy_animation = {0};
+        table_add(&g_window_manager.window_animations_table, &window_list[i].window->id, &dummy_animation);
+    }
+    pthread_mutex_unlock(&g_window_manager.window_animations_lock);
+    
+    // Create and start the animation thread
+    if (pthread_create(&context->animation_thread, NULL, window_manager_animate_window_list_frame_based_thread_proc, context) != 0) {
+        debug("🎬 Failed to create frame-based async animation thread, falling back to immediate positioning");
+        
+        // Clean up and fallback to immediate positioning
+        pthread_mutex_lock(&g_window_manager.window_animations_lock);
+        for (int i = 0; i < window_count; ++i) {
+            table_remove(&g_window_manager.window_animations_table, &context->animation_list[i].wid);
+            window_manager_set_window_frame(context->animation_list[i].window, 
+                                          context->animation_list[i].x, 
+                                          context->animation_list[i].y, 
+                                          context->animation_list[i].w, 
+                                          context->animation_list[i].h);
+        }
+        pthread_mutex_unlock(&g_window_manager.window_animations_lock);
+        
+        free(context->animation_list);
+        free(context);
+        return;
+    }
+    
+    // Detach the thread so it can clean up itself
+    pthread_detach(context->animation_thread);
+    
+    debug("🎬 Frame-based async animation thread started successfully");
+}
+
 void window_manager_animate_window_frame_based(struct window_capture *window_list, int window_count)
 {
     TIME_FUNCTION;
@@ -1424,17 +1805,63 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
     
     last_animation_time = mach_absolute_time();
     
-    // Animation data structure
+    // Enhanced animation data structure with 2-phase support
     struct {
         struct window_capture capture;
         CGRect original_frame;
         int anchor_point;
+        bool is_two_phase;
+        float original_w, original_h;
+        int resize_anchor;
+        float size_ratio;
     } animation_data[window_count];
     
     // Prepare animation data and mark windows as animating
     for (int i = 0; i < window_count; ++i) {
         animation_data[i].capture = window_list[i];
         SLSGetWindowBounds(g_connection, window_list[i].window->id, &animation_data[i].original_frame);
+        
+        // Store original dimensions for 2-phase logic
+        animation_data[i].original_w = animation_data[i].original_frame.size.width;
+        animation_data[i].original_h = animation_data[i].original_frame.size.height;
+        
+        // Calculate size difference ratio to determine if 2-phase animation is beneficial
+        animation_data[i].size_ratio = calculate_size_difference_ratio(
+            animation_data[i].original_w, animation_data[i].original_h,
+            window_list[i].w, window_list[i].h
+        );
+        
+        // Enable 2-phase animation for significant size changes (integrated from proxy system)
+        animation_data[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled && 
+                                         window_count >= 2 && 
+                                         animation_data[i].size_ratio > g_window_manager.window_animation_fade_threshold);
+        
+        if (animation_data[i].is_two_phase) {
+            // Calculate optimal resize anchor based on window positioning
+            float src_x = animation_data[i].original_frame.origin.x;
+            float src_y = animation_data[i].original_frame.origin.y;
+            float dst_x = window_list[i].x;
+            float dst_y = window_list[i].y;
+            
+            // Simple anchor calculation based on position change
+            bool moves_right = (dst_x > src_x);
+            bool moves_down = (dst_y > src_y);
+            
+            if (!moves_right && !moves_down) {
+                animation_data[i].resize_anchor = 0; // top-left
+            } else if (moves_right && !moves_down) {
+                animation_data[i].resize_anchor = 1; // top-right
+            } else if (!moves_right && moves_down) {
+                animation_data[i].resize_anchor = 2; // bottom-left
+            } else {
+                animation_data[i].resize_anchor = 3; // bottom-right
+            }
+            
+            debug("🎬 2-Phase enabled for window %d: size_ratio=%.2f, anchor=%d", 
+                  window_list[i].window->id, animation_data[i].size_ratio, animation_data[i].resize_anchor);
+        } else {
+            animation_data[i].resize_anchor = 0; // Default to top-left
+        }
         
         // Apply starting size multiplier if configured (for scaling animation effect)
         if (g_window_manager.window_animation_starting_size != 1.0f) {
@@ -1462,11 +1889,12 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         // Simple anchor calculation for POC
         animation_data[i].anchor_point = 0; // Default to top-left for now
         
-        debug("🎬 Window %d: src=(%.1f,%.1f,%.1fx%.1f) dst=(%.1f,%.1f,%.1fx%.1f)", 
+        debug("🎬 Window %d: src=(%.1f,%.1f,%.1fx%.1f) dst=(%.1f,%.1f,%.1fx%.1f) two_phase=%s", 
               window_list[i].window->id,
               animation_data[i].original_frame.origin.x, animation_data[i].original_frame.origin.y,
               animation_data[i].original_frame.size.width, animation_data[i].original_frame.size.height,
-              window_list[i].x, window_list[i].y, window_list[i].w, window_list[i].h);
+              window_list[i].x, window_list[i].y, window_list[i].w, window_list[i].h,
+              animation_data[i].is_two_phase ? "YES" : "NO");
         
         // Add a dummy entry to prevent duplicate animations
         static struct window_animation dummy_animation = {0};
@@ -1485,7 +1913,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
     
     double frame_duration = duration / total_frames;
     
-    debug("🎬 Animation: duration=%.1fs, frame_rate=%.1f fps, total_frames=%d, frame_duration=%.3fs", 
+    debug("🎬 Animation: duration=%.1fs, frame_rate=%.1f fps, total_frames=%d, frame_duration=%.3fs\n", 
           duration, frame_rate, total_frames, frame_duration);
     
     // Animate frame by frame using PiP scaling (synchronous for now)
@@ -1510,9 +1938,8 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         
         debug("🎬 Frame %d/%d: t=%.3f mt=%.3f (easing=%d)", frame, total_frames, t, mt, easing);
         
-        // Update each window for this frame using PiP scaling animation
+        // Update each window for this frame using PiP scaling animation with 2-phase support
         for (int i = 0; i < window_count; ++i) {
-            // Interpolate position and size
             float start_x = animation_data[i].original_frame.origin.x;
             float start_y = animation_data[i].original_frame.origin.y;
             float start_w = animation_data[i].original_frame.size.width;
@@ -1523,10 +1950,72 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             float end_w = animation_data[i].capture.w;
             float end_h = animation_data[i].capture.h;
             
-            float current_x = start_x + (end_x - start_x) * mt;
-            float current_y = start_y + (end_y - start_y) * mt;
-            float current_w = start_w + (end_w - start_w) * mt;
-            float current_h = start_h + (end_h - start_h) * mt;
+            float current_x, current_y, current_w, current_h;
+            
+            // Apply 2-phase animation logic if enabled for this window
+            if (animation_data[i].is_two_phase) {
+                float slide_duration = g_window_manager.window_animation_slide_ratio;
+                
+                if (t <= slide_duration) {
+                    // Phase 1: Slide - move to new position, keep original size
+                    float slide_t = t / slide_duration;
+                    float slide_mt = ease_out_circ(slide_t); // Use different easing for slide phase
+                    
+                    // Interpolate position only
+                    current_x = start_x + (end_x - start_x) * slide_mt;
+                    current_y = start_y + (end_y - start_y) * slide_mt;
+                    // Keep original size during slide phase
+                    current_w = animation_data[i].original_w;
+                    current_h = animation_data[i].original_h;
+                    
+                    debug("🎬 Frame %d/%d Window %d: SLIDE PHASE t=%.3f slide_mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f)", 
+                          frame, total_frames, animation_data[i].capture.window->id, t, slide_mt, current_x, current_y, current_w, current_h);
+                } else {
+                    // Phase 2: Resize at final position with proper anchor
+                    float resize_t = (t - slide_duration) / (1.0f - slide_duration);
+                    float resize_mt = ease_in_out_cubic(resize_t); // Use different easing for resize phase
+                    
+                    // Smoothly interpolate size from original to final
+                    current_w = animation_data[i].original_w + (end_w - animation_data[i].original_w) * resize_mt;
+                    current_h = animation_data[i].original_h + (end_h - animation_data[i].original_h) * resize_mt;
+                    
+                    // Calculate position based on resize anchor to maintain proper anchoring
+                    switch (animation_data[i].resize_anchor) {
+                        case 0: // top-left anchor (default)
+                            current_x = end_x;
+                            current_y = end_y;
+                            break;
+                        case 1: // top-right anchor
+                            current_x = end_x + (end_w - current_w);
+                            current_y = end_y;
+                            break;
+                        case 2: // bottom-left anchor  
+                            current_x = end_x;
+                            current_y = end_y + (end_h - current_h);
+                            break;
+                        case 3: // bottom-right anchor
+                            current_x = end_x + (end_w - current_w);
+                            current_y = end_y + (end_h - current_h);
+                            break;
+                        default:
+                            current_x = end_x;
+                            current_y = end_y;
+                            break;
+                    }
+                    
+                    debug("🎬 Frame %d/%d Window %d: RESIZE PHASE t=%.3f resize_mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d", 
+                          frame, total_frames, animation_data[i].capture.window->id, t, resize_mt, current_x, current_y, current_w, current_h, animation_data[i].resize_anchor);
+                }
+            } else {
+                // Standard single-phase animation - interpolate position and size simultaneously
+                current_x = start_x + (end_x - start_x) * mt;
+                current_y = start_y + (end_y - start_y) * mt;
+                current_w = start_w + (end_w - start_w) * mt;
+                current_h = start_h + (end_h - start_h) * mt;
+                
+                debug("🎬 Frame %d/%d Window %d: SINGLE PHASE t=%.3f mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f)", 
+                      frame, total_frames, animation_data[i].capture.window->id, t, mt, current_x, current_y, current_w, current_h);
+            }
             
             // Determine PiP mode based on animation frame
             //int pip_mode;
@@ -1631,9 +2120,10 @@ void window_manager_animate_window_list(struct window_capture *window_list, int 
     TIME_FUNCTION;
 
     if (g_window_manager.window_animation_duration) {
-        // POC: Try the new frame-based animation if enabled via a flag
+        // Use frame-based animation if enabled via a flag
         if (g_window_manager.window_animation_frame_based_enabled) {
-            debug("🎬🎬🎬🎬 FRAME-BASED LIST %d windows\n", window_count);
+            debug("🎬🎬🎬🎬 FRAME-BASED SYNC LIST %d windows (for testing)\n", window_count);
+            // Temporarily use synchronous version for debugging
             window_manager_animate_window_frame_based(window_list, window_count);
         } else {
             debug("🟨🟨🟨🟨 CLASSIC LIST %d windows\n", window_count);
@@ -1651,8 +2141,10 @@ void window_manager_animate_window(struct window_capture capture)
     TIME_FUNCTION;
 
     if (g_window_manager.window_animation_duration) {
-        // POC: Try the new frame-based animation if enabled via a flag
+        // Use frame-based animation if enabled via a flag
         if (g_window_manager.window_animation_frame_based_enabled) {
+            debug("🎬🎬🎬🎬 FRAME-BASED SYNC %d (for testing)\n", capture.window->id);
+            // Temporarily use synchronous version for debugging  
             window_manager_animate_window_frame_based(&capture, 1);
         } else {
             debug("🟨🟨🟨🟨 CLASSIC %d\n", capture.window->id);
@@ -4183,7 +4675,7 @@ void window_manager_init(struct window_manager *wm)
     wm->window_animation_fade_intensity = 0.1f;   // Fade to 60% opacity (1.0 - 0.4)
     wm->window_animation_fade_enabled = false;     // Enable fade effect by default
     wm->window_animation_two_phase_enabled = true; // Enable two-phase animation by default
-    wm->window_animation_slide_ratio = 0.75f;      // 60% slide, 40% resize
+    wm->window_animation_slide_ratio = 0.90f;      // 60% slide, 40% resize
     
     // Initialize edge override controls
     wm->window_animation_edge_threshold = 5.0f;                // 5 pixel threshold for edge detection
