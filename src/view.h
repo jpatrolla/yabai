@@ -17,7 +17,8 @@
     SPACE_PROPERTY_ENTRY("has-focus",            SPACE_PROPERTY_HAS_FOCUS,          0x200) \
     SPACE_PROPERTY_ENTRY("is-visible",           SPACE_PROPERTY_IS_VISIBLE,         0x400) \
     SPACE_PROPERTY_ENTRY("is-native-fullscreen", SPACE_PROPERTY_IS_FULLSCREEN,      0x800) \
-    SPACE_PROPERTY_ENTRY("is-float-toggled",     SPACE_PROPERTY_IS_FLOAT_TOGGLED,   0x1000)
+    SPACE_PROPERTY_ENTRY("is-float-toggled",     SPACE_PROPERTY_IS_FLOAT_TOGGLED,   0x1000) \
+    SPACE_PROPERTY_ENTRY("padding",              SPACE_PROPERTY_PADDING,            0x2000)
 enum space_property
 {
 #define SPACE_PROPERTY_ENTRY(n, p, v) p = v,

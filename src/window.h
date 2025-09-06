@@ -87,6 +87,14 @@ static char *window_property_str[] =
 #undef WINDOW_PROPERTY_ENTRY
 };
 
+struct window_space_widget_data
+{
+    int index;                  // Widget display order/position
+    CGRect hit_rect;           // Cached hit detection rectangle
+    bool is_visible_in_widget; // Whether window is currently shown in widget
+    uint64_t last_update_time; // Timestamp of last widget update (for debugging)
+};
+
 struct window
 {
     struct application *application;
@@ -112,6 +120,8 @@ struct window
     CGRect scaled_frame;
     bool is_root;
     bool is_eligible;
+    bool was_floating;
+    struct window_space_widget_data *space_widget;
     uint8_t notification;
     uint8_t rule_flags;
     uint32_t flags;
@@ -133,6 +143,7 @@ enum window_flag
     WINDOW_RESIZABLE  = 0x80,
     WINDOW_PIP        = 0x100,
     WINDOW_SCRATCHED  = 0x200,
+    WINDOW_HIDDEN     = 0x400,
 };
 
 enum window_rule_flag

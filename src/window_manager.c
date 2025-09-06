@@ -287,10 +287,13 @@ void window_manager_center_mouse(struct window_manager *wm, struct window *windo
 
 bool window_manager_should_manage_window(struct window *window)
 {
+    debug("Checking if we should manage window %d with title: %s\n", window->id, window_title_ts(window));
+    if (window_check_flag(window, WINDOW_HIDDEN)) {debug("Window is hidden, returning false\n"); return false;}
     if (!window->is_root)                           return false;
     if (window_check_flag(window, WINDOW_FLOAT))    return false;
     if (window_is_sticky(window->id))               return false;
     if (window_check_flag(window, WINDOW_MINIMIZE)) return false;
+    if (window_check_flag(window, WINDOW_SCRATCHED))return false;
     if (window->application->is_hidden)             return false;
 
     return (window_is_standard(window) && window_level_is_standard(window) && window_can_move(window)) || window_check_rule_flag(window, WINDOW_RULE_MANAGED);
@@ -1629,10 +1632,7 @@ struct window *window_manager_find_second_cousin_for_managed_window(struct windo
     struct window_node *node = view_find_window_node(view, window->id);
     if (!node || !node->parent) return NULL;
 
-    struct window_node *grandparent = node->parent->parent;
-    if (!grandparent) return NULL;
-
-    struct window_node *uncle_node = window_node_is_left_child(node->parent) ? grandparent->right : grandparent->left;
+    struct window_node *uncle_node = window_node_is_left_child(node->parent) ? node->parent->parent->right : node->parent->parent->left;
     if (window_node_is_leaf(uncle_node) || !window_node_is_leaf(uncle_node->right)) return NULL;
 
     return window_manager_find_window(wm, uncle_node->right->window_order[0]);
@@ -1971,7 +1971,25 @@ struct window **window_manager_add_application_windows(struct space_manager *sm,
     CFRelease(window_list);
     return list;
 }
+static void dc(void)
+{
+    int window_count = 0;
+    uint32_t window_list[1024] = {0};
 
+    if (workspace_is_macos_sequoia()) {
+        // NOTE(koekeishiya): Subscribe to all windows because of window_destroyed (and ordered) notifications
+        table_for (struct window *window, g_window_manager.window, {
+            window_list[window_count++] = window->id;
+        })
+    } else {
+        // NOTE(koekeishiya): Subscribe to windows that have a feedback_border because of window_ordered notifications
+        table_for (struct window_node *node, g_window_manager.insert_feedback, {
+            window_list[window_count++] = node->window_order[0];
+        })
+    }
+
+    SLSRequestNotificationsForWindows(g_connection, window_list, window_count);
+}
 static uint32_t *window_manager_existing_application_window_list(struct application *application, int *window_count)
 {
     int display_count;
@@ -2235,11 +2253,11 @@ enum window_op_error window_manager_warp_window(struct space_manager *sm, struct
 
     if (a->id == b->id) return WINDOW_OP_ERROR_SAME_WINDOW;
 
-    uint64_t a_sid = window_space(a->id);
+    uint32_t a_sid = window_space(a->id);
     struct view *a_view = space_manager_find_view(sm, a_sid);
     if (a_view->layout != VIEW_BSP) return WINDOW_OP_ERROR_INVALID_SRC_VIEW;
 
-    uint64_t b_sid = window_space(b->id);
+    uint32_t b_sid = window_space(b->id);
     struct view *b_view = space_manager_find_view(sm, b_sid);
     if (b_view->layout != VIEW_BSP) return WINDOW_OP_ERROR_INVALID_DST_VIEW;
 
@@ -2259,7 +2277,7 @@ enum window_op_error window_manager_warp_window(struct space_manager *sm, struct
             b_node->parent->child = b_node->child;
 
             view_remove_window_node(a_view, a);
-            window_manager_remove_managed_window(wm, a->id);
+            window_manager_remove_managed_window(wm, a_node->window_list[0]);
             window_manager_add_managed_window(wm, a, b_view);
             struct window_node *a_node_add = view_add_window_node_with_insertion_point(b_view, a, b->id);
 
@@ -2620,6 +2638,133 @@ void window_manager_make_window_floating(struct space_manager *sm, struct window
 
 }
 
+bool window_manager_hide_window(struct window *window)
+{
+    debug("Hiding window wm\n");
+    if (!window){ debug("Invalid window, returning false\n"); return false;}
+    if (window_check_flag(window, WINDOW_SCRATCHED) || window_check_flag(window, WINDOW_MINIMIZE) || window_check_flag(window, WINDOW_HIDDEN)) {debug("Window is already hidden, returning false\n"); return false;}
+    
+    // Check if window is currently managed (in BSP layout)
+    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    if (view) {
+        // Window is managed (tiled), remember this and remove from layout
+        debug("Window %d was tiled, removing from layout\n", window->id);
+        window->was_floating = false;
+        space_manager_untile_window(view, window);
+        window_manager_remove_managed_window(&g_window_manager, window->id);
+    } else {
+        // Window is floating, remember this
+        debug("Window %d was floating\n", window->id);
+        window->was_floating = true;
+    }
+    
+    // Hide the window and mark as scratched and hidden
+    //if (scripting_addition_order_window(window->id, 0, 0)) { // hide
+        window_set_flag(window, WINDOW_SCRATCHED);           // mark as scratched
+        window_set_flag(window, WINDOW_HIDDEN);             // mark as hidden
+       
+        extern struct space_widget g_space_widget;
+        space_widget_refresh(&g_space_widget);
+        
+        // Update window notifications for Sequoia compatibility
+        if (workspace_is_macos_sequoia()) {
+            dc();
+        }
+        
+        return true;
+    //}
+    
+    //return false;
+}
+
+bool window_manager_unhide_window(struct window *window)
+{
+    if (!window) return false;
+    
+    // Show the window and clear scratched and hidden flags
+    if (scripting_addition_order_window(window->id, 1, 0)) { // show
+        window_clear_flag(window, WINDOW_SCRATCHED);         // clear scratched flag
+        window_clear_flag(window, WINDOW_HIDDEN);           // clear hidden flag
+        
+        // Update window notifications for Sequoia compatibility
+        if (workspace_is_macos_sequoia()) {
+            dc();
+        }
+        
+        // If window was previously tiled (not floating), add it back to the layout
+        if (!window->was_floating && window_manager_is_window_eligible(window)) {
+            debug("Restoring window %d to tiled layout\n", window->id);
+            uint64_t sid = window_space(window->id);
+            struct view *view = space_manager_find_view(&g_space_manager, sid);
+            if (view && view->layout != VIEW_FLOAT) {
+                if ((window_manager_should_manage_window(window)) && (!window_manager_find_managed_window(&g_window_manager, window))) {
+
+                    struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, space_manager_active_space());
+                    window_manager_add_managed_window(&g_window_manager, window, view);
+                }
+            } else {
+                debug("Cannot restore window %d to tiled layout - view is floating or not found\n", window->id);
+            }
+        } else {
+            debug("Window %d remains floating (was_floating=%s)\n", window->id, window->was_floating ? "true" : "false");
+        }
+        
+        // Update widget when floating window is shown (unscratched)
+        extern struct space_widget g_space_widget;
+        space_widget_refresh(&g_space_widget);
+        
+        return true;
+    }
+    
+    return false;
+}
+
+bool window_manager_toggle_hidden(struct window *window)
+{
+    debug("Toggling visibility for window %d\n", window ? window->id : 0);
+    if (!window) return false;
+    
+
+debug("Toggling visibility for window %d\n", window->id);
+    if (window_check_flag(window, WINDOW_SCRATCHED)) {
+        debug("-> Showing window %d\n", window->id);
+        return window_manager_unhide_window(window);
+    } else {
+        debug("-> Hiding window %d\n", window->id);
+        return window_manager_hide_window(window);
+    }
+}
+
+bool window_manager_is_floating_window_hidden(struct window *window)
+{
+    if (!window) return false;
+    if (!window_check_flag(window, WINDOW_FLOAT)) return false;
+    
+    return window_check_flag(window, WINDOW_SCRATCHED) || window_check_flag(window, WINDOW_HIDDEN);
+}
+
+bool window_manager_recover_floating_window(struct window *window)
+{
+    if (!window) return false;
+    if (!window_check_flag(window, WINDOW_FLOAT)) return false;
+    
+    // Force show the window regardless of current state
+    bool success = true;
+    if (window_check_flag(window, WINDOW_SCRATCHED)) {
+        success = scripting_addition_order_window(window->id, 1, 0); // show
+        if (success) {
+            window_clear_flag(window, WINDOW_SCRATCHED); // clear scratched flag
+            window_clear_flag(window, WINDOW_HIDDEN);   // clear hidden flag
+            
+            // Update widget when floating window is recovered (unscratched)
+            extern struct space_widget g_space_widget;
+            space_widget_refresh(&g_space_widget);
+        }
+    }
+    
+    return success;
+}
+
 void window_manager_make_window_sticky(struct space_manager *sm, struct window_manager *wm, struct window *window, bool should_sticky)
 {
     TIME_FUNCTION;
@@ -2889,27 +3034,18 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
     
     // Try to apply the scaling first
     bool scale_success = scripting_addition_scale_window(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+    //bool scale_success = scripting_addition_scale_window_custom(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+    //bool scale_success = scripting_addition_scale_window_custom(window->id, 50, 50, 200, 200);
 
     if (scale_success) {
         // Only update the flag if scaling succeeded
         if (!was_pip) {
             // Entering PIP mode - use the calculate function to set everything up
-            CGPoint scaled_position = window_manager_calculate_scaled_points(sm, window);
-            
-            debug("values before pip: (%.1f, %.1f, %.1f, %.1f)\n",
-                window->pip_frame.origin.x, window->pip_frame.origin.y, 
-                window->pip_frame.size.width, window->pip_frame.size.height);
-            debug("calculated scaled position: (%.1f, %.1f)\n", scaled_position.x, scaled_position.y);
-            debug("scale factors: %.2fx%.2f\n", window->pip_frame.scale_x, window->pip_frame.scale_y);
-            debug("current dimensions: %.1fx%.1f\n", window->pip_frame.current_size.width, window->pip_frame.current_size.height);
-            
+            //CGPoint scaled_position = window_manager_calculate_scaled_points(sm, window);            
             window_set_flag(window, WINDOW_PIP);
         } else {
             // Exiting PIP mode - restore original coordinates
-            debug("[PIP] Restoring to original frame: (%.1f, %.1f, %.1f, %.1f)\n", 
-                   window->pip_frame.origin.x, window->pip_frame.origin.y,
-                   window->pip_frame.size.width, window->pip_frame.size.height);
-            
+
             window_clear_flag(window, WINDOW_PIP);
         }
         
@@ -2917,6 +3053,41 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
             .count = 1,
             .wid   = window->id,
             .value = !was_pip ? 1 : 0
+        };
+        push_janky_update(1117, &msg, sizeof(msg));
+    }
+}
+
+void window_manager_set_window_pip_frame(struct space_manager *sm, struct window *window, float x, float y, float w, float h)
+{
+    TIME_FUNCTION;
+
+    uint32_t did = window_display_id(window->id);
+    if (!did) return;
+
+    bool was_pip = window_check_flag(window, WINDOW_PIP);
+    
+    // Try to apply the scaling with custom coordinates using the new custom function
+    bool scale_success = scripting_addition_scale_window_custom(window->id, x, y, w, h);
+
+
+    if (scale_success) {
+        // Only update the flag if scaling succeeded
+        if (!was_pip) {
+            // Entering PIP mode with custom frame
+            window->pip_frame.current.x = x;
+            window->pip_frame.current.y = y;
+            window_set_flag(window, WINDOW_PIP);
+        } else {
+            // Already in PIP mode - just update position
+            window->pip_frame.current.x = x;
+            window->pip_frame.current.y = y;
+        }
+        
+        struct yb_prop_update msg = {
+            .count = 1,
+            .wid   = window->id,
+            .value = 1
         };
         push_janky_update(1117, &msg, sizeof(msg));
     }

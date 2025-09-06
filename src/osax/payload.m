@@ -621,6 +621,93 @@ static void do_window_scale(char *message)
     }
 }
 
+static void do_window_scale_custom(char *message)
+{
+    uint32_t wid;
+    unpack(wid);
+    if (!wid) return;
+
+    CGRect frame = {};
+    SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame);
+    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
+
+    CGAffineTransform current_transform;
+    SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
+
+    // Unpack the operation mode and coordinates
+    int mode;
+    unpack(mode);
+    
+    float dx, dy, dw, dh;
+    unpack(dx);
+    unpack(dy);
+    unpack(dw);
+    unpack(dh);
+
+    switch (mode) {
+        case 0: // create_pip - scale window and position it
+        {
+            if (!CGAffineTransformEqualToTransform(current_transform, original_transform)) {
+                // Already scaled, restore first then create
+                SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+            }
+            
+            int target_width  = dw;
+            int target_height = target_width / (frame.size.width/frame.size.height);
+
+            float x_scale = frame.size.width/target_width;
+            float y_scale = frame.size.height/target_height;
+
+            CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
+            CGFloat transformed_y = -dy;
+            
+            NSLog(@"🎯 create_pip: target(%f,%f,%f,%f) transform(%f,%f) scale(%f,%f)", 
+                   dx, dy, dw, dh, transformed_x, transformed_y, x_scale, y_scale);
+            
+            CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
+            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
+            SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+            break;
+        }
+        
+        case 1: // move_pip - update position of already scaled window
+        {
+            if (CGAffineTransformEqualToTransform(current_transform, original_transform)) {
+                // Not scaled yet, can't move - should create first
+                NSLog(@"🎯 move_pip: window not scaled, ignoring");
+                return;
+            }
+            
+            // Extract current scale from transform
+            float current_x_scale = current_transform.a;
+            float current_y_scale = current_transform.d;
+            
+            // Calculate new translation using existing scale and new coordinates
+            CGFloat new_transformed_x = -(dx+dw) + (frame.size.width * (1/current_x_scale));
+            CGFloat new_transformed_y = -dy;
+            
+            NSLog(@"🎯 move_pip: new_pos(%f,%f) transform(%f,%f) existing_scale(%f,%f)", 
+                   dx, dy, new_transformed_x, new_transformed_y, current_x_scale, current_y_scale);
+            
+            CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(current_x_scale, current_y_scale));
+            CGAffineTransform transform = CGAffineTransformTranslate(scale, new_transformed_x, new_transformed_y);
+            SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+            break;
+        }
+        
+        case 2: // restore_pip - reset to original transform
+        {
+            NSLog(@"🎯 restore_pip: resetting to original transform");
+            SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+            break;
+        }
+        
+        default:
+            NSLog(@"🎯 unknown mode: %d", mode);
+            break;
+    }
+}
+
 static void do_window_move(char *message)
 {
     uint32_t wid;
@@ -988,6 +1075,9 @@ static void handle_message(int sockfd, char *message)
     } break;
     case SA_OPCODE_WINDOW_SCALE: {
         do_window_scale(message);
+    } break;
+    case SA_OPCODE_WINDOW_SCALE_CUSTOM: {
+        do_window_scale_custom(message);
     } break;
     case SA_OPCODE_WINDOW_SWAP_PROXY_IN: {
         do_window_swap_proxy_in(message);

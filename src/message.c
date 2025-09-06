@@ -159,6 +159,9 @@ extern bool g_verbose;
 #define COMMAND_WINDOW_LOWER      "--lower"
 #define COMMAND_WINDOW_TOGGLE     "--toggle"
 #define COMMAND_WINDOW_SCRATCHPAD "--scratchpad"
+#define COMMAND_WINDOW_PIP_TEST   "--pip-test"
+#define COMMAND_WINDOW_HIDE       "--hide"
+#define COMMAND_WINDOW_UNHIDE     "--unhide"
 
 #define ARGUMENT_WINDOW_SEL_LARGEST     "largest"
 #define ARGUMENT_WINDOW_SEL_SMALLEST    "smallest"
@@ -177,16 +180,20 @@ extern bool g_verbose;
 #define ARGUMENT_WINDOW_LAYER_NORMAL    "normal"
 #define ARGUMENT_WINDOW_LAYER_ABOVE     "above"
 #define ARGUMENT_WINDOW_LAYER_AUTO      "auto"
-#define ARGUMENT_WINDOW_TOGGLE_FLOAT    "float"
-#define ARGUMENT_WINDOW_TOGGLE_STICKY   "sticky"
-#define ARGUMENT_WINDOW_TOGGLE_SHADOW   "shadow"
-#define ARGUMENT_WINDOW_TOGGLE_SPLIT    "split"
-#define ARGUMENT_WINDOW_TOGGLE_PARENT   "zoom-parent"
-#define ARGUMENT_WINDOW_TOGGLE_FULLSC   "zoom-fullscreen"
-#define ARGUMENT_WINDOW_TOGGLE_WINDOWED "windowed-fullscreen"
-#define ARGUMENT_WINDOW_TOGGLE_NATIVE   "native-fullscreen"
-#define ARGUMENT_WINDOW_TOGGLE_EXPOSE   "expose"
-#define ARGUMENT_WINDOW_TOGGLE_PIP      "pip"
+#define ARGUMENT_WINDOW_TOGGLE_FLOAT      "float"
+#define ARGUMENT_WINDOW_TOGGLE_STICKY     "sticky"
+#define ARGUMENT_WINDOW_TOGGLE_SHADOW     "shadow"
+#define ARGUMENT_WINDOW_TOGGLE_SPLIT      "split"
+#define ARGUMENT_WINDOW_TOGGLE_PARENT     "zoom-parent"
+#define ARGUMENT_WINDOW_TOGGLE_FULLSC     "zoom-fullscreen"
+#define ARGUMENT_WINDOW_TOGGLE_WINDOWED   "windowed-fullscreen"
+#define ARGUMENT_WINDOW_TOGGLE_NATIVE     "native-fullscreen"
+#define ARGUMENT_WINDOW_TOGGLE_EXPOSE     "expose"
+#define ARGUMENT_WINDOW_TOGGLE_PIP        "pip"
+#define ARGUMENT_WINDOW_TOGGLE_HIDE       "hide"
+
+#define ARGUMENT_WINDOW_HIDE              "hide"
+#define ARGUMENT_WINDOW_UNHIDE            "unhide"
 
 #define ARGUMENT_WINDOW_SCRATCHPAD_RECOVER "recover"
 /* ----------------------------------------------------------------------------- */
@@ -562,6 +569,9 @@ static char *reserved_window_identifiers[] =
     ARGUMENT_WINDOW_TOGGLE_NATIVE,
     ARGUMENT_WINDOW_TOGGLE_EXPOSE,
     ARGUMENT_WINDOW_TOGGLE_PIP,
+    ARGUMENT_WINDOW_TOGGLE_HIDE,
+    ARGUMENT_WINDOW_HIDE,
+    ARGUMENT_WINDOW_UNHIDE,
     ARGUMENT_WINDOW_SCRATCHPAD_RECOVER
 };
 
@@ -2158,6 +2168,8 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             !token_equals(command, COMMAND_WINDOW_CLOSE) &&
             !token_equals(command, COMMAND_WINDOW_MINIMIZE) &&
             !token_equals(command, COMMAND_WINDOW_DEMINIMIZE) &&
+            !token_equals(command, COMMAND_WINDOW_HIDE) &&
+            !token_equals(command, COMMAND_WINDOW_UNHIDE) &&
             !token_equals(command, COMMAND_WINDOW_TOGGLE)) {
             daemon_fail(rsp, "could not locate the window to act on!\n");
             return;
@@ -2460,6 +2472,13 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 } else {
                     daemon_fail(rsp, "could not locate the window to act on!\n");
                 }
+            } else if (token_equals(value, ARGUMENT_WINDOW_TOGGLE_HIDE)) {
+                if (acting_window) {
+                    debug("Toggling hidden state of window id %d\n", acting_window->id);
+                    window_manager_toggle_hidden(acting_window);
+                } else {
+                    daemon_fail(rsp, "could not locate the window to act on!\n");
+                }
             } else if (!window_manager_toggle_scratchpad_window_by_label(&g_window_manager, value.text)) {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
@@ -2540,6 +2559,95 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                         daemon_fail(rsp, "the selected window was not assigned to a scratchpad!\n");
                     }
                 }
+            }
+        } else if (token_equals(command, COMMAND_WINDOW_PIP_TEST)) {
+            // Test command for PIP functionality
+            char *args = string_copy(message);
+            char *mode_str = strsep(&args, ":");
+            
+            if (mode_str && string_equals(mode_str, "create")) {
+                char *x_str = strsep(&args, ":");
+                char *y_str = strsep(&args, ":");
+                char *w_str = strsep(&args, ":");
+                char *h_str = strsep(&args, ":");
+                
+                if (x_str && y_str && w_str && h_str) {
+                    float x = strtof(x_str, NULL);
+                    float y = strtof(y_str, NULL);
+                    float w = strtof(w_str, NULL);
+                    float h = strtof(h_str, NULL);
+                    
+                    printf("🧪 Testing create_pip: wid=%d, x=%.0f, y=%.0f, w=%.0f, h=%.0f\n", 
+                           acting_window->id, x, y, w, h);
+                    
+                    if (scripting_addition_create_pip(acting_window->id, x, y, w, h)) {
+                        fprintf(rsp, "PIP created successfully\n");
+                    } else {
+                        daemon_fail(rsp, "Failed to create PIP\n");
+                    }
+                }
+            } else if (mode_str && string_equals(mode_str, "move")) {
+                char *x_str = strsep(&args, ":");
+                char *y_str = strsep(&args, ":");
+                
+                if (x_str && y_str) {
+                    float x = strtof(x_str, NULL);
+                    float y = strtof(y_str, NULL);
+                    
+                    printf("🧪 Testing move_pip: wid=%d, x=%.0f, y=%.0f\n", 
+                           acting_window->id, x, y);
+                    
+                    if (scripting_addition_move_pip(acting_window->id, x, y)) {
+                        fprintf(rsp, "PIP moved successfully\n");
+                    } else {
+                        daemon_fail(rsp, "Failed to move PIP\n");
+                    }
+                }
+            } else if (mode_str && string_equals(mode_str, "restore")) {
+                printf("🧪 Testing restore_pip: wid=%d\n", acting_window->id);
+                
+                if (scripting_addition_restore_pip(acting_window->id)) {
+                    fprintf(rsp, "PIP restored successfully\n");
+                } else {
+                    daemon_fail(rsp, "Failed to restore PIP\n");
+                }
+            } else {
+                daemon_fail(rsp, "Usage: --pip-test create:x:y:w:h | move:x:y | restore\n");
+            }
+        } else if (token_equals(command, COMMAND_WINDOW_HIDE)) {
+            debug("COMMAND_WINDOW_HIDE\n");
+            struct selector selector = parse_window_selector(rsp, &message, acting_window, true);
+
+            if (token_is_valid(selector.token)) {
+                if (selector.did_parse && selector.window) {
+                    acting_window = selector.window;
+                } else {
+                    return;
+                }
+            }
+
+            if (acting_window) {
+                debug("Hiding window id %d\n", acting_window->id);
+                window_manager_hide_window(acting_window);
+            } else {
+                daemon_fail(rsp, "could not locate the window to act on!\n");
+            }
+        } else if (token_equals(command, COMMAND_WINDOW_UNHIDE)) {
+            struct selector selector = parse_window_selector(rsp, &message, acting_window, true);
+
+            if (token_is_valid(selector.token)) {
+                if (selector.did_parse && selector.window) {
+                    acting_window = selector.window;
+                } else {
+                    return;
+                }
+            }
+
+            if (acting_window) {
+                debug("Unhiding window id %d\n", acting_window->id);
+                window_manager_unhide_window(acting_window);
+            } else {
+                daemon_fail(rsp, "could not locate the window to act on!\n");
             }
         } else {
             daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);

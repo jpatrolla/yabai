@@ -697,7 +697,8 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
     if (flags & WINDOW_PROPERTY_IS_HIDDEN) {
         if (did_output) fprintf(rsp, ",\n");
 
-        fprintf(rsp, "\t\"is-hidden\":%s", json_bool(window->application->is_hidden));
+        bool is_hidden = window->application->is_hidden || window_check_flag(window, WINDOW_HIDDEN);
+        fprintf(rsp, "\t\"is-hidden\":%s", json_bool(is_hidden));
         did_output = true;
     }
 
@@ -1163,6 +1164,14 @@ struct window *window_create(struct application *application, AXUIElementRef win
         window_set_flag(window, WINDOW_STICKY);
     }
 
+    // Initialize space widget data
+    window->space_widget = malloc(sizeof(struct window_space_widget_data));
+    if (window->space_widget) {
+        memset(window->space_widget, 0, sizeof(struct window_space_widget_data));
+        window->space_widget->index = -1; // -1 means not assigned yet
+        window->space_widget->is_visible_in_widget = false;
+    }
+
     return window;
 }
 
@@ -1172,6 +1181,13 @@ void window_destroy(struct window *window)
     if (window->role) CFRelease(window->role);
     if (window->subrole) CFRelease(window->subrole);
     if (window->title) CFRelease(window->title);
+    
+    // Clean up space widget data
+    if (window->space_widget) {
+        free(window->space_widget);
+        window->space_widget = NULL;
+    }
+    
     CFRelease(window->ref);
     free(window);
 }

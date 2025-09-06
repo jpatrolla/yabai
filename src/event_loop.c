@@ -1183,61 +1183,34 @@ static EVENT_HANDLER(DISPLAY_RESIZED)
 static EVENT_HANDLER(MOUSE_DOWN)
 {
     CGPoint point = CGEventGetLocation(context);
-    
-    // Always log mouse clicks for debugging
-    printf("DEBUG: Mouse click at: %.2f, %.2f\n", point.x, point.y);
+
     
     // Check if click is on space widget
     if (g_space_widget.is_active) {
-        printf("DEBUG: Widget active: true\n");
-        printf("DEBUG: Widget frame: (%.2f, %.2f, %.2f, %.2f)\n", 
-               g_space_widget.frame.origin.x, g_space_widget.frame.origin.y,
-               g_space_widget.frame.size.width, g_space_widget.frame.size.height);
+
         
         bool contains = CGRectContainsPoint(g_space_widget.frame, point);
-        printf("DEBUG: Click contains point: %s\n", contains ? "YES" : "NO");
+       
         
         if (contains) {
-            printf("DEBUG: *** SPACE WIDGET CLICKED! ***\n");
-            
-            debug("Space widget clicked at: %.2f, %.2f\n", point.x, point.y);
             
             // Check if click was on a specific icon
             uint32_t clicked_window_id = space_widget_get_clicked_window_id(point, g_space_widget.frame);
             
             if (clicked_window_id) {
-                printf("*** WINDOW ICON CLICKED *** Window ID: %u\n", clicked_window_id);
                 
                 // Find the window object
                 struct window *clicked_window = window_manager_find_window(&g_window_manager, clicked_window_id);
                 if (clicked_window) {
                     printf("DEBUG: Found window object for ID %u\n", clicked_window_id);
                     
-                    // Check if window is minimized and deminimize if needed
-                    if (window_check_flag(clicked_window, WINDOW_MINIMIZE)) {
-                        printf("DEBUG: Window is minimized, attempting to deminimize...\n");
-                        enum window_op_error deminimize_result = window_manager_deminimize_window(clicked_window);
-                        if (deminimize_result == WINDOW_OP_ERROR_SUCCESS) {
-                            printf("DEBUG: Successfully deminimized window %u\n", clicked_window_id);
-                        } else {
-                            printf("DEBUG: Failed to deminimize window %u (error: %d)\n", clicked_window_id, deminimize_result);
-                        }
-                    }
-                    
-                    // Try to unhide/show window using scripting addition
-                    printf("DEBUG: Attempting to show window using scripting_addition_order_window...\n");
-                    scripting_addition_order_window(clicked_window->id, 1, 0);
-                    
-                    // Focus and raise the window
-                    printf("DEBUG: Focusing and raising window...\n");
-                    window_manager_focus_window_with_raise(&clicked_window->application->psn, 
-                                                          clicked_window->id, 
-                                                          clicked_window->ref);
-                    
-                    // If window's application is hidden, try to unhide it
-                    if (clicked_window->application->is_hidden) {
-                        printf("DEBUG: Application is hidden, attempting to unhide application...\n");
-                        // The focus_window_with_raise should handle this, but we'll log it
+                    // Use the new unified window unhide function
+                    printf("DEBUG: Attempting to unhide window using window_manager_unhide_window...\n");
+                    bool show_result = window_manager_unhide_window(clicked_window);
+                    if (show_result) {
+                        printf("DEBUG: Successfully showed window %u\n", clicked_window_id);
+                    } else {
+                        printf("DEBUG: Failed to show window %u\n", clicked_window_id);
                     }
                     
                     printf("DEBUG: Window activation complete for ID %u\n", clicked_window_id);
@@ -1435,7 +1408,24 @@ static EVENT_HANDLER(MOUSE_DRAGGED){
     }
 
     CGPoint point = CGEventGetLocation(context);
-    debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
+    CGPoint mouse_delta = { 
+        point.x - g_mouse_state.down_location.x,
+        point.y - g_mouse_state.down_location.y
+    };
+    bool is_pip = window_check_flag(g_mouse_state.window, WINDOW_PIP);
+    if (is_pip) {
+        CGPoint offset = {
+            100 + g_mouse_state.down_location.x,
+            100 + g_mouse_state.down_location.y
+        };
+        scripting_addition_move_pip(g_mouse_state.window->id, mouse_delta.x + offset.x, mouse_delta.y + offset.y);
+        CGPoint new_point_pip = { 
+            (g_mouse_state.window->pip_frame.current.x / g_mouse_state.window->pip_frame.scale_x) + mouse_delta.x,
+            (g_mouse_state.window->pip_frame.current.y / g_mouse_state.window->pip_frame.scale_y) + mouse_delta.y
+        };
+        goto out;
+    }
+    debug("delta x: %.2f, delta y: %.2f\n", mouse_delta.x, mouse_delta.y);
     if (g_mouse_state.current_action == MOUSE_MODE_MOVE) {
         CGPoint new_point = { g_mouse_state.window_frame.origin.x + (point.x - g_mouse_state.down_location.x),
                               g_mouse_state.window_frame.origin.y + (point.y - g_mouse_state.down_location.y) };
@@ -1445,36 +1435,12 @@ static EVENT_HANDLER(MOUSE_DRAGGED){
             CGRect bounds = display_bounds_constrained(did, false);
             if (new_point.y < bounds.origin.y) new_point.y = bounds.origin.y;
         }
-       
-        bool is_pip = window_check_flag(g_mouse_state.window, WINDOW_PIP);
+        
             
         if (!scripting_addition_move_window(g_mouse_state.window->id, new_point.x, new_point.y)) { 
             window_manager_move_window(g_mouse_state.window, new_point.x, new_point.y);
         } 
-       
-        if (is_pip) {
-            // Calculate new position accounting for PIP scaling
-            CGPoint mouse_delta = { 
-                point.x - g_mouse_state.down_location.x,
-                point.y - g_mouse_state.down_location.y
-            };
-            
-            CGPoint new_point_pip = { 
-                (g_mouse_state.window->pip_frame.current.x / g_mouse_state.window->pip_frame.scale_x) + mouse_delta.x,
-                (g_mouse_state.window->pip_frame.current.y / g_mouse_state.window->pip_frame.scale_y) + mouse_delta.y
-            };
-            
-            debug("🟥[FR] Current: (%.2f, %.2f)", 
-                  g_mouse_state.window_frame.origin.x, g_mouse_state.window_frame.origin.y);
-            debug("🟩[PO] (%.2f, %.2f)", 
-                  g_mouse_state.window->pip_frame.origin.x, g_mouse_state.window->pip_frame.origin.y);
-            debug("🟦[PC] (%.2f, %.2f)\n",
-                  g_mouse_state.window->pip_frame.current.x, g_mouse_state.window->pip_frame.current.y);
-
-            scripting_addition_move_window(g_mouse_state.window->id, new_point_pip.x, new_point_pip.y);
-            // Don't update pip_frame.current here - only in MOUSE_UP
-            goto out;
-        }
+        
         
     } else if (g_mouse_state.current_action == MOUSE_MODE_RESIZE) {
         uint64_t event_time = read_os_timer();

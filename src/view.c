@@ -1074,6 +1074,17 @@
                     json_bool(view_check_flag(view, VIEW_FLOAT_TOGGLED)));
             did_output = true;
         }
+
+        if (flags & SPACE_PROPERTY_PADDING) {
+            if (did_output) fprintf(rsp, ",\n");
+            fprintf(rsp, "\t\"padding\":{\n");
+            fprintf(rsp, "\t\t\"top\":%.2f,\n", (float)view->top_padding);
+            fprintf(rsp, "\t\t\"bottom\":%.2f,\n", (float)view->bottom_padding);
+            fprintf(rsp, "\t\t\"left\":%.2f,\n", (float)view->left_padding);
+            fprintf(rsp, "\t\t\"right\":%.2f\n", (float)view->right_padding);
+            fprintf(rsp, "\t}");
+            did_output = true;
+        }
         fprintf(rsp, "\n}");
     }
 

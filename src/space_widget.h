@@ -18,5 +18,7 @@ void space_widget_create(struct space_widget *widget);
 void space_widget_destroy(struct space_widget *widget);
 void space_widget_refresh(struct space_widget *widget);
 uint32_t space_widget_get_clicked_window_id(CGPoint click_point, CGRect widget_frame);
+void space_widget_set_render_mode(int mode);
+int space_widget_get_render_mode(void);
 
 #endif
