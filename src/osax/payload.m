@@ -708,6 +708,75 @@ static void do_window_scale_custom(char *message)
     }
 }
 
+static void do_window_animate_frame(char *message)
+{
+    uint32_t wid;
+    unpack(wid);
+    if (!wid) return;
+
+    // Unpack animation frame data
+    float src_x, src_y, src_w, src_h;
+    float dst_x, dst_y, dst_w, dst_h;
+    float progress; // 0.0 to 1.0
+    int anchor_point; // 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
+    
+    unpack(src_x); unpack(src_y); unpack(src_w); unpack(src_h);
+    unpack(dst_x); unpack(dst_y); unpack(dst_w); unpack(dst_h);
+    unpack(progress);
+    unpack(anchor_point);
+    
+    // Interpolate current frame values
+    float current_x = src_x + (dst_x - src_x) * progress;
+    float current_y = src_y + (dst_y - src_y) * progress;
+    float current_w = src_w + (dst_w - src_w) * progress;
+    float current_h = src_h + (dst_h - src_h) * progress;
+    
+    // Get actual window bounds for transform calculation
+    CGRect window_frame = {};
+    SLSGetWindowBounds(SLSMainConnectionID(), wid, &window_frame);
+    
+    // Calculate scale factors
+    float x_scale = window_frame.size.width / current_w;
+        //testing
+        //float x_scale = window_frame.size.width / current_w;
+
+    float y_scale = window_frame.size.height / current_h;
+        //testing
+        //float y_scale = current_h;
+    
+    // Calculate anchor-based position
+    float anchor_x = current_x;
+    float anchor_y = current_y;
+    
+    switch (anchor_point) {
+        case 0: // top-left (default)
+            // anchor_x and anchor_y are already correct
+            break;
+        case 1: // top-right
+            anchor_x = current_x + current_w - window_frame.size.width / x_scale;
+            break;
+        case 2: // bottom-left
+            anchor_y = current_y + current_h - window_frame.size.height / y_scale;
+            break;
+        case 3: // bottom-right
+            anchor_x = current_x + current_w - window_frame.size.width / x_scale;
+            anchor_y = current_y + current_h - window_frame.size.height / y_scale;
+            break;
+    }
+    
+    // Calculate transform translation (relative to window's natural position)
+    float transform_x = -(anchor_x + current_w) + (window_frame.size.width * (1.0f / x_scale));
+    float transform_y = -anchor_y;
+    
+    // Apply the transform (reusing your existing scaling infrastructure)
+    CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
+    CGAffineTransform transform = CGAffineTransformTranslate(scale, transform_x, transform_y);
+    SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+    
+    NSLog(@"🎬 animate_frame: wid=%d progress=%.2f pos=(%.1f,%.1f) size=(%.1fx%.1f) anchor=%d scale=(%.2f,%.2f)", 
+          wid, progress, current_x, current_y, current_w, current_h, anchor_point, x_scale, y_scale);
+}
+
 static void do_window_move(char *message)
 {
     uint32_t wid;
@@ -1078,6 +1147,9 @@ static void handle_message(int sockfd, char *message)
     } break;
     case SA_OPCODE_WINDOW_SCALE_CUSTOM: {
         do_window_scale_custom(message);
+    } break;
+    case SA_OPCODE_WINDOW_ANIMATE_FRAME: {
+        do_window_animate_frame(message);
     } break;
     case SA_OPCODE_WINDOW_SWAP_PROXY_IN: {
         do_window_swap_proxy_in(message);

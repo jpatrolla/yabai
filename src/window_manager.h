@@ -128,6 +128,39 @@ struct window_manager
     float window_opacity_duration;
     float window_animation_duration;
     int window_animation_easing;
+    float window_animation_fade_threshold;
+    float window_animation_fade_intensity;
+    bool window_animation_fade_enabled;
+    bool window_animation_two_phase_enabled;
+    float window_animation_slide_ratio;    // 0.0-1.0, how much of animation is slide vs resize
+    
+    // Edge override controls for fine-grained animation control
+    float window_animation_edge_threshold; // Pixel threshold for edge preservation detection
+    bool window_animation_force_top_anchor;    // Force top edge to stay fixed
+    bool window_animation_force_bottom_anchor; // Force bottom edge to stay fixed
+    bool window_animation_force_left_anchor;   // Force left edge to stay fixed
+    bool window_animation_force_right_anchor;  // Force right edge to stay fixed
+    bool window_animation_override_stacked_top;    // Override anchor for top windows in stack
+    bool window_animation_override_stacked_bottom; // Override anchor for bottom windows in stack
+    int window_animation_stacked_top_anchor;       // 0-3: anchor to use for top stacked windows
+    int window_animation_stacked_bottom_anchor;    // 0-3: anchor to use for bottom stacked windows
+    // Blur effects for proxy windows
+    bool window_animation_blur_enabled;        // Enable blur effect on proxy windows
+    float window_animation_blur_radius;        // Blur radius (0.0-100.0)
+    int window_animation_blur_style;           // Blur style (0=none, 1=light, 2=dark, 3=vibrant)
+    
+    // Performance-focused animation toggles
+    bool window_animation_shadows_enabled;     // Enable shadows on proxy windows (performance impact)
+    bool window_animation_opacity_enabled;    // Enable opacity changes during animation
+    bool window_animation_simplified_easing;  // Use linear interpolation instead of complex easing
+    bool window_animation_reduced_resolution; // Use lower resolution for proxy windows
+    bool window_animation_fast_mode;          // Fast mode: disables blur, shadows, complex easing
+    float window_animation_starting_size;     // Size multiplier for animation start (0.1-2.0)
+    
+    // Frame-based animation (POC alternative to proxy windows)
+    bool window_animation_frame_based_enabled; // Use frame-based scaling instead of proxy windows
+    float window_animation_frame_rate;         // Frame rate for AX API calls (1.0-120.0 fps)
+    
     struct rgba_color insert_feedback_color;
     struct scratchpad *scratchpad_window;
     struct table stack_state;
@@ -151,6 +184,7 @@ void window_manager_move_window(struct window *window, float x, float y);
 void window_manager_resize_window(struct window *window, float width, float height);
 enum window_op_error window_manager_adjust_window_ratio(struct window_manager *wm, struct window *window, int action, float ratio);
 void window_manager_animate_window(struct window_capture capture);
+void window_manager_animate_window_frame_based(struct window_capture *window_list, int window_count);
 void window_manager_animate_window_list(struct window_capture *window_list, int window_count);
 void window_manager_set_window_frame(struct window *window, float x, float y, float width, float height);
 int window_manager_find_rank_of_window_in_list(uint32_t wid, uint32_t *window_list, int window_count);

@@ -4,6 +4,15 @@
 #define AX_ABS(a, b) (((a) - (b) < 0) ? (((a) - (b)) * -1) : ((a) - (b)))
 #define AX_DIFF(a, b) (AX_ABS(a, b) >= 1.5f)
 
+// Forward declare enum for use in window_animation struct
+enum window_node_split
+{
+    SPLIT_NONE,
+    SPLIT_Y,
+    SPLIT_X,
+    SPLIT_AUTO
+};
+
 #define SPACE_PROPERTY_LIST \
     SPACE_PROPERTY_ENTRY("id",                   SPACE_PROPERTY_ID,                 0x001) \
     SPACE_PROPERTY_ENTRY("uuid",                 SPACE_PROPERTY_UUID,               0x002) \
@@ -74,6 +83,22 @@ struct window_animation
     int cid;
     struct window_proxy proxy;
     volatile bool skip;
+    // Two-phase animation support
+    float original_w, original_h;  // Original size for slide phase
+    bool is_two_phase;             // Whether this animation uses two-phase approach
+    int resize_anchor;             // 0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right
+    // Positioning metadata for better anchor detection
+    bool is_stacked_top;           // True if this window is the top in a vertical stack
+    bool is_stacked_bottom;        // True if this window is the bottom in a vertical stack
+    bool is_side_by_side;          // True if windows are arranged horizontally
+    enum window_node_split parent_split; // The split type of the parent node
+    // Constraint-based edge relationships
+    struct {
+        bool preserve_top_edge;    // Keep top edge fixed during resize
+        bool preserve_bottom_edge; // Keep bottom edge fixed during resize
+        bool preserve_left_edge;   // Keep left edge fixed during resize
+        bool preserve_right_edge;  // Keep right edge fixed during resize
+    } edge_constraints;
 };
 
 struct window_animation_context
@@ -118,14 +143,6 @@ static const char *window_node_child_str[] =
     "none",
     "second_child",
     "first_child"
-};
-
-enum window_node_split
-{
-    SPLIT_NONE,
-    SPLIT_Y,
-    SPLIT_X,
-    SPLIT_AUTO
 };
 
 static const char *window_node_split_str[] =

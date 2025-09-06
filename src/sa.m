@@ -577,6 +577,20 @@ bool scripting_addition_restore_pip(uint32_t wid)
     return scripting_addition_scale_window_custom_mode(wid, 2, 0, 0, 0, 0); // coordinates ignored for restore
 }
 
+bool scripting_addition_animate_window_frame(uint32_t wid, 
+                                            float src_x, float src_y, float src_w, float src_h,
+                                            float dst_x, float dst_y, float dst_w, float dst_h,
+                                            float progress, int anchor_point)
+{
+    sa_payload_init();
+    pack(wid);
+    pack(src_x); pack(src_y); pack(src_w); pack(src_h);
+    pack(dst_x); pack(dst_y); pack(dst_w); pack(dst_h);
+    pack(progress);
+    pack(anchor_point);
+    return sa_payload_send(SA_OPCODE_WINDOW_ANIMATE_FRAME);
+}
+
 bool scripting_addition_swap_window_proxy_in(struct window_animation *animation_list, int animation_count)
 {
     uint32_t dummy_wid = 0;

@@ -31,8 +31,33 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_WINDOW_ZOOM_PERSIST   "window_zoom_persist"
 #define COMMAND_CONFIG_OPACITY               "window_opacity"
 #define COMMAND_CONFIG_OPACITY_DURATION      "window_opacity_duration"
-#define COMMAND_CONFIG_ANIMATION_DURATION    "window_animation_duration"
-#define COMMAND_CONFIG_ANIMATION_EASING      "window_animation_easing"
+#define COMMAND_CONFIG_ANIMATION_DURATION       "window_animation_duration"
+#define COMMAND_CONFIG_ANIMATION_EASING         "window_animation_easing"
+#define COMMAND_CONFIG_ANIMATION_FADE_THRESHOLD "window_animation_fade_threshold"
+#define COMMAND_CONFIG_ANIMATION_FADE_INTENSITY "window_animation_fade_intensity"
+#define COMMAND_CONFIG_ANIMATION_FADE_ENABLED   "window_animation_fade_enabled"
+#define COMMAND_CONFIG_ANIMATION_TWO_PHASE      "window_animation_two_phase_enabled"
+#define COMMAND_CONFIG_ANIMATION_SLIDE_RATIO    "window_animation_slide_ratio"
+#define COMMAND_CONFIG_ANIMATION_EDGE_THRESHOLD "window_animation_edge_threshold"
+#define COMMAND_CONFIG_ANIMATION_FORCE_TOP      "window_animation_force_top_anchor"
+#define COMMAND_CONFIG_ANIMATION_FORCE_BOTTOM   "window_animation_force_bottom_anchor"
+#define COMMAND_CONFIG_ANIMATION_FORCE_LEFT     "window_animation_force_left_anchor"
+#define COMMAND_CONFIG_ANIMATION_FORCE_RIGHT    "window_animation_force_right_anchor"
+#define COMMAND_CONFIG_ANIMATION_OVERRIDE_TOP   "window_animation_override_stacked_top"
+#define COMMAND_CONFIG_ANIMATION_OVERRIDE_BOTTOM "window_animation_override_stacked_bottom"
+#define COMMAND_CONFIG_ANIMATION_TOP_ANCHOR     "window_animation_stacked_top_anchor"
+#define COMMAND_CONFIG_ANIMATION_BOTTOM_ANCHOR  "window_animation_stacked_bottom_anchor"
+#define COMMAND_CONFIG_ANIMATION_BLUR_ENABLED   "window_animation_blur_enabled"
+#define COMMAND_CONFIG_ANIMATION_BLUR_RADIUS    "window_animation_blur_radius"
+#define COMMAND_CONFIG_ANIMATION_BLUR_STYLE     "window_animation_blur_style"
+#define COMMAND_CONFIG_ANIMATION_SHADOWS_ENABLED "window_animation_shadows_enabled"
+#define COMMAND_CONFIG_ANIMATION_OPACITY_ENABLED "window_animation_opacity_enabled"
+#define COMMAND_CONFIG_ANIMATION_SIMPLIFIED_EASING "window_animation_simplified_easing"
+#define COMMAND_CONFIG_ANIMATION_REDUCED_RESOLUTION "window_animation_reduced_resolution"
+#define COMMAND_CONFIG_ANIMATION_FAST_MODE      "window_animation_fast_mode"
+#define COMMAND_CONFIG_ANIMATION_STARTING_SIZE  "window_animation_starting_size"
+#define COMMAND_CONFIG_ANIMATION_FRAME_BASED    "window_animation_frame_based_enabled"
+#define COMMAND_CONFIG_ANIMATION_FRAME_RATE     "window_animation_frame_rate"
 #define COMMAND_CONFIG_SHADOW                "window_shadow"
 #define COMMAND_CONFIG_MENUBAR_OPACITY       "menubar_opacity"
 #define COMMAND_CONFIG_ACTIVE_WINDOW_OPACITY "active_window_opacity"
@@ -1340,6 +1365,269 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 }
                 if (!match) daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FADE_THRESHOLD)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%.2f\n", g_window_manager.window_animation_fade_threshold);
+            } else if (value.type == TOKEN_TYPE_FLOAT && in_range_ii(value.float_value, 0.0f, 1.0f)) {
+                g_window_manager.window_animation_fade_threshold = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FADE_INTENSITY)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%.2f\n", g_window_manager.window_animation_fade_intensity);
+            } else if (value.type == TOKEN_TYPE_FLOAT && in_range_ii(value.float_value, 0.0f, 1.0f)) {
+                g_window_manager.window_animation_fade_intensity = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FADE_ENABLED)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_fade_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_fade_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_fade_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_TWO_PHASE)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_two_phase_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_two_phase_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_two_phase_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_SLIDE_RATIO)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%.2f\n", g_window_manager.window_animation_slide_ratio);
+            } else if (value.type == TOKEN_TYPE_FLOAT && in_range_ii(value.float_value, 0.0f, 1.0f)) {
+                g_window_manager.window_animation_slide_ratio = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_EDGE_THRESHOLD)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%.1f\n", g_window_manager.window_animation_edge_threshold);
+            } else if (value.type == TOKEN_TYPE_FLOAT && value.float_value >= 0.0f) {
+                g_window_manager.window_animation_edge_threshold = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FORCE_TOP)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_force_top_anchor]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_force_top_anchor = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_force_top_anchor = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FORCE_BOTTOM)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_force_bottom_anchor]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_force_bottom_anchor = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_force_bottom_anchor = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FORCE_LEFT)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_force_left_anchor]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_force_left_anchor = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_force_left_anchor = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FORCE_RIGHT)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_force_right_anchor]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_force_right_anchor = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_force_right_anchor = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_OVERRIDE_TOP)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_override_stacked_top]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_override_stacked_top = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_override_stacked_top = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_OVERRIDE_BOTTOM)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_override_stacked_bottom]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_override_stacked_bottom = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_override_stacked_bottom = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_TOP_ANCHOR)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%d\n", g_window_manager.window_animation_stacked_top_anchor);
+            } else if (value.type == TOKEN_TYPE_INT && in_range_ii(value.int_value, 0, 3)) {
+                g_window_manager.window_animation_stacked_top_anchor = value.int_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_BOTTOM_ANCHOR)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%d\n", g_window_manager.window_animation_stacked_bottom_anchor);
+            } else if (value.type == TOKEN_TYPE_INT && in_range_ii(value.int_value, 0, 3)) {
+                g_window_manager.window_animation_stacked_bottom_anchor = value.int_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_BLUR_ENABLED)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_blur_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_blur_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_blur_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_BLUR_RADIUS)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%.2f\n", g_window_manager.window_animation_blur_radius);
+            } else if (value.type == TOKEN_TYPE_FLOAT && value.float_value >= 0.0f && value.float_value <= 100.0f) {
+                g_window_manager.window_animation_blur_radius = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_BLUR_STYLE)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%d\n", g_window_manager.window_animation_blur_style);
+            } else if (value.type == TOKEN_TYPE_INT && in_range_ii(value.int_value, 0, 3)) {
+                g_window_manager.window_animation_blur_style = value.int_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_SHADOWS_ENABLED)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_shadows_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_shadows_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_shadows_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_OPACITY_ENABLED)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_opacity_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_opacity_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_opacity_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_SIMPLIFIED_EASING)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_simplified_easing]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_simplified_easing = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_simplified_easing = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_REDUCED_RESOLUTION)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_reduced_resolution]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_reduced_resolution = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_reduced_resolution = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FAST_MODE)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_fast_mode]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_fast_mode = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_fast_mode = true;
+                // Fast mode automatically enables performance optimizations
+                g_window_manager.window_animation_blur_enabled = false;
+                g_window_manager.window_animation_shadows_enabled = false;
+                g_window_manager.window_animation_simplified_easing = true;
+                g_window_manager.window_animation_reduced_resolution = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_STARTING_SIZE)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%.2f\n", g_window_manager.window_animation_starting_size);
+            } else if (value.type == TOKEN_TYPE_FLOAT && value.float_value >= 0.1f && value.float_value <= 2.0f) {
+                g_window_manager.window_animation_starting_size = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FRAME_BASED)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_frame_based_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_frame_based_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_frame_based_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FRAME_RATE)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%.0f\n", g_window_manager.window_animation_frame_rate);
+            } else {
+                float frame_rate = strtof(value.text, NULL);
+                if (frame_rate >= 1.0f && frame_rate <= 120.0f) {
+                    g_window_manager.window_animation_frame_rate = frame_rate;
+                } else {
+                    daemon_fail(rsp, "value '%.*s' is not a valid frame rate (1.0-120.0)\n", value.length, value.text);
+                }
+            }
         } else if (token_equals(command, COMMAND_CONFIG_SHADOW)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -2561,58 +2849,81 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 }
             }
         } else if (token_equals(command, COMMAND_WINDOW_PIP_TEST)) {
-            // Test command for PIP functionality
+            // Test command for frame-based animation functionality
             char *args = string_copy(message);
-            char *mode_str = strsep(&args, ":");
+            char *x_str = strsep(&args, ",");
+            char *y_str = strsep(&args, ",");
+            char *w_str = strsep(&args, ",");
+            char *h_str = strsep(&args, ",");
             
-            if (mode_str && string_equals(mode_str, "create")) {
-                char *x_str = strsep(&args, ":");
-                char *y_str = strsep(&args, ":");
-                char *w_str = strsep(&args, ":");
-                char *h_str = strsep(&args, ":");
+            if (x_str && y_str && w_str && h_str) {
+                float test_x = strtof(x_str, NULL);
+                float test_y = strtof(y_str, NULL);
+                float test_w = strtof(w_str, NULL);
+                float test_h = strtof(h_str, NULL);
                 
-                if (x_str && y_str && w_str && h_str) {
-                    float x = strtof(x_str, NULL);
-                    float y = strtof(y_str, NULL);
-                    float w = strtof(w_str, NULL);
-                    float h = strtof(h_str, NULL);
-                    
-                    printf("🧪 Testing create_pip: wid=%d, x=%.0f, y=%.0f, w=%.0f, h=%.0f\n", 
-                           acting_window->id, x, y, w, h);
-                    
-                    if (scripting_addition_create_pip(acting_window->id, x, y, w, h)) {
-                        fprintf(rsp, "PIP created successfully\n");
-                    } else {
-                        daemon_fail(rsp, "Failed to create PIP\n");
-                    }
-                }
-            } else if (mode_str && string_equals(mode_str, "move")) {
-                char *x_str = strsep(&args, ":");
-                char *y_str = strsep(&args, ":");
+                printf("🎬 Testing frame-based pip animation: wid=%d, target=(%.0f,%.0f,%.0fx%.0f)\n", 
+                       acting_window->id, test_x, test_y, test_w, test_h);
                 
-                if (x_str && y_str) {
-                    float x = strtof(x_str, NULL);
-                    float y = strtof(y_str, NULL);
-                    
-                    printf("🧪 Testing move_pip: wid=%d, x=%.0f, y=%.0f\n", 
-                           acting_window->id, x, y);
-                    
-                    if (scripting_addition_move_pip(acting_window->id, x, y)) {
-                        fprintf(rsp, "PIP moved successfully\n");
-                    } else {
-                        daemon_fail(rsp, "Failed to move PIP\n");
-                    }
-                }
-            } else if (mode_str && string_equals(mode_str, "restore")) {
-                printf("🧪 Testing restore_pip: wid=%d\n", acting_window->id);
+                // Get current window position using SLSGetWindowBounds for accuracy
+                CGRect original_frame;
+                SLSGetWindowBounds(g_connection, acting_window->id, &original_frame);
                 
-                if (scripting_addition_restore_pip(acting_window->id)) {
-                    fprintf(rsp, "PIP restored successfully\n");
-                } else {
-                    daemon_fail(rsp, "Failed to restore PIP\n");
-                }
+                printf("🎬 Original position: (%.0f,%.0f,%.0fx%.0f)\n", 
+                       original_frame.origin.x, original_frame.origin.y, 
+                       original_frame.size.width, original_frame.size.height);
+                
+                // Force frame-based animation for this test
+                bool original_frame_based = g_window_manager.window_animation_frame_based_enabled;
+                g_window_manager.window_animation_frame_based_enabled = true;
+                printf("🎬 Frame-based animation: %s -> enabled\n", 
+                       original_frame_based ? "already enabled" : "enabling");
+                
+                // Create window capture for animation to test coordinates
+                struct window_capture test_capture = {
+                    .window = acting_window,
+                    .x = test_x,
+                    .y = test_y,
+                    .w = test_w,
+                    .h = test_h
+                };
+
+                // Phase 1: Animate to test position
+                printf("🎬 Phase 1: Animating to test position using config (duration=%.1fs, easing=%d)...\n",
+                       g_window_manager.window_animation_duration, g_window_manager.window_animation_easing);
+                window_manager_resize_window(acting_window, test_w, test_h);
+                       window_manager_animate_window(test_capture);
+                
+                // Wait for animation to complete + pause time
+                double animation_duration = g_window_manager.window_animation_duration;
+                double pause_time = 3.0;
+                double total_wait = animation_duration + pause_time;
+                
+                printf("🎬 Waiting %.1fs (animation: %.1fs + pause: %.1fs)...\n", 
+                       total_wait, animation_duration, pause_time);
+                usleep((useconds_t)(total_wait * 1000000));
+                
+                // Create window capture for animation back to original position
+                struct window_capture restore_capture = {
+                    .window = acting_window,
+                    .x = original_frame.origin.x,
+                    .y = original_frame.origin.y,
+                    .w = original_frame.size.width,
+                    .h = original_frame.size.height
+                };
+                
+                // Phase 2: Animate back to original position
+                printf("🎬 Phase 2: Animating back to original position...\n");
+                window_manager_animate_window(restore_capture);
+                
+                // Restore original frame-based setting
+                g_window_manager.window_animation_frame_based_enabled = original_frame_based;
+                printf("🎬 Frame-based animation restored to: %s\n", 
+                       original_frame_based ? "enabled" : "disabled");
+                
+                fprintf(rsp, "✅ Frame-based pip animation test completed successfully!\n");
             } else {
-                daemon_fail(rsp, "Usage: --pip-test create:x:y:w:h | move:x:y | restore\n");
+                daemon_fail(rsp, "Usage: --pip-test x,y,w,h (e.g., --pip-test 50,50,100,100)\n");
             }
         } else if (token_equals(command, COMMAND_WINDOW_HIDE)) {
             debug("COMMAND_WINDOW_HIDE\n");
