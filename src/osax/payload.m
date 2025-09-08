@@ -65,6 +65,7 @@ extern CFTypeRef SLSTransactionCreate(int cid);
 extern CGError SLSTransactionCommit(CFTypeRef transaction, int synchronous);
 extern CGError SLSTransactionOrderWindowGroup(CFTypeRef transaction, uint32_t wid, int order, uint32_t rel_wid);
 extern CGError SLSTransactionSetWindowSystemAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
+extern CGError SLSTransactionSetWindowTransform(CFTypeRef transaction, uint32_t wid, CGAffineTransform transform);
 extern CGError SLSSetWindowSubLevel(int cid, uint32_t wid, int level);
 
 struct window_fade_context
@@ -661,6 +662,15 @@ static void do_window_scale_custom(char *message)
     unpack(dy);
     unpack(dw);
     unpack(dh);
+    
+    // Optional: Unpack clipping rectangle (0 means no clipping)
+    float clip_x, clip_y, clip_w, clip_h;
+    unpack(clip_x);
+    unpack(clip_y);
+    unpack(clip_w);
+    unpack(clip_h);
+    
+    bool should_clip = (clip_w > 0 && clip_h > 0);
 
     switch (mode) {
         case 0: // create_pip - scale window and position it
@@ -670,17 +680,23 @@ static void do_window_scale_custom(char *message)
                 SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
             }
             
-            int target_width  = dw;
-            int target_height = target_width / (dw/dh);
+            // Apply clipping if specified
+            float effective_w = should_clip ? fminf(dw, clip_w) : dw;
+            float effective_h = should_clip ? fminf(dh, clip_h) : dh;
+            float effective_x = should_clip ? fmaxf(dx, clip_x) : dx;
+            float effective_y = should_clip ? fmaxf(dy, clip_y) : dy;
+            
+            int target_width  = effective_w;
+            int target_height = target_width / (effective_w/effective_h);
 
             float x_scale = 1;
             float y_scale = 1;
 
-            CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
-            CGFloat transformed_y = -dy;
+            CGFloat transformed_x = -(effective_x+effective_w) + (frame.size.width * (1/x_scale));
+            CGFloat transformed_y = -effective_y;
             
-            NSLog(@"🎯 create_pip: target(%f,%f,%f,%f) transform(%f,%f) scale(%f,%f)", 
-                   dx, dy, dw, dh, transformed_x, transformed_y, x_scale, y_scale);
+            NSLog(@"🎯 create_pip: target(%.1f,%.1f,%.1fx%.1f) clipped(%.1f,%.1f,%.1fx%.1f) transform(%.1f,%.1f) scale(%.1f,%.1f)", 
+                   dx, dy, dw, dh, effective_x, effective_y, effective_w, effective_h, transformed_x, transformed_y, x_scale, y_scale);
             
             CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
@@ -748,23 +764,52 @@ static void do_window_scale_forced(char *message)
     unpack(dy);
     unpack(dw);
     unpack(dh);
+    
+    // Optional: Unpack clipping rectangle (0 means no clipping)
+    float clip_x, clip_y, clip_w, clip_h;
+    unpack(clip_x);
+    unpack(clip_y);
+    unpack(clip_w);
+    unpack(clip_h);
+    
+    bool should_clip = (clip_w > 0 && clip_h > 0);
+    
+    NSLog(@"🎯 FORCED mode=%d pos=(%.1f,%.1f) size=(%.1fx%.1f) clip=(%.1f,%.1f,%.1fx%.1f) should_clip=%s", 
+          mode, dx, dy, dw, dh, clip_x, clip_y, clip_w, clip_h, should_clip ? "YES" : "NO");
 
     switch (mode) {
-        case 0: // create_pip - scale window and position it
+        case 0: // create_pip - scale window and position it with optional clipping
         {
-            //if (!CGAffineTransformEqualToTransform(current_transform, original_transform)) {
-            //    // Already scaled, restore first then create
-            //    SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
-            //}
+            // Apply clipping if specified
+            float effective_x = dx;
+            float effective_y = dy;
+            float effective_w = dw;
+            float effective_h = dh;
             
-            int target_width  = dw;
-            int target_height = target_width / (frame.size.width/frame.size.height) ;
+            if (should_clip) {
+                // Intersect target rectangle with clipping rectangle
+                float target_right = dx + dw;
+                float target_bottom = dy + dh;
+                float clip_right = clip_x + clip_w;
+                float clip_bottom = clip_y + clip_h;
+                
+                effective_x = fmaxf(dx, clip_x);
+                effective_y = fmaxf(dy, clip_y);
+                effective_w = fmaxf(0, fminf(target_right, clip_right) - effective_x);
+                effective_h = fmaxf(0, fminf(target_bottom, clip_bottom) - effective_y);
+                
+                NSLog(@"🎯 FORCED create_pip CLIPPING: original=(%.1f,%.1f,%.1fx%.1f) clipped=(%.1f,%.1f,%.1fx%.1f)", 
+                      dx, dy, dw, dh, effective_x, effective_y, effective_w, effective_h);
+            }
+            
+            int target_width  = effective_w;
+            int target_height = target_width / (frame.size.width/frame.size.height);
 
             float x_scale = frame.size.width/target_width;
             float y_scale = frame.size.height/target_height;
 
-            CGFloat transformed_x = -(dx) ;
-            CGFloat transformed_y = -(dy);
+            CGFloat transformed_x = -(effective_x);
+            CGFloat transformed_y = -(effective_y);
             
             CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
@@ -772,23 +817,34 @@ static void do_window_scale_forced(char *message)
             break;
         }
         
-        case 1: // move_pip - update position FORCED (no transform check)
+        case 1: // move_pip - update position FORCED (no transform check) with optional clipping
         {
+            // Apply clipping if specified
+            float effective_x = dx;
+            float effective_y = dy;
+            float effective_w = dw;
+            float effective_h = dh;
+            
+            if (should_clip) {
+                // Intersect target rectangle with clipping rectangle
+                float target_right = dx + dw;
+                float target_bottom = dy + dh;
+                float clip_right = clip_x + clip_w;
+                float clip_bottom = clip_y + clip_h;
+                
+                effective_x = fmaxf(dx, clip_x);
+                effective_y = fmaxf(dy, clip_y);
+                effective_w = fmaxf(0, fminf(target_right, clip_right) - effective_x);
+                effective_h = fmaxf(0, fminf(target_bottom, clip_bottom) - effective_y);
+            }
 
-            //// Extract current scale from transform (or use defaults if not scaled)
+            // Extract current scale from transform (or use defaults if not scaled)
             float current_x_scale = current_transform.a;
             float current_y_scale = current_transform.d;
             
-            ////// If scale values are too close to 1.0, it means we're not scaled yet
-            ////// In forced mode, we'll apply the new dimensions as a scale
-            //if (fabs(current_x_scale - 1.0) < 0.01 && fabs(current_y_scale - 1.0) < 0.01) {
-            //    current_x_scale = frame.size.width / dw;
-            //    current_y_scale = frame.size.height / dh;
-            //}
-            
-            // Calculate new translation using scale and new coordinates
-            CGFloat new_transformed_x = -(dx);
-            CGFloat new_transformed_y = -(dy);
+            // Calculate new translation using scale and clipped coordinates
+            CGFloat new_transformed_x = -(effective_x);
+            CGFloat new_transformed_y = -(effective_y);
             
             CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(current_x_scale, current_y_scale));
             CGAffineTransform transform = CGAffineTransformTranslate(scale, new_transformed_x, new_transformed_y);
@@ -805,6 +861,158 @@ static void do_window_scale_forced(char *message)
         
         default:
             NSLog(@"🎯 FORCED unknown mode: %d", mode);
+            break;
+    }
+}
+
+static void do_window_scale_forced_with_transaction(char *message)
+{
+    uint32_t wid;
+    unpack(wid);
+    if (!wid) return;
+
+    // Unpack transaction pointer (passed as uint64_t, 0 means no transaction)
+    uint64_t transaction_ptr;
+    unpack(transaction_ptr);
+    CFTypeRef transaction = (CFTypeRef)transaction_ptr;
+    
+    CGRect frame = {};
+    SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame);
+    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-(frame.origin.x), -(frame.origin.y));
+
+    CGAffineTransform current_transform;
+    SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
+
+    // Unpack the operation mode and coordinates
+    int mode;
+    unpack(mode);
+    
+    float dx, dy, dw, dh;
+    unpack(dx);
+    unpack(dy);
+    unpack(dw);
+    unpack(dh);
+    
+    // Optional: Unpack clipping rectangle (0 means no clipping)
+    float clip_x, clip_y, clip_w, clip_h;
+    unpack(clip_x);
+    unpack(clip_y);
+    unpack(clip_w);
+    unpack(clip_h);
+    
+    bool should_clip = (clip_w > 0 && clip_h > 0);
+    
+    NSLog(@"🎯 FORCED+TX mode=%d pos=(%.1f,%.1f) size=(%.1fx%.1f) clip=(%.1f,%.1f,%.1fx%.1f) should_clip=%s tx=%p", 
+          mode, dx, dy, dw, dh, clip_x, clip_y, clip_w, clip_h, should_clip ? "YES" : "NO", transaction);
+
+    switch (mode) {
+        case 0: // create_pip - scale window and position it with optional clipping
+        {
+            // Apply clipping if specified
+            float effective_x = dx;
+            float effective_y = dy;
+            float effective_w = dw;
+            float effective_h = dh;
+            
+            if (should_clip) {
+                // Intersect target rectangle with clipping rectangle
+                float target_right = dx + dw;
+                float target_bottom = dy + dh;
+                float clip_right = clip_x + clip_w;
+                float clip_bottom = clip_y + clip_h;
+                
+                effective_x = fmaxf(dx, clip_x);
+                effective_y = fmaxf(dy, clip_y);
+                effective_w = fmaxf(0, fminf(target_right, clip_right) - effective_x);
+                effective_h = fmaxf(0, fminf(target_bottom, clip_bottom) - effective_y);
+                
+                NSLog(@"🎯 FORCED+TX create_pip CLIPPING: original=(%.1f,%.1f,%.1fx%.1f) clipped=(%.1f,%.1f,%.1fx%.1f)", 
+                      dx, dy, dw, dh, effective_x, effective_y, effective_w, effective_h);
+            }
+            
+            int target_width  = effective_w;
+            int target_height = target_width / (frame.size.width/frame.size.height);
+
+            float x_scale = frame.size.width/target_width;
+            float y_scale = frame.size.height/target_height;
+
+            CGFloat transformed_x = -(effective_x);
+            CGFloat transformed_y = -(effective_y);
+            
+            CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
+            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
+            
+            // Use transaction if provided, otherwise fall back to direct call
+            if (transaction) {
+                SLSTransactionSetWindowTransform(transaction, wid, transform);
+                NSLog(@"🎯 FORCED+TX create_pip: Added transform to transaction");
+            } else {
+                SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+                NSLog(@"🎯 FORCED+TX create_pip: Applied transform directly");
+            }
+            break;
+        }
+        
+        case 1: // move_pip - update position FORCED (no transform check) with optional clipping
+        {
+            // Apply clipping if specified
+            float effective_x = dx;
+            float effective_y = dy;
+            float effective_w = dw;
+            float effective_h = dh;
+            
+            if (should_clip) {
+                // Intersect target rectangle with clipping rectangle
+                float target_right = dx + dw;
+                float target_bottom = dy + dh;
+                float clip_right = clip_x + clip_w;
+                float clip_bottom = clip_y + clip_h;
+                
+                effective_x = fmaxf(dx, clip_x);
+                effective_y = fmaxf(dy, clip_y);
+                effective_w = fmaxf(0, fminf(target_right, clip_right) - effective_x);
+                effective_h = fmaxf(0, fminf(target_bottom, clip_bottom) - effective_y);
+            }
+
+            // Extract current scale from transform (or use defaults if not scaled)
+            float current_x_scale = current_transform.a;
+            float current_y_scale = current_transform.d;
+            
+            // Calculate new translation using scale and clipped coordinates
+            CGFloat new_transformed_x = -(effective_x);
+            CGFloat new_transformed_y = -(effective_y);
+            
+            CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(current_x_scale, current_y_scale));
+            CGAffineTransform transform = CGAffineTransformTranslate(scale, new_transformed_x, new_transformed_y);
+            
+            // Use transaction if provided, otherwise fall back to direct call
+            if (transaction) {
+                SLSTransactionSetWindowTransform(transaction, wid, transform);
+                NSLog(@"🎯 FORCED+TX move_pip: Added transform to transaction");
+            } else {
+                SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+                NSLog(@"🎯 FORCED+TX move_pip: Applied transform directly");
+            }
+            break;
+        }
+        
+        case 2: // restore_pip - reset to original transform
+        {
+            NSLog(@"🎯 FORCED+TX restore_pip: resetting to original transform");
+            
+            // Use transaction if provided, otherwise fall back to direct call
+            if (transaction) {
+                SLSTransactionSetWindowTransform(transaction, wid, original_transform);
+                NSLog(@"🎯 FORCED+TX restore_pip: Added restore to transaction");
+            } else {
+                SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+                NSLog(@"🎯 FORCED+TX restore_pip: Applied restore directly");
+            }
+            break;
+        }
+        
+        default:
+            NSLog(@"🎯 FORCED+TX unknown mode: %d", mode);
             break;
     }
 }
@@ -1251,6 +1459,9 @@ static void handle_message(int sockfd, char *message)
     } break;
     case SA_OPCODE_WINDOW_SCALE_FORCED: {
         do_window_scale_forced(message);
+    } break;
+    case SA_OPCODE_WINDOW_SCALE_FORCED_TX: {
+        do_window_scale_forced_with_transaction(message);
     } break;
     case SA_OPCODE_WINDOW_ANIMATE_FRAME: {
         do_window_animate_frame(message);

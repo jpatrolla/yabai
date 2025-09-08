@@ -575,6 +575,27 @@ bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED);
 }
 
+bool scripting_addition_scale_window_forced_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float x, float y, float w, float h)
+{
+    sa_payload_init();
+    pack(wid);
+    uint64_t transaction_ptr = (uint64_t)transaction;
+    pack(transaction_ptr);
+    pack(mode);
+    pack(x);
+    pack(y);
+    pack(w);
+    pack(h);
+    // Use clipping defaults for now (can be extended later)
+    float clip_x = 0, clip_y = 0, clip_w = 0, clip_h = 0;
+    pack(clip_x);
+    pack(clip_y);
+    pack(clip_w);
+    pack(clip_h);
+    printf("Sending FORCED+TX window scale: wid=%d, tx=%p, mode=%d, x=%f, y=%f, w=%f, h=%f\n", wid, transaction, mode, x, y, w, h);
+    return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED_TX);
+}
+
 bool scripting_addition_create_pip(uint32_t wid, float x, float y, float w, float h)
 {
     return scripting_addition_scale_window_custom_mode(wid, 0, x, y, w, h);

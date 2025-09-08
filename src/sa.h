@@ -1,6 +1,9 @@
 #ifndef SA_H
 #define SA_H
 
+#include <stdint.h>
+typedef const void* CFTypeRef;
+
 extern unsigned char __src_osax_payload[];
 extern unsigned int __src_osax_payload_len;
 extern unsigned char __src_osax_loader[];
@@ -24,6 +27,7 @@ bool scripting_addition_scale_window(uint32_t wid, float x, float y, float w, fl
 bool scripting_addition_scale_window_custom(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode, float x, float y, float w, float h);
 bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x, float y, float w, float h);
+bool scripting_addition_scale_window_forced_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float x, float y, float w, float h);
 bool scripting_addition_create_pip(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_move_pip(uint32_t wid, float x, float y);
 bool scripting_addition_restore_pip(uint32_t wid);
