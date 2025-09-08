@@ -1958,9 +1958,6 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
             if (sleep_ms > 0.0) {
                 usleep((useconds_t)(sleep_ms * 1000)); // Convert ms to µs
             }
-            
-            debug("🎬 Async Frame timing: elapsed=%.2fms, target=%.2fms, sleep=%.2fms", 
-                  frame_elapsed_ms, target_frame_ms, sleep_ms);
         }
     }
     
@@ -2151,16 +2148,12 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         }
     }
     
-    // Add a small delay to batch rapid successive commands
-    // This helps prevent multiple animations for commands like: --resize left:100:0 --resize right:100:0
     static uint64_t last_animation_time = 0;
     
     uint64_t current_time = mach_absolute_time();
     uint64_t time_diff = current_time - last_animation_time;
-    double time_diff_ms = (double)time_diff / (double)g_cv_host_clock_frequency * 1000.0;
+    //double time_diff_ms = (double)time_diff / (double)g_cv_host_clock_frequency * 1000.0;
     
-    
-    // Enhanced animation data structure with 2-phase support
     struct {
         struct window_capture capture;
         CGRect original_frame;
@@ -2183,7 +2176,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         animation_data[i].original_w = animation_data[i].original_frame.size.width;
         animation_data[i].original_h = animation_data[i].original_frame.size.height;
 
-        // Calculate size difference ratio to determine if 2-phase animation is beneficial
         animation_data[i].size_ratio = calculate_size_difference_ratio(
             animation_data[i].original_w, animation_data[i].original_h,
             window_list[i].w, window_list[i].h
@@ -2193,13 +2185,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         animation_data[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled &&
                                          window_count >= 2 &&
                                          animation_data[i].size_ratio > g_window_manager.window_animation_fade_threshold);
-
-        debug("🎬 Window %d: two_phase=%s size_ratio=%.3f threshold=%.3f slide_ratio=%.2f", 
-              window_list[i].window->id, 
-              animation_data[i].is_two_phase ? "YES" : "NO",
-              animation_data[i].size_ratio,
-              g_window_manager.window_animation_fade_threshold,
-              g_window_manager.window_animation_slide_ratio);
 
         // Use centralized anchoring system for all animations
         CGRect start_rect = animation_data[i].original_frame;
@@ -2223,9 +2208,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         
         // Set resize_anchor from centralized calculation
         animation_data[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
-        
-        debug("🔗 Frame-sync: Window %d centralized anchor=%d parent_split=%d", 
-              window_list[i].window->id, animation_data[i].resize_anchor, parent_split);
 
         // Assign anchor_point to the calculated resize_anchor value
         animation_data[i].anchor_point = animation_data[i].resize_anchor;
@@ -2276,19 +2258,15 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
     
     double frame_duration = duration / total_frames;
     
-    debug("🎬 Animation: duration=%.1fs, frame_rate=%.1f fps, total_frames=%d, frame_duration=%.3fs\n", 
-          duration, frame_rate, total_frames, frame_duration);
     for (int frame = 0; frame <= total_frames; ++frame) {
         double t = (double)frame / (double)total_frames;
         if (t > 1.0) t = 1.0;
         
-        // Apply easing function like the proxy animation system
         float mt;
         if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
             // Use linear interpolation for simplified/fast mode
             mt = t;
         } else {
-            // Use configured easing function
             switch (easing) {
     #define ANIMATION_EASING_TYPE_ENTRY(value) case value##_type: mt = value(t); break;
                     ANIMATION_EASING_TYPE_LIST
@@ -2316,9 +2294,20 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             // --- Always use anchor-based translation for all animations ---
             float slide_duration = animation_data[i].is_two_phase ? g_window_manager.window_animation_slide_ratio : 0.0f;
             if (animation_data[i].is_two_phase && t <= slide_duration) {
-                // Phase 1: Slide - move to new position, keep original size
                 float slide_t = t / slide_duration;
-                float slide_mt = ease_out_circ(slide_t);
+                
+                float slide_mt;
+                if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
+                    slide_mt = slide_t; // Linear for simplified/fast mode
+                } else {
+                    // Apply the same easing function configured for animations
+                    switch (easing) {
+    #define ANIMATION_EASING_TYPE_ENTRY(value) case value##_type: slide_mt = value(slide_t); break;
+                        ANIMATION_EASING_TYPE_LIST
+    #undef ANIMATION_EASING_TYPE_ENTRY
+                        default: slide_mt = slide_t; // Linear fallback
+                    }
+                }
 
                 current_x = start_x + (end_x - start_x) * slide_mt;
                 current_y = start_y + (end_y - start_y) * slide_mt;
@@ -2331,16 +2320,8 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                 animation_data[i].calculated_w = current_w;
                 animation_data[i].calculated_h = current_h;
             } else {
-                // Anchor-based interpolation for all cases
-                float interp_t;
-                if (animation_data[i].is_two_phase) {
-                    interp_t = (t - slide_duration) / (1.0f - slide_duration);
-                    if (interp_t < 0.0f) interp_t = 0.0f;
-                    if (interp_t > 1.0f) interp_t = 1.0f;
-                } else {
-                    interp_t = mt;
-                }
-                float interp_mt = animation_data[i].is_two_phase ? ease_in_out_cubic(interp_t) : mt;
+                float interp_mt =  mt;
+
                 current_w = animation_data[i].original_w + (end_w - animation_data[i].original_w) * interp_mt;
                 current_h = animation_data[i].original_h + (end_h - animation_data[i].original_h) * interp_mt;
                 
@@ -2470,9 +2451,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                 //debug("🎬 fdb %d/%d Window %d: ANCHOR PHASE t=%.3f interp_mt=%.3f anchor=(%.1f,%.1f) pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d",
                 //      frame, total_frames, animation_data[i].capture.window->id, t, interp_mt, current_anchor_x, current_anchor_y, current_x, current_y, current_w, current_h, animation_data[i].resize_anchor);
             }
-            
-
-            
+                        
             // Apply opacity fade transition if enabled
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
@@ -2628,12 +2607,8 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                       
                     
                     // move window straight away to satisfy bsp
-                    
                     // create the "pip"
                    
-                    
-                    // NOTE: Removed window_manager_set_window_frame call here to prevent infinite loop
-                    // The BSP layout should already be satisfied, and this was triggering new animations
                     window_manager_set_window_frame(animation_data[i].capture.window, 
                                                   end_x, 
                                                   end_y, 
@@ -2644,9 +2619,6 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                     current_y,
                     current_w,
                     current_h);
-                    //window_manager_move_window(animation_data[i].capture.window, end_x, end_y);
-                    //window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
-
                 
                 // Start with reduced opacity and fade in
                 if (use_opacity_fade) {
@@ -2656,20 +2628,19 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                 
             } else if (frame == total_frames) {
                 // Fade out before restoring
-                if (use_opacity_fade) {
-                    scripting_addition_set_opacity(animation_data[i].capture.window->id, 0.7f, opacity_fade_duration * 0.5f);
-                }
+                //if (use_opacity_fade) {
+                //    scripting_addition_set_opacity(animation_data[i].capture.window->id, 0.7f, opacity_fade_duration * 0.5f);
+                //}
                 
                 scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
                 //window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
                 //window_manager_move_window(animation_data[i].capture.window, end_x, end_y);
                 //window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
+
                 // Restore full opacity after restoration
                 if (use_opacity_fade) {
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration * 0.5f);
                 }
-                
-                //pip_mode = 3; // Restore from PiP (coordinates will be ignored)
             } else {
                 //int pip_mode;
 
@@ -2683,19 +2654,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                     current_h 
                 );
 
-                debug("fdbwid %d x: %-5.1f y: %-5.1f w: %-5.1f h: %-5.1f (calculated stored dimensions)\n", 
-                        animation_data[i].capture.window->id,
-                        animation_data[i].calculated_x, animation_data[i].calculated_y, 
-                        animation_data[i].calculated_w, animation_data[i].calculated_h);
-                        debug("fdbwid %d x: %-5.1f y: %-5.1f w: %-5.1f h: %-5.1f (current stored dimensions)\n", 
-                        animation_data[i].capture.window->id,
-                        current_x, current_y, current_w, current_h);
-
-                // Optional: Add subtle opacity pulsing during animation for extra visual feedback
-                if (use_opacity_fade && (frame % 5 == 0)) { // Every 5 frames for smooth pulsing
-                    float pulse_opacity = 0.85f + 0.15f * sinf(t * 3.14159f); // Subtle pulse between 0.85 and 1.0
-                    scripting_addition_set_opacity(animation_data[i].capture.window->id, pulse_opacity, 0.1f);
-                }  
+               
             }
             
         }
@@ -2712,7 +2671,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         table_remove(&g_window_manager.window_animations_table, &animation_data[i].capture.window->id);
         
         // Ensure PiP is properly restored (safety cleanup)
-        //scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
+        scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
         
         // Restore normal opacity (safety cleanup)
         if (g_window_manager.window_opacity_duration > 0.0f && g_window_manager.window_animation_opacity_enabled) {
@@ -2722,13 +2681,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         // NOTE: Removed window_manager_set_window_frame call to prevent flicker
         // The final frame of PiP animation should have already positioned the window correctly
         
-        // DISABLED: View updates during animation cleanup to prevent infinite loops
-        // These could trigger new animations or layout changes
-        // struct view *view = window_manager_find_managed_window(&g_window_manager, animation_data[i].capture.window);
-        // if (view && view_is_dirty(view)) {
-        //     debug("🎬 Processing pending view update for view %lld after animation completion", view->sid);
-        //     view_flush(view);
-        // }
+        
     }
 }
 
@@ -2744,7 +2697,8 @@ void window_manager_animate_window_list(struct window_capture *window_list, int 
             window_manager_animate_window_frame_based(window_list, window_count);
         } else {
             debug("fdb CLASSIC LIST %d windows\n", window_count);
-            window_manager_animate_window_list_async(window_list, window_count);
+            //window_manager_animate_window_list_async(window_list, window_count);
+            window_manager_animate_window_list_frame_based_async(window_lidst, window_count);
         }
     } else {
         for (int i = 0; i < window_count; ++i) {
