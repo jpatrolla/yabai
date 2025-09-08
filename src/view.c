@@ -947,9 +947,45 @@
         return view_check_flag(view, VIEW_IS_DIRTY);
     }
 
+    // Check if any windows in this view are currently animating
+    bool view_has_animating_windows(struct view *view)
+    {
+        if (!view || !view->root) return false;
+        
+        struct window_node *stack[64];
+        int top = 0;
+        stack[top++] = view->root;
+        
+        while (top > 0) {
+            struct window_node *node = stack[--top];
+            
+            if (window_node_is_leaf(node)) {
+                for (int i = 0; i < node->window_count; ++i) {
+                    if (table_find(&g_window_manager.window_animations_table, &node->window_list[i])) {
+                        debug("🎬 View %lld has animating window %d - blocking BSP layout update", view->sid, node->window_list[i]);
+                        return true;
+                    }
+                }
+            } else {
+                if (node->right) stack[top++] = node->right;
+                if (node->left) stack[top++] = node->left;
+            }
+        }
+        
+        return false;
+    }
+
     void view_flush(struct view *view)
     {
         debug("🐇🐇🐇🐇 flushing view %lld\n", view->sid);
+        
+        // Prevent BSP layout updates while windows are animating to avoid position conflicts
+        if (view_has_animating_windows(view)) {
+            debug("🎬 Blocking view_flush for view %lld - windows are currently animating", view->sid);
+            view_set_flag(view, VIEW_IS_DIRTY); // Mark as needing update later
+            return;
+        }
+        
         if (space_is_visible(view->sid)) {
                 // Clamp fence ratios so neither side can shrink past its min_width
             enforce_min_width_recursive(view->root);
@@ -1091,6 +1127,14 @@
     void view_update(struct view *view)
     {
         debug("🥒 VIEW UPDATE: %lld\n", view->sid);
+        
+        // Prevent BSP layout updates while windows are animating to avoid position conflicts
+        if (view_has_animating_windows(view)) {
+            debug("🎬 Blocking view_update for view %lld - windows are currently animating", view->sid);
+            view_set_flag(view, VIEW_IS_DIRTY); // Mark as needing update later
+            return;
+        }
+        
         uint32_t did = space_display_id(view->sid);
         CGRect frame = display_bounds_constrained(did, false);
         view->root->area = area_from_cgrect(frame);

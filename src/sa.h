@@ -23,9 +23,13 @@ bool scripting_addition_focus_window(uint32_t wid);
 bool scripting_addition_scale_window(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_scale_window_custom(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode, float x, float y, float w, float h);
+bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x, float y, float w, float h);
 bool scripting_addition_create_pip(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_move_pip(uint32_t wid, float x, float y);
 bool scripting_addition_restore_pip(uint32_t wid);
+bool scripting_addition_create_pip_forced(uint32_t wid, float x, float y, float w, float h);
+bool scripting_addition_move_pip_forced(uint32_t wid, float x, float y);
+bool scripting_addition_restore_pip_forced(uint32_t wid);
 bool scripting_addition_animate_window_frame(uint32_t wid, 
                                             float src_x, float src_y, float src_w, float src_h,
                                             float dst_x, float dst_y, float dst_w, float dst_h,

@@ -1,0 +1,24 @@
+{
+	"files": [
+		{
+			"path": "src/event_loop.c",
+			"bookmarks": [
+				{
+					"line": 1297,
+					"column": 36,
+					"label": ""
+				}
+			]
+		},
+		{
+			"path": "src/window_manager.c",
+			"bookmarks": [
+				{
+					"line": 1225,
+					"column": 12,
+					"label": "window_manager_animate_window_list_async"
+				}
+			]
+		}
+	]
+}

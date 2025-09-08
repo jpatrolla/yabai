@@ -1,0 +1,689 @@
+process_create: xpc service 'ViewBridgeAuxiliary' detected! ignoring..
+process_manager_add_running_processes: Finder (624) was found! caching psn..
+process_create: xpc service 'ViewBridgeAuxiliary' detected! ignoring..
+process_create: xpc service 'QuickLookUIService (Finder)' detected! ignoring..
+process_create: xpc service 'Adobe Content Synchronizer Finder Extension' detected! ignoring..
+process_create: xpc service 'Dock Extra' detected! ignoring..
+process_create: xpc service 'CursorUIViewService' detected! ignoring..
+process_create: xpc service 'Raycast Graphics and Media' detected! ignoring..
+process_create: xpc service 'Raycast Networking' detected! ignoring..
+process_create: xpc service 'Raycast Web Content' detected! ignoring..
+process_create: xpc service 'nsattributedstringagent' detected! ignoring..
+process_create: xpc service 'nsattributedstringagent' detected! ignoring..
+process_create: xpc service 'IMDPersistenceAgent' detected! ignoring..
+process_create: xpc service 'CalendarWidgetExtension' detected! ignoring..
+process_create: xpc service 'DockHelper' detected! ignoring..
+process_create: xpc service 'Open and Save Panel Service (Google Chrome)' detected! ignoring..
+process_create: xpc service 'QuickLookUIService (Open and Save Panel Service (Google Chrome))' detected! ignoring..
+process_create: xpc service 'ThemeWidgetControlViewService (Code)' detected! ignoring..
+process_create: xpc service 'Open and Save Panel Service (Code)' detected! ignoring..
+process_create: xpc service 'QuickLookUIService (Open and Save Panel Service (Code))' detected! ignoring..
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+window_manager_begin: KensingtonWorksHelper (766) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Karabiner-NotificationWindow (761) is not observable, subscribing to activationPolicy changes
+window_manager_begin: AccessibilityVisualsAgent (731) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Single Sign-On (677) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Control Centre (622) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Konductor (759) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Logi Options+ (768) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Notification Centre (699) is not observable, subscribing to activationPolicy changes
+window_manager_begin: universalaccessd (594) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Keychain Circle Notification (726) is not observable, subscribing to activationPolicy changes
+window_manager_begin: AltTab (757) is not observable, subscribing to activationPolicy changes
+window_manager_begin: com.apple.PressAndHold (739) is not observable, subscribing to activationPolicy changes
+window_manager_begin: CoreLocationAgent (644) is not observable, subscribing to activationPolicy changes
+window_manager_begin: SystemUIServer (623) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Raycast Helper (Extensions) (952) is not observable, subscribing to activationPolicy changes
+window_manager_begin: ARDAgent (794) is not observable, subscribing to activationPolicy changes
+window_manager_begin: yabai (20259) is not observable, subscribing to activationPolicy changes
+window_manager_begin: TextInputMenuAgent (775) is not observable, subscribing to activationPolicy changes
+window_manager_begin: chronod (690) is not observable, subscribing to activationPolicy changes
+window_manager_create_and_add_window:1263 ChatGPT - ChatGPT (AXWindow:AXStandardWindow:1)
+window_manager_begin: Wallpaper (639) is not observable, subscribing to activationPolicy changes
+window_manager_begin: nbagent (74798) is not observable, subscribing to activationPolicy changes
+window_manager_begin: SoftwareUpdateNotificationManager (1014) is not observable, subscribing to activationPolicy changes
+window_manager_begin: photolibraryd (695) is not observable, subscribing to activationPolicy changes
+window_manager_begin: BackgroundTaskManagementAgent (599) is not observable, subscribing to activationPolicy changes
+window_manager_create_and_add_window:117 iTerm2 - X (AXWindow:AXStandardWindow:1)
+window_manager_create_and_add_window:2955 iTerm2 - Y (AXWindow:AXStandardWindow:1)
+window_manager_add_existing_application_windows: Code has 1 windows that are not yet resolved, attempting workaround
+window_manager_create_and_add_window:2884 Code - yabai — window_manager.c (AXWindow:AXStandardWindow:1)
+window_manager_add_existing_application_windows: workaround resolved all windows for Code
+window_manager_begin: Universal Control (951) is not observable, subscribing to activationPolicy changes
+window_manager_begin: UIKitSystem (855) is not observable, subscribing to activationPolicy changes
+window_manager_begin: AirPlay Screen Mirroring (770) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Wi-Fi (685) is not observable, subscribing to activationPolicy changes
+window_manager_create_and_add_window:2794 Finder - Recent (AXWindow:AXStandardWindow:1)
+window_manager_begin: AppSSODaemon (684) is not observable, subscribing to activationPolicy changes
+window_manager_begin: CodeWhispererInputMethod (737) is not observable, subscribing to activationPolicy changes
+window_manager_begin: talagentd (616) is not observable, subscribing to activationPolicy changes
+window_manager_begin: WindowManager (598) is not observable, subscribing to activationPolicy changes
+window_manager_begin: loginwindow (392) is not observable, subscribing to activationPolicy changes
+window_manager_begin: SSMenuAgent (944) is not observable, subscribing to activationPolicy changes
+window_manager_begin: AuthenticationServicesAgent (22012) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Raycast (782) is not observable, subscribing to activationPolicy changes
+window_manager_begin: LinkedNotesUIService (10056) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Dock (621) is not observable, subscribing to activationPolicy changes
+window_manager_begin: karabiner_console_user_server (762) is not observable, subscribing to activationPolicy changes
+window_manager_begin: skhd (91213) is not observable, subscribing to activationPolicy changes
+window_manager_begin: ChatGPTHelper (764) is not observable, subscribing to activationPolicy changes
+window_manager_begin: TextInputSwitcher (783) is not observable, subscribing to activationPolicy changes
+window_manager_begin: Spotlight (733) is not observable, subscribing to activationPolicy changes
+window_manager_begin: CoreServicesUIAgent (593) is not observable, subscribing to activationPolicy changes
+EVENT_HANDLER_DAEMON_MESSAGE: signal --add event=dock_did_restart action=sudo yabai --load-sa
+EVENT_HANDLER_DAEMON_MESSAGE: query --spaces
+EVENT_HANDLER_DAEMON_MESSAGE: config layout bsp
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 1263 with title: ChatGPT
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 1263 with title: ChatGPT
+Checking if we should manage window 2884 with title: yabai — window_manager.c
+[LAYER] Adjusting layer for window 2884 to 3
+sweeping at window_manager_add_managed_window 5
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 1263 with title: ChatGPT
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 1263 with title: ChatGPT
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 1263 with title: ChatGPT
+Checking if we should manage window 117 with title: X
+[LAYER] Adjusting layer for window 117 to 3
+sweeping at window_manager_add_managed_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 2955 with title: Y
+[LAYER] Adjusting layer for window 2955 to 3
+sweeping at window_manager_add_managed_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+Checking if we should manage window 2794 with title: Recent
+[LAYER] Adjusting layer for window 2794 to 3
+sweeping at window_manager_add_managed_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 117
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 117
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 117 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 117
+EVENT_HANDLER_WINDOW_RESIZED: Finder 2794
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2794 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED Finder 2794
+EVENT_HANDLER_WINDOW_RESIZED:DEBOUNCED Finder 2794
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 2955
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 2955
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2955 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 2955
+EVENT_HANDLER_WINDOW_RESIZED:DEBOUNCED iTerm2 2955
+EVENT_HANDLER_DAEMON_MESSAGE: config top_padding 20
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 4
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 5
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 6
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 7
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 8
+enforcing min-width for node 0x1536458d0
+subtree_min_width for node 0x15480f750
+subtree_min_width for node 0x15480fa10
+subtree_min_width for node 0x15480fb70
+subtree_min_width for node 0x15480f8b0
+enforcing min-width for node 0x15480f750
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 117
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 117 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 117
+EVENT_HANDLER_WINDOW_RESIZED: Finder 2794
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2794 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED Finder 2794
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 2955
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2955 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 2955
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 2955
+EVENT_HANDLER_DAEMON_MESSAGE: config bottom_padding 20
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 4
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 5
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 6
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 7
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 8
+enforcing min-width for node 0x1536458d0
+subtree_min_width for node 0x15480f750
+subtree_min_width for node 0x15480fa10
+subtree_min_width for node 0x15480fb70
+subtree_min_width for node 0x15480f8b0
+enforcing min-width for node 0x15480f750
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+MIN WIDTH 0 current width: 960 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 960 f
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 117
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 117
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 117 ------> 0
+EVENT_HANDLER_WINDOW_RESIZED: Finder 2794
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2794 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED Finder 2794
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 2955
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2955 ------> 0
+EVENT_HANDLER_DAEMON_MESSAGE: config left_padding 20
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 4
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 5
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 6
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 7
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 8
+enforcing min-width for node 0x1536458d0
+subtree_min_width for node 0x15480f750
+subtree_min_width for node 0x15480fa10
+subtree_min_width for node 0x15480fb70
+subtree_min_width for node 0x15480f8b0
+enforcing min-width for node 0x15480f750
+MIN WIDTH 0 current width: 950 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 950 f
+MIN WIDTH 0 current width: 950 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 950 f
+MIN WIDTH 0 current width: 950 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 950 f
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 117
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 117 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 117
+EVENT_HANDLER_WINDOW_RESIZED: Finder 2794
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2794 ------> 0
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 117
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED Finder 2794
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 2955
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2955 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 2955
+EVENT_HANDLER_DAEMON_MESSAGE: config right_padding 20
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 4
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 5
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 6
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 7
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 8
+enforcing min-width for node 0x1536458d0
+subtree_min_width for node 0x15480f750
+subtree_min_width for node 0x15480fa10
+subtree_min_width for node 0x15480fb70
+subtree_min_width for node 0x15480f8b0
+enforcing min-width for node 0x15480f750
+MIN WIDTH 0 current width: 940 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 940 f
+MIN WIDTH 0 current width: 940 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 940 f
+MIN WIDTH 0 current width: 940 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 940 f
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 117
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 117 ------> 0
+EVENT_HANDLER_WINDOW_RESIZED: Finder 2794
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2794 ------> 0
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 2955
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 2955
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2955 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 2955
+EVENT_HANDLER_DAEMON_MESSAGE: config window_gap 15
+🥒 VIEW UPDATE: 4
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 4
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe670
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 5
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 5
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe6c0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 6
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 6
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe210
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 7
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 7
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fe9e0
+[🥞 STACK] Ending stack pass 
+🥒 VIEW UPDATE: 8
+sweeping at view_update
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🐇🐇🐇🐇 flushing view 8
+enforcing min-width for node 0x1536458d0
+subtree_min_width for node 0x15480f750
+subtree_min_width for node 0x15480fa10
+subtree_min_width for node 0x15480fb70
+subtree_min_width for node 0x15480f8b0
+enforcing min-width for node 0x15480f750
+MIN WIDTH 0 current width: 932 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 932 f
+MIN WIDTH 0 current width: 932 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 932 f
+MIN WIDTH 0 current width: 932 f
+window_manager_move_window
+sweeping at window_manager_move_window 8
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+MIN WIDTH 0 current width: 932 f
+[SWEEP 🧹🧹🧹] Sweeping at view_flush
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 117
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 117 ------> 0
+EVENT_HANDLER_WINDOW_RESIZED: Finder 2794
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2794 ------> 0
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED Finder 2794
+EVENT_HANDLER_WINDOW_RESIZED: iTerm2 2955
+✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️✴️ 2955 ------> 0
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 117
+EVENT_HANDLER_WINDOW_MOVED:DEBOUNCED iTerm2 2955
+EVENT_HANDLER_DAEMON_MESSAGE: config space_indicator enabled=on
+EVENT_HANDLER_DAEMON_MESSAGE: config mouse_modifier alt
+EVENT_HANDLER_DAEMON_MESSAGE: config mouse_drop_action stack
+EVENT_HANDLER_DAEMON_MESSAGE: config window_shadow off
+EVENT_HANDLER_DAEMON_MESSAGE: config mouse_follows_focus off
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 2955
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_duration 0.3
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_easing ease_out_cubic
+EVENT_HANDLER_DAEMON_MESSAGE: config window_opacity_duration 0.4
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_frame_based_enabled on
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_shadows_enabled off
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_opacity_enabled off
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_simplified_easing off
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_reduced_resolution off
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_starting_size 1.0
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_blur_enabled off
+EVENT_HANDLER_DAEMON_MESSAGE: config window_animation_frame_rate 120
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^System Settings$ manage=off
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Raycast$ manage=off
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Todoist$ space=1 manage=on
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Calendar$ space=1
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Gmail$ space=1
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=yabai-dialog$ manage=off sub-layer=above
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=ChatGPT sticky=on manage=off scratchpad=gpt
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Activity Monitor$ manage=off sticky=on
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=Chrome title=DevTools manage=off sticky=on scratchpad=dev min_width=600
+setting min width to 600
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=Chrome min_width=600
+setting min width to 600
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Karabiner-Elements manage=off sticky=on
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Karabiner-EventViewer manage=off sticky=on
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Fusion manage=off mouse_follows_focus=off
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Autodesk Fusion manage=off mouse_follows_focus=off
+EVENT_HANDLER_DAEMON_MESSAGE: rule --add app=^Finder manage=off min_width=200
+setting min width to 200
+EVENT_HANDLER_DAEMON_MESSAGE: rule --apply app=^Spotify$ mannage=off
+EVENT_HANDLER_DAEMON_MESSAGE: rule --apply app=^Code - Insiders$ space=1
+EVENT_HANDLER_DAEMON_MESSAGE: rule --apply app=^code$ space=2
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 117
+EVENT_HANDLER_WINDOW_TITLE_CHANGED: iTerm2 2955
+EVENT_HANDLER_MOUSE_DOWN: 1232.05, 211.79
+EVENT_HANDLER_SLS_WINDOW_ORDERED: 2955
+[🥞 STACK] Sweeping stacks for view 0x6000017fb480
+[🥞 STACK] Ending stack pass 
+🧨🧨🧨🧨 window ordered
+EVENT_HANDLER_WINDOW_FOCUSED: iTerm2 2955
+[MOUSE UP 🔺🔺] Window Frame: (968.00, 20.00, 932.00, 1040.00)
+[MOUSE UP 🔺🔺] PIP Current: (0.00, 0.00), Scale: (0.00x0.00)
+EVENT_HANDLER_MOUSE_UP: 1232.05, 211.79
+EVENT_HANDLER_MOUSE_DOWN: 1186.66, 370.24
+Front application switched
+EVENT_HANDLER_APPLICATION_FRONT_SWITCHED: ChatGPT (82626)
+window did receive focus: ChatGPT 1263
+delta x: -1.82, delta y: 0.00
+delta x: -8.14, delta y: -2.11
+delta x: -18.21, delta y: -6.75
+delta x: -27.38, delta y: -11.34
+delta x: -39.43, delta y: -19.38
+delta x: -51.30, delta y: -24.12
+delta x: -64.16, delta y: -31.36
+delta x: -78.81, delta y: -39.50
+delta x: -97.49, delta y: -52.23
+delta x: -119.04, delta y: -63.91
+delta x: -143.69, delta y: -78.70
+delta x: -172.38, delta y: -95.70
+delta x: -197.03, delta y: -110.49
+delta x: -221.68, delta y: -125.28
+delta x: -244.12, delta y: -136.05
+delta x: -262.44, delta y: -146.04
+delta x: -276.91, delta y: -149.26
+delta x: -295.00, delta y: -152.55
+delta x: -309.46, delta y: -155.76
+delta x: -322.23, delta y: -160.55
+delta x: -331.40, delta y: -165.90
+delta x: -341.47, delta y: -170.55
+delta x: -350.64, delta y: -175.14
+delta x: -358.17, delta y: -180.41
+delta x: -364.67, delta y: -184.74
+delta x: -368.72, delta y: -188.79
+delta x: -369.04, delta y: -189.73
+delta x: -369.04, delta y: -189.97
+EVENT_HANDLER_WINDOW_MOVED: ChatGPT 1263
+delta x: -372.63, delta y: -189.97
+delta x: -377.13, delta y: -190.62
+delta x: -384.35, delta y: -192.79
+delta x: -393.52, delta y: -197.37
+delta x: -403.46, delta y: -199.66
+delta x: -418.84, delta y: -202.09
+delta x: -451.77, delta y: -208.47
+delta x: -489.06, delta y: -215.25
+delta x: -522.00, delta y: -222.69
+delta x: -542.80, delta y: -226.02
+delta x: -557.27, delta y: -230.84
+delta x: -567.21, delta y: -233.90
+delta x: -576.24, delta y: -234.66
+delta x: -585.27, delta y: -236.91
+delta x: -587.10, delta y: -237.37
+delta x: -587.34, delta y: -237.61
+EVENT_HANDLER_WINDOW_MOVED: ChatGPT 1263
+delta x: -591.84, delta y: -238.25
+delta x: -595.43, delta y: -238.86
+delta x: -599.96, delta y: -239.46
+delta x: -600.20, delta y: -239.46
+EVENT_HANDLER_WINDOW_MOVED: ChatGPT 1263
+[MOUSE UP 🔺🔺] Window Frame: (42.00, 111.00, 840.00, 725.00)
+[MOUSE UP 🔺🔺] PIP Current: (0.00, 0.00), Scale: (0.00x0.00)
+EVENT_HANDLER_MOUSE_UP: 586.46, 130.79
+EVENT_HANDLER_MOUSE_DOWN: 1482.73, 560.82
+Front application switched
+EVENT_HANDLER_APPLICATION_FRONT_SWITCHED: iTerm2 (1072)
+window did receive focus: iTerm2 2955
+[MOUSE UP 🔺🔺] Window Frame: (968.00, 20.00, 932.00, 1040.00)
+[MOUSE UP 🔺🔺] PIP Current: (0.00, 0.00), Scale: (0.00x0.00)
+EVENT_HANDLER_MOUSE_UP: 1482.73, 560.82
+EVENT_HANDLER_MOUSE_DOWN: 740.86, 114.71
+Front application switched
+EVENT_HANDLER_APPLICATION_FRONT_SWITCHED: ChatGPT (82626)
+window did receive focus: ChatGPT 1263
+delta x: 0.00, delta y: 0.94
+delta x: 1.79, delta y: 4.53
+delta x: 2.43, delta y: 9.02
+delta x: 3.03, delta y: 12.61
+delta x: 3.73, delta y: 18.92
+delta x: 4.43, delta y: 25.23
+delta x: 4.43, delta y: 32.45
+delta x: 5.21, delta y: 44.19
+delta x: 6.00, delta y: 56.84
+delta x: 8.41, delta y: 71.31
+delta x: 10.76, delta y: 83.05
+delta x: 13.17, delta y: 97.52
+delta x: 15.62, delta y: 114.70
+delta x: 18.83, delta y: 129.17
+delta x: 21.20, delta y: 141.82
+delta x: 26.98, delta y: 159.99
+delta x: 35.86, delta y: 187.59
+delta x: 41.68, delta y: 208.39
+delta x: 46.65, delta y: 228.29
+delta x: 49.98, delta y: 249.10
+delta x: 52.45, delta y: 267.18
+delta x: 56.55, delta y: 297.95
+delta x: 59.24, delta y: 322.19
+delta x: 61.93, delta y: 346.43
+delta x: 65.09, delta y: 359.08
+EVENT_HANDLER_WINDOW_MOVED: ChatGPT 1263
+delta x: 67.25, delta y: 366.30
+delta x: 67.25, delta y: 370.79
+delta x: 67.57, delta y: 371.73
+delta x: 67.57, delta y: 372.67
+EVENT_HANDLER_WINDOW_MOVED: Ch

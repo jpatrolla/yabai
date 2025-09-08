@@ -562,6 +562,19 @@ bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode, float x
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_CUSTOM);
 }
 
+bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x, float y, float w, float h)
+{
+    sa_payload_init();
+    pack(wid);
+    pack(mode);
+    pack(x);
+    pack(y);
+    pack(w);
+    pack(h);
+    printf("Sending FORCED window scale: wid=%d, mode=%d, x=%f, y=%f, w=%f, h=%f\n", wid, mode, x, y, w, h);
+    return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED);
+}
+
 bool scripting_addition_create_pip(uint32_t wid, float x, float y, float w, float h)
 {
     return scripting_addition_scale_window_custom_mode(wid, 0, x, y, w, h);
@@ -575,6 +588,22 @@ bool scripting_addition_move_pip(uint32_t wid, float x, float y)
 bool scripting_addition_restore_pip(uint32_t wid)
 {
     return scripting_addition_scale_window_custom_mode(wid, 2, 0, 0, 0, 0); // coordinates ignored for restore
+}
+
+// FORCED versions that bypass transform checks
+bool scripting_addition_create_pip_forced(uint32_t wid, float x, float y, float w, float h)
+{
+    return scripting_addition_scale_window_forced_mode(wid, 0, x, y, w, h);
+}
+
+bool scripting_addition_move_pip_forced(uint32_t wid, float x, float y)
+{
+    return scripting_addition_scale_window_forced_mode(wid, 1, x, y, 0, 0); // w,h ignored for move
+}
+
+bool scripting_addition_restore_pip_forced(uint32_t wid)
+{
+    return scripting_addition_scale_window_forced_mode(wid, 2, 0, 0, 0, 0); // coordinates ignored for restore
 }
 
 bool scripting_addition_animate_window_frame(uint32_t wid, 

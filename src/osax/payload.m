@@ -589,34 +589,52 @@ static void do_window_scale(char *message)
     unpack(wid);
     if (!wid) return;
 
+    // Get the actual window bounds (e.g., 600x400 at some position)
     CGRect frame = {};
     SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame);
+    
+    // Return a transform which translates by `(tx, ty)':t' = [ 1 0 0 1 tx ty ]
     CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
 
-    CGAffineTransform current_transform;
+
+    CGAffineTransform current_transform; 
+    // Get the current transform applied to the window and store it in `current_transform`
     SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
 
+    // on first run, current_transform == original_transform 
+    // so this will be true. This creates the PiP window.
     if (CGAffineTransformEqualToTransform(current_transform, original_transform)) {
         float dx, dy, dw, dh;
-        unpack(dx);
-        unpack(dy);
-        unpack(dw);
-        unpack(dh);
+        // Unpack the screen coordinates with padding applied
+        // For a 1024x768 screen with 20px padding: dx=20, dy=20, dw=984, dh=728
+        unpack(dx); // left padding (20)
+        unpack(dy); // top padding (20)
+        unpack(dw); // usable width (1024 - 20 - 20 = 984)
+        unpack(dh); // usable height (768 - 20 - 20 = 728)
 
-        int target_width  = dw / 4;
-        int target_height = target_width / (frame.size.width/frame.size.height);
+        // Calculate PiP window size (1/4 of usable screen width)
+        int target_width  = dw / 4; // 984 / 4 = 246px wide
+        // Maintain window's aspect ratio (600:400 = 1.5:1)
+        int target_height = target_width / (frame.size.width/frame.size.height); // 246 / 1.5 = 164px tall
 
-        float x_scale = frame.size.width/target_width;
-        float y_scale = frame.size.height/target_height;
+        // Calculate scale factors to shrink the 600x400 window to 246x164
+        float x_scale = frame.size.width/target_width;   // 600/246 = 2.44x
+        float y_scale = frame.size.height/target_height; // 400/164 = 2.44x
 
-        CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
-        CGFloat transformed_y = -dy;
-        printf("🥶 scale: (%f, %f)\n", transformed_x, transformed_y);
+        // Calculate transform position to place PiP at bottom-right corner
+        // transformed_x positions the scaled window's right edge at screen's right edge
+        CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale)); // -(20+984) + (600/2.44) = -1004 + 246 = -758
+        // transformed_y positions the scaled window at the bottom padding
+        CGFloat transformed_y = -dy; // -20
+
         
+        // Apply the scale transform (shrink to 246x164)
         CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
+        // Then translate to position at bottom-right corner
         CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
         SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
     } else {
+        // Window is already in PiP mode, restore to original size/position
         SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
     }
 }
@@ -653,10 +671,10 @@ static void do_window_scale_custom(char *message)
             }
             
             int target_width  = dw;
-            int target_height = target_width / (frame.size.width/frame.size.height);
+            int target_height = target_width / (dw/dh);
 
-            float x_scale = frame.size.width/target_width;
-            float y_scale = frame.size.height/target_height;
+            float x_scale = 1;
+            float y_scale = 1;
 
             CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
             CGFloat transformed_y = -dy;
@@ -704,6 +722,89 @@ static void do_window_scale_custom(char *message)
         
         default:
             NSLog(@"🎯 unknown mode: %d", mode);
+            break;
+    }
+}
+
+static void do_window_scale_forced(char *message)
+{
+    uint32_t wid;
+    unpack(wid);
+    if (!wid) return;
+
+    CGRect frame = {};
+    SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame);
+    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-(frame.origin.x), -(frame.origin.y));
+
+    CGAffineTransform current_transform;
+    SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
+
+    // Unpack the operation mode and coordinates
+    int mode;
+    unpack(mode);
+    
+    float dx, dy, dw, dh;
+    unpack(dx);
+    unpack(dy);
+    unpack(dw);
+    unpack(dh);
+
+    switch (mode) {
+        case 0: // create_pip - scale window and position it
+        {
+            //if (!CGAffineTransformEqualToTransform(current_transform, original_transform)) {
+            //    // Already scaled, restore first then create
+            //    SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+            //}
+            
+            int target_width  = dw;
+            int target_height = target_width / (frame.size.width/frame.size.height) ;
+
+            float x_scale = frame.size.width/target_width;
+            float y_scale = frame.size.height/target_height;
+
+            CGFloat transformed_x = -(dx) ;
+            CGFloat transformed_y = -(dy);
+            
+            CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
+            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
+            SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+            break;
+        }
+        
+        case 1: // move_pip - update position FORCED (no transform check)
+        {
+
+            //// Extract current scale from transform (or use defaults if not scaled)
+            float current_x_scale = current_transform.a;
+            float current_y_scale = current_transform.d;
+            
+            ////// If scale values are too close to 1.0, it means we're not scaled yet
+            ////// In forced mode, we'll apply the new dimensions as a scale
+            //if (fabs(current_x_scale - 1.0) < 0.01 && fabs(current_y_scale - 1.0) < 0.01) {
+            //    current_x_scale = frame.size.width / dw;
+            //    current_y_scale = frame.size.height / dh;
+            //}
+            
+            // Calculate new translation using scale and new coordinates
+            CGFloat new_transformed_x = -(dx);
+            CGFloat new_transformed_y = -(dy);
+            
+            CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(current_x_scale, current_y_scale));
+            CGAffineTransform transform = CGAffineTransformTranslate(scale, new_transformed_x, new_transformed_y);
+            SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+            break;
+        }
+        
+        case 2: // restore_pip - reset to original transform
+        {
+            NSLog(@"🎯 FORCED restore_pip: resetting to original transform");
+            SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+            break;
+        }
+        
+        default:
+            NSLog(@"🎯 FORCED unknown mode: %d", mode);
             break;
     }
 }
@@ -1147,6 +1248,9 @@ static void handle_message(int sockfd, char *message)
     } break;
     case SA_OPCODE_WINDOW_SCALE_CUSTOM: {
         do_window_scale_custom(message);
+    } break;
+    case SA_OPCODE_WINDOW_SCALE_FORCED: {
+        do_window_scale_forced(message);
     } break;
     case SA_OPCODE_WINDOW_ANIMATE_FRAME: {
         do_window_animate_frame(message);

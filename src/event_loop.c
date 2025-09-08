@@ -1419,10 +1419,10 @@ static EVENT_HANDLER(MOUSE_DRAGGED){
             100 + g_mouse_state.down_location.y
         };
         scripting_addition_move_pip(g_mouse_state.window->id, mouse_delta.x + offset.x, mouse_delta.y + offset.y);
-        CGPoint new_point_pip = { 
-            (g_mouse_state.window->pip_frame.current.x / g_mouse_state.window->pip_frame.scale_x) + mouse_delta.x,
-            (g_mouse_state.window->pip_frame.current.y / g_mouse_state.window->pip_frame.scale_y) + mouse_delta.y
-        };
+        //CGPoint new_point_pip = { 
+        //    (g_mouse_state.window->pip_frame.current.x / g_mouse_state.window->pip_frame.scale_x) + mouse_delta.x,
+        //    (g_mouse_state.window->pip_frame.current.y / g_mouse_state.window->pip_frame.scale_y) + mouse_delta.y
+        //};
         goto out;
     }
     debug("delta x: %.2f, delta y: %.2f\n", mouse_delta.x, mouse_delta.y);

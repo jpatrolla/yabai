@@ -185,6 +185,7 @@ extern bool g_verbose;
 #define COMMAND_WINDOW_TOGGLE     "--toggle"
 #define COMMAND_WINDOW_SCRATCHPAD "--scratchpad"
 #define COMMAND_WINDOW_PIP_TEST   "--pip-test"
+#define COMMAND_WINDOW_PIP_TEST_FORCED "--pip-test-forced"
 #define COMMAND_WINDOW_HIDE       "--hide"
 #define COMMAND_WINDOW_UNHIDE     "--unhide"
 
@@ -2849,7 +2850,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 }
             }
         } else if (token_equals(command, COMMAND_WINDOW_PIP_TEST)) {
-            // Test command for frame-based animation functionality
+            // Test command for direct PiP scripting addition functionality
             char *args = string_copy(message);
             char *x_str = strsep(&args, ",");
             char *y_str = strsep(&args, ",");
@@ -2862,7 +2863,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 float test_w = strtof(w_str, NULL);
                 float test_h = strtof(h_str, NULL);
                 
-                printf("🎬 Testing frame-based pip animation: wid=%d, target=(%.0f,%.0f,%.0fx%.0f)\n", 
+                fprintf(rsp,"🎬 Testing direct PiP scripting addition: wid=%d, target=(%.0f,%.0f,%.0fx%.0f)\n", 
                        acting_window->id, test_x, test_y, test_w, test_h);
                 
                 // Get current window position using SLSGetWindowBounds for accuracy
@@ -2873,57 +2874,182 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                        original_frame.origin.x, original_frame.origin.y, 
                        original_frame.size.width, original_frame.size.height);
                 
-                // Force frame-based animation for this test
-                bool original_frame_based = g_window_manager.window_animation_frame_based_enabled;
-                g_window_manager.window_animation_frame_based_enabled = true;
-                printf("🎬 Frame-based animation: %s -> enabled\n", 
-                       original_frame_based ? "already enabled" : "enabling");
+                // Simple manual animation parameters
+                int total_frames = 30;     // 30 frames
+                double frame_duration = 0.033; // ~30fps (33ms per frame)
+                double pause_duration = 1.0;   // 1 second pause
                 
-                // Create window capture for animation to test coordinates
-                struct window_capture test_capture = {
-                    .window = acting_window,
-                    .x = test_x,
-                    .y = test_y,
-                    .w = test_w,
-                    .h = test_h
-                };
-
-                // Phase 1: Animate to test position
-                printf("🎬 Phase 1: Animating to test position using config (duration=%.1fs, easing=%d)...\n",
-                       g_window_manager.window_animation_duration, g_window_manager.window_animation_easing);
-                window_manager_resize_window(acting_window, test_w, test_h);
-                       window_manager_animate_window(test_capture);
+                printf("🎬 Phase 1: Manual animation to target (30 frames, 33ms each)...\n");
                 
-                // Wait for animation to complete + pause time
-                double animation_duration = g_window_manager.window_animation_duration;
-                double pause_time = 3.0;
-                double total_wait = animation_duration + pause_time;
+                // Phase 1: Animate TO target position using direct scripting addition
+                scripting_addition_scale_window_custom_mode(acting_window->id,0,
+                                             original_frame.origin.x, 
+                                             original_frame.origin.y,
+                                             original_frame.size.width, 
+                                             original_frame.size.height);
                 
-                printf("🎬 Waiting %.1fs (animation: %.1fs + pause: %.1fs)...\n", 
-                       total_wait, animation_duration, pause_time);
-                usleep((useconds_t)(total_wait * 1000000));
+                for (int frame = 0; frame <= total_frames; frame++) {
+                    float t = (float)frame / (float)total_frames;
+                    float eased_t = 1.0f - powf(1.0f - t, 3.0f); // ease out cubic
+                    
+                    // Interpolate position and size
+                    float current_x = original_frame.origin.x + (test_x - original_frame.origin.x) * eased_t;
+                    float current_y = original_frame.origin.y + (test_y - original_frame.origin.y) * eased_t;
+                    float current_w = original_frame.size.width + (test_w - original_frame.size.width) * eased_t;
+                    float current_h = original_frame.size.height + (test_h - original_frame.size.height) * eased_t;
+                    
+                    // Use mode 2 (move) for intermediate frames
+                    if (frame == 0) {
+                        printf("🎬 Frame %d/%d: CREATE PiP at (%.1f,%.1f,%.1fx%.1f)\n", 
+                               frame, total_frames, current_x, current_y, current_w, current_h);
+                    } else {
+                        printf("🎬 Frame %d/%d: MOVE PiP to (%.1f,%.1f,%.1fx%.1f)\n", 
+                               frame, total_frames, current_x, current_y, current_w, current_h);
+                        scripting_addition_scale_window_custom_mode(acting_window->id, 1, 
+                                                                   current_x, current_y, current_w, current_h);
+                    }
+                    
+                    // Wait for next frame
+                    if (frame < total_frames) {
+                        usleep((useconds_t)(frame_duration * 1000000));
+                    }
+                }
                 
-                // Create window capture for animation back to original position
-                struct window_capture restore_capture = {
-                    .window = acting_window,
-                    .x = original_frame.origin.x,
-                    .y = original_frame.origin.y,
-                    .w = original_frame.size.width,
-                    .h = original_frame.size.height
-                };
+                printf("🎬 Pausing at target position for %.1f seconds...\n", pause_duration);
+                usleep((useconds_t)(pause_duration * 1000000));
                 
-                // Phase 2: Animate back to original position
-                printf("🎬 Phase 2: Animating back to original position...\n");
-                window_manager_animate_window(restore_capture);
+                printf("🎬 Phase 2: Manual animation back to original (30 frames, 33ms each)...\n");
                 
-                // Restore original frame-based setting
-                g_window_manager.window_animation_frame_based_enabled = original_frame_based;
-                printf("🎬 Frame-based animation restored to: %s\n", 
-                       original_frame_based ? "enabled" : "disabled");
+                // Phase 2: Animate BACK to original position
+                for (int frame = 0; frame <= total_frames; frame++) {
+                    float t = (float)frame / (float)total_frames;
+                    float eased_t = 1.0f - powf(1.0f - t, 3.0f); // ease out cubic
+                    
+                    // Interpolate from target back to original
+                    float current_x = test_x + (original_frame.origin.x - test_x) * eased_t;
+                    float current_y = test_y + (original_frame.origin.y - test_y) * eased_t;
+                    float current_w = test_w + (original_frame.size.width - test_w) * eased_t;
+                    float current_h = test_h + (original_frame.size.height - test_h) * eased_t;
+                    
+                    printf("🎬 Frame %d/%d: MOVE PiP to (%.1f,%.1f,%.1fx%.1f)\n", 
+                           frame, total_frames, current_x, current_y, current_w, current_h);
+                    
+                    if (frame == total_frames) {
+                        // Last frame: restore PiP
+                        printf("🎬 Frame %d/%d: RESTORE PiP\n", frame, total_frames);
+                        scripting_addition_restore_pip(acting_window->id);
+                    } else {
+                        scripting_addition_scale_window_custom_mode(acting_window->id, 1, 
+                                                                   current_x, current_y, current_w, current_h);
+                    }
+                    
+                    // Wait for next frame
+                    if (frame < total_frames) {
+                        usleep((useconds_t)(frame_duration * 1000000));
+                    }
+                }
                 
-                fprintf(rsp, "✅ Frame-based pip animation test completed successfully!\n");
+                fprintf(rsp, "✅ Direct PiP animation test completed successfully!\n");
             } else {
                 daemon_fail(rsp, "Usage: --pip-test x,y,w,h (e.g., --pip-test 50,50,100,100)\n");
+            }
+        } else if (token_equals(command, COMMAND_WINDOW_PIP_TEST_FORCED)) {
+            // FORCED test command that bypasses CGAffineTransformEqualToTransform checks
+            char *args = string_copy(message);
+            char *x_str = strsep(&args, ",");
+            char *y_str = strsep(&args, ",");
+            char *w_str = strsep(&args, ",");
+            char *h_str = strsep(&args, ",");
+            
+            if (x_str && y_str && w_str && h_str) {
+                float test_x = strtof(x_str, NULL);
+                float test_y = strtof(y_str, NULL);
+                float test_w = strtof(w_str, NULL);
+                float test_h = strtof(h_str, NULL);
+                
+                fprintf(rsp," Testing FORCED PiP scripting addition (bypasses transform checks): wid=%d, target=(%.0f,%.0f,%.0fx%.0f)\n", 
+                       acting_window->id, test_x, test_y, test_w, test_h);
+                
+                // Get current window position using SLSGetWindowBounds for accuracy
+                CGRect original_frame;
+                SLSGetWindowBounds(g_connection, acting_window->id, &original_frame);
+                
+                // Simple manual animation parameters
+                int total_frames = 30;     // 30 frames
+                double frame_duration = 0.033; // ~30fps (33ms per frame)
+                double pause_duration = 1.0;   // 1 second pause
+                
+                printf("🚀 Phase 1: FORCED animation to target (30 frames, 33ms each)...\n");
+                
+                // Phase 1: Animate TO target position using FORCED scripting addition
+                
+                
+                for (int frame = 0; frame <= total_frames; frame++) {
+                    float t = (float)frame / (float)total_frames;
+                    float eased_t = 1.0f - powf(1.0f - t, 3.0f); // ease out cubic
+                    
+                    // Interpolate position and size
+                    float current_x = original_frame.origin.x + (test_x - original_frame.origin.x) * eased_t;
+                    float current_y = original_frame.origin.y + (test_y - original_frame.origin.y) * eased_t;
+                    float current_w = original_frame.size.width + (test_w - original_frame.size.width) * eased_t;
+                    float current_h = original_frame.size.height + (test_h - original_frame.size.height) * eased_t;
+                    
+                    // Use FORCED mode 1 (move) for intermediate frames
+                    if (frame == 0) {
+                        scripting_addition_scale_window_forced_mode(acting_window->id,0,
+                                             current_x, 
+                                             current_y,
+                                             current_w, 
+                                             current_h);
+                    } else {
+                       
+                        scripting_addition_scale_window_forced_mode(acting_window->id, 1, 
+                                                                   current_x, current_y, current_w, current_h);
+                    }
+                    
+                    // Wait for next frame
+                    if (frame < total_frames) {
+                        usleep((useconds_t)(frame_duration * 1000000));
+                    }
+                }
+                
+                printf("🚀 Pausing at target position for %.1f seconds...\n", pause_duration);
+                usleep((useconds_t)(pause_duration * 1000000));
+                
+                printf("🚀 Phase 2: FORCED animation back to original (30 frames, 33ms each)...\n");
+                
+                // Phase 2: Animate BACK to original position using FORCED mode
+                for (int frame = 0; frame <= total_frames; frame++) {
+                    float t = (float)frame / (float)total_frames;
+                    float eased_t = 1.0f - powf(1.0f - t, 3.0f); // ease out cubic
+                    
+                    // Interpolate from target back to original
+                    float current_x = test_x + (original_frame.origin.x - test_x) * eased_t;
+                    float current_y = test_y + (original_frame.origin.y - test_y) * eased_t;
+                    float current_w = test_w + (original_frame.size.width - test_w) * eased_t;
+                    float current_h = test_h + (original_frame.size.height - test_h) * eased_t;
+                    
+                    printf("🚀 Frame %d/%d: FORCED MOVE PiP to (%.1f,%.1f,%.1fx%.1f)\n", 
+                           frame, total_frames, current_x, current_y, current_w, current_h);
+                    
+                    if (frame == total_frames) {
+                        // Last frame: FORCED restore PiP
+                        printf("🚀 Frame %d/%d: FORCED RESTORE PiP\n", frame, total_frames);
+                        scripting_addition_restore_pip_forced(acting_window->id);
+                    } else {
+                        scripting_addition_scale_window_forced_mode(acting_window->id, 1, 
+                                                                   current_x, current_y, current_w, current_h);
+                    }
+                    
+                    // Wait for next frame
+                    if (frame < total_frames) {
+                        usleep((useconds_t)(frame_duration * 1000000));
+                    }
+                }
+                
+                fprintf(rsp, "✅ FORCED PiP animation test completed successfully! (Transform checks bypassed)\n");
+            } else {
+                daemon_fail(rsp, "Usage: --pip-test-forced x,y,w,h (e.g., --pip-test-forced 50,50,100,100)\n");
             }
         } else if (token_equals(command, COMMAND_WINDOW_HIDE)) {
             debug("COMMAND_WINDOW_HIDE\n");
