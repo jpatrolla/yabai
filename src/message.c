@@ -184,6 +184,7 @@ extern bool g_verbose;
 #define COMMAND_WINDOW_LOWER      "--lower"
 #define COMMAND_WINDOW_TOGGLE     "--toggle"
 #define COMMAND_WINDOW_SCRATCHPAD "--scratchpad"
+#define COMMAND_WINDOW_NUDGE      "--nudge"
 #define COMMAND_WINDOW_PIP_TEST   "--pip-test"
 #define COMMAND_WINDOW_PIP_TEST_FORCED "--pip-test-forced"
 #define COMMAND_WINDOW_HIDE       "--hide"
@@ -3086,6 +3087,103 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "could not locate the window to act on!\n");
             }
+        } else if (token_equals(command, COMMAND_WINDOW_NUDGE)) {
+            struct token direction_token = get_token(&message);
+            if (!token_is_valid(direction_token)) {
+                daemon_fail(rsp, "Usage: --nudge <left|right>\n");
+                return;
+            }
+            
+            if (!acting_window) {
+                daemon_fail(rsp, "could not locate the window to act on!\n");
+                return;
+            }
+            
+            // Get current window bounds
+            CGRect current_frame;
+            SLSGetWindowBounds(g_connection, acting_window->id, &current_frame);
+            
+            // Determine nudge direction and offset
+            float nudge_distance = 15.0f; // Subtle movement distance in pixels
+            float nudge_x_offset = 0.0f;
+            
+            if (token_equals(direction_token, "left")) {
+                nudge_x_offset = -nudge_distance;
+                fprintf(rsp, "🔄 Nudging window left (no space available in that direction)\n");
+            } else if (token_equals(direction_token, "right")) {
+                nudge_x_offset = nudge_distance;
+                fprintf(rsp, "🔄 Nudging window right (no space available in that direction)\n");
+            } else {
+                daemon_fail(rsp, "Invalid direction '%.*s'. Use 'left' or 'right'\n", direction_token.length, direction_token.text);
+                return;
+            }
+            
+            // Calculate nudge animation frames
+            int total_frames = 20;        // Short animation
+            double frame_duration = 0.025; // 40fps (25ms per frame)
+            double return_pause = 0.1;    // Brief pause at peak nudge
+            
+            printf("🎯 NUDGE: Creating visual feedback animation for blocked direction\n");
+            printf("    Window: %d, Direction: %.*s, Distance: %.1fpx, Frames: %d\n", 
+                   acting_window->id, direction_token.length, direction_token.text, nudge_distance, total_frames);
+            
+            // Phase 1: Nudge out to indicate blocked direction
+            for (int frame = 0; frame <= total_frames; frame++) {
+                float t = (float)frame / (float)total_frames;
+                float eased_t = sinf(t * M_PI * 0.5); // ease out sine
+                
+                float current_x = current_frame.origin.x + (nudge_x_offset * eased_t);
+                
+                if (frame == 0) {
+                    // Create PiP for nudge animation
+                    printf("🎯 NUDGE Frame %d/%d: CREATE nudge PiP at (%.1f,%.1f)\n", 
+                           frame, total_frames, current_x, current_frame.origin.y);
+                    scripting_addition_scale_window_forced_mode(acting_window->id, 0,
+                                                              current_x, current_frame.origin.y,
+                                                              current_frame.size.width, current_frame.size.height);
+                } else {
+                    // Move PiP for animation
+                    printf("🎯 NUDGE Frame %d/%d: MOVE nudge PiP to (%.1f,%.1f)\n", 
+                           frame, total_frames, current_x, current_frame.origin.y);
+                    scripting_addition_scale_window_forced_mode(acting_window->id, 1,
+                                                              current_x, current_frame.origin.y,
+                                                              current_frame.size.width, current_frame.size.height);
+                }
+                
+                if (frame < total_frames) {
+                    usleep((useconds_t)(frame_duration * 1000000));
+                }
+            }
+            
+            // Brief pause at peak nudge
+            usleep((useconds_t)(return_pause * 1000000));
+            
+            // Phase 2: Return to original position (spring back effect)
+            for (int frame = 0; frame <= total_frames; frame++) {
+                float t = (float)frame / (float)total_frames;
+                float eased_t = 1.0f - powf(1.0f - t, 2.0f); // ease out quadratic (spring back)
+                
+                float peak_x = current_frame.origin.x + nudge_x_offset;
+                float current_x = peak_x + ((current_frame.origin.x - peak_x) * eased_t);
+                
+                if (frame == total_frames) {
+                    // Restore PiP and return to exact original position
+                    printf("🎯 NUDGE Frame %d/%d: RESTORE nudge PiP to original position\n", frame, total_frames);
+                    scripting_addition_restore_pip_forced(acting_window->id);
+                } else {
+                    printf("🎯 NUDGE Frame %d/%d: RETURN to (%.1f,%.1f)\n", 
+                           frame, total_frames, current_x, current_frame.origin.y);
+                    scripting_addition_scale_window_forced_mode(acting_window->id, 1,
+                                                              current_x, current_frame.origin.y,
+                                                              current_frame.size.width, current_frame.size.height);
+                }
+                
+                if (frame < total_frames) {
+                    usleep((useconds_t)(frame_duration * 1000000));
+                }
+            }
+            
+            fprintf(rsp, "✅ Nudge animation completed - visual feedback provided for blocked direction\n");
         } else {
             daemon_fail(rsp, "unknown command '%.*s' for domain '%.*s'\n", command.length, command.text, domain.length, domain.text);
         }

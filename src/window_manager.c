@@ -738,7 +738,7 @@ static inline float calculate_aspect_difference(float src_w, float src_h, float 
     return fabsf(dst_aspect - src_aspect) / fmaxf(src_aspect, dst_aspect);
 }
 
-// Screen edge analysis structure
+// debug strucs
 typedef struct {
     bool touches_top;
     bool touches_bottom;
@@ -966,6 +966,10 @@ static inline void analyze_window_position(struct window *window, struct window_
 // ============================================================================
 // This is the single source of truth for all anchoring logic in animations.
 // It replaces all previous anchor calculation methods with a unified approach.
+// todo: [] identify edge cases / issues with current logic
+// [] poc using scale + transactions
+// todo: [] determine final logic + streamline
+// todo: [] cleanup
 
 typedef enum {
     WINDOW_OPERATION_RESIZE,
@@ -1010,6 +1014,7 @@ static bool detect_monitor_crossing(CGRect start_rect, CGRect end_rect) {
     return distance > 1000.0f; // Configurable threshold for monitor boundary detection
 }
 
+// todo: actually centralise all the logic
 // MAIN CENTRALIZED ANCHORING FUNCTION
 // This is the single function that calculates anchor information for all animations
 static unified_anchor_info calculate_unified_anchor(CGRect start_rect, CGRect end_rect, 

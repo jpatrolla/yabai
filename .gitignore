@@ -7,3 +7,6 @@ xcode-debug/yabai-debug
 entitlements.xml
 xcode-debug/yabai-debug
 xcode-debug/yabai-debug
+test_*
+/private
+rebuild_and_install.sh
