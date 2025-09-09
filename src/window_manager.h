@@ -157,9 +157,10 @@ struct window_manager
     bool window_animation_fast_mode;          // Fast mode: disables blur, shadows, complex easing
     float window_animation_starting_size;     // Size multiplier for animation start (0.1-2.0)
     
-    // Frame-based animation (POC alternative to proxy windows)
-    bool window_animation_frame_based_enabled; // Use frame-based scaling instead of proxy windows
+    // pip-based animation (POC alternative to proxy windows)
+    bool window_animation_pip_enabled; // Use pip-based scaling instead of proxy windows
     float window_animation_frame_rate;         // Frame rate for AX API calls (1.0-120.0 fps)
+    bool window_animation_pip_async_enabled;   // Enable asynchronous PiP animation processing
     
     struct rgba_color insert_feedback_color;
     struct scratchpad *scratchpad_window;
@@ -184,7 +185,7 @@ void window_manager_move_window(struct window *window, float x, float y);
 void window_manager_resize_window(struct window *window, float width, float height);
 enum window_op_error window_manager_adjust_window_ratio(struct window_manager *wm, struct window *window, int action, float ratio);
 void window_manager_animate_window(struct window_capture capture);
-void window_manager_animate_window_frame_based(struct window_capture *window_list, int window_count);
+void window_manager_animate_window_pip(struct window_capture *window_list, int window_count);
 void window_manager_animate_window_list(struct window_capture *window_list, int window_count);
 void window_manager_set_window_frame(struct window *window, float x, float y, float width, float height);
 int window_manager_find_rank_of_window_in_list(uint32_t wid, uint32_t *window_list, int window_count);

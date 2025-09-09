@@ -1,5 +1,6 @@
 #include "sa.h"
 #include <sys/_types/_u_int16_t.h>
+#include <sys/qos.h>
 extern mach_port_t g_bs_port;
 extern uint8_t *g_event_bytes;
 extern struct event_loop g_event_loop;
@@ -1626,7 +1627,7 @@ void window_manager_animate_window_list_async(struct window_capture *window_list
     CVDisplayLinkStart(link);
 }
 
-// Frame-based animation context structure
+// pip-based animation context structure
 struct window_frame_animation_context {
     int animation_connection;
     int animation_count;
@@ -1639,7 +1640,7 @@ struct window_frame_animation_context {
     bool animation_running;
 };
 
-// Frame-based animation data structure
+// pip-based animation data structure
 struct window_frame_animation {
     struct window *window;
     uint32_t wid;
@@ -1657,12 +1658,12 @@ struct window_frame_animation {
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
-static void *window_manager_animate_window_list_frame_based_thread_proc(void *data)
+static void *window_manager_animate_window_list_pip_thread_proc(void *data)
 {
     struct window_frame_animation_context *context = data;
     int animation_count = context->animation_count;
     
-    debug("🎬 Frame-based async animation thread started for %d windows", animation_count);
+    debug("🎬 pip-based async animation thread started for %d windows", animation_count);
     
     // Animation parameters
     double duration = context->animation_duration;
@@ -1704,6 +1705,9 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
         }
         
         debug("🎬 Async Frame %d/%d: t=%.3f mt=%.3f (easing=%d)", frame, total_frames, t, mt, easing);
+        
+        // Create a single transaction for all operations in this frame (async version)
+        CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
         
         // Update each window for this frame using PiP scaling animation with 2-phase support
         for (int i = 0; i < animation_count; ++i) {
@@ -1748,52 +1752,123 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
                 } else {
                     // Phase 2: Resize at final position with proper anchor
                     float resize_t = (t - slide_duration) / (1.0f - slide_duration);
-                    float resize_mt = ease_in_out_cubic(resize_t); // Use different easing for resize phase
+                    float resize_mt;
+                    if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
+                        resize_mt = resize_t; // Linear for simplified/fast mode
+                    } else {
+                        // Apply the same easing function configured for animations
+                        switch (easing) {
+#define ANIMATION_EASING_TYPE_ENTRY(value) case value##_type: resize_mt = value(resize_t); break;
+                            ANIMATION_EASING_TYPE_LIST
+#undef ANIMATION_EASING_TYPE_ENTRY
+                            default: resize_mt = resize_t; // Linear fallback
+                        }
+                    }
                     
                     // Smoothly interpolate size from original to final
                     current_w = context->animation_list[i].original_w + (end_w - context->animation_list[i].original_w) * resize_mt;
                     current_h = context->animation_list[i].original_h + (end_h - context->animation_list[i].original_h) * resize_mt;
                     
-                    // CORRECTED: Proper anchor-based position interpolation for two-phase
-                    // Calculate anchor points for start and end positions
+                    // Store calculated dimensions for this frame (resize phase)
+                    context->animation_list[i].calculated_x = end_x;
+                    context->animation_list[i].calculated_y = end_y;
+                    context->animation_list[i].calculated_w = current_w;
+                    context->animation_list[i].calculated_h = current_h;
+                    
+                    current_x = end_x;
+                    current_y = end_y;
+                    
+                    debug("🎬 Async Frame %d/%d Window %d: RESIZE PHASE t=%.3f resize_mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f)", 
+                          frame, total_frames, context->animation_list[i].wid, t, resize_mt, current_x, current_y, current_w, current_h);
+                }
+            } else {
+                // Enhanced single-phase animation with stationary edge detection (aligned with sync version)
+                float interp_mt = mt;
+
+                current_w = context->animation_list[i].original_w + (end_w - context->animation_list[i].original_w) * interp_mt;
+                current_h = context->animation_list[i].original_h + (end_h - context->animation_list[i].original_h) * interp_mt;
+                
+                // ENHANCED: Stationary edge pinning with proper anchor-based position interpolation
+                // Detect which edges are stationary (should be pinned)
+                float edge_threshold = 2.0f; // BSP coordinates might have small rounding differences
+                bool top_edge_stationary = fabsf(start_y - end_y) <= edge_threshold;
+                bool bottom_edge_stationary = fabsf((start_y + start_h) - (end_y + end_h)) <= edge_threshold;
+                bool left_edge_stationary = fabsf(start_x - end_x) <= edge_threshold;
+                bool right_edge_stationary = fabsf((start_x + start_w) - (end_x + end_w)) <= edge_threshold;
+                
+                // Calculate position using stationary edge pinning
+                if (top_edge_stationary && left_edge_stationary) {
+                    // Pin top-left corner
+                    current_x = start_x;
+                    current_y = start_y;
+                } else if (top_edge_stationary && right_edge_stationary) {
+                    // Pin top-right corner
+                    current_x = start_x + start_w - current_w;
+                    current_y = start_y;
+                } else if (bottom_edge_stationary && left_edge_stationary) {
+                    // Pin bottom-left corner
+                    current_x = start_x;
+                    current_y = start_y + start_h - current_h;
+                } else if (bottom_edge_stationary && right_edge_stationary) {
+                    // Pin bottom-right corner
+                    current_x = start_x + start_w - current_w;
+                    current_y = start_y + start_h - current_h;
+                } else if (top_edge_stationary) {
+                    // Pin top edge, interpolate X position
+                    current_y = start_y;
+                    current_x = start_x + (end_x - start_x) * interp_mt;
+                } else if (bottom_edge_stationary) {
+                    // Pin bottom edge, interpolate X position
+                    current_y = start_y + start_h - current_h;
+                    current_x = start_x + (end_x - start_x) * interp_mt;
+                } else if (left_edge_stationary) {
+                    // Pin left edge, interpolate Y position
+                    current_x = start_x;
+                    current_y = start_y + (end_y - start_y) * interp_mt;
+                } else if (right_edge_stationary) {
+                    // Pin right edge, interpolate Y position
+                    current_x = start_x + start_w - current_w;
+                    current_y = start_y + (end_y - start_y) * interp_mt;
+                } else {
+                    // No stationary edges - use anchor-based interpolation
                     float start_anchor_x, start_anchor_y, end_anchor_x, end_anchor_y;
                     
                     switch (context->animation_list[i].resize_anchor) {
                         case 0: // top-left anchor
-                            start_anchor_x = end_x; // Use slide destination as start for resize phase
-                            start_anchor_y = end_y;
+                            start_anchor_x = start_x;
+                            start_anchor_y = start_y;
                             end_anchor_x = end_x;
                             end_anchor_y = end_y;
                             break;
                         case 1: // top-right anchor
-                            start_anchor_x = end_x + context->animation_list[i].original_w; // Original size anchor point
-                            start_anchor_y = end_y;
+                            start_anchor_x = start_x + start_w;
+                            start_anchor_y = start_y;
                             end_anchor_x = end_x + end_w;
                             end_anchor_y = end_y;
                             break;
                         case 2: // bottom-left anchor
-                            start_anchor_x = end_x;
-                            start_anchor_y = end_y + context->animation_list[i].original_h;
+                            start_anchor_x = start_x;
+                            start_anchor_y = start_y + start_h;
                             end_anchor_x = end_x;
                             end_anchor_y = end_y + end_h;
                             break;
                         case 3: // bottom-right anchor
-                            start_anchor_x = end_x + context->animation_list[i].original_w;
-                            start_anchor_y = end_y + context->animation_list[i].original_h;
+                            start_anchor_x = start_x + start_w;
+                            start_anchor_y = start_y + start_h;
                             end_anchor_x = end_x + end_w;
                             end_anchor_y = end_y + end_h;
                             break;
                         default:
-                            start_anchor_x = end_x;
-                            start_anchor_y = end_y;
+                            start_anchor_x = start_x;
+                            start_anchor_y = start_y;
                             end_anchor_x = end_x;
                             end_anchor_y = end_y;
                             break;
                     }
                     
-                    // Interpolate the anchor point position (for resize phase, usually minimal movement)
-                    float current_anchor_x = start_anchor_x + (end_anchor_x - start_anchor_x) * resize_mt;
-                    float current_anchor_y = start_anchor_y + (end_anchor_y - start_anchor_y) * resize_mt;
+                    // Interpolate the anchor point position
+                    float current_anchor_x = start_anchor_x + (end_anchor_x - start_anchor_x) * interp_mt;
+                    float current_anchor_y = start_anchor_y + (end_anchor_y - start_anchor_y) * interp_mt;
                     
                     // Calculate window position based on interpolated anchor and current size
                     switch (context->animation_list[i].resize_anchor) {
@@ -1818,118 +1893,38 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
                             current_y = current_anchor_y;
                             break;
                     }
-                    
-                    // Store calculated dimensions for this frame (resize phase)
-                    context->animation_list[i].calculated_x = current_x;
-                    context->animation_list[i].calculated_y = current_y;
-                    context->animation_list[i].calculated_w = current_w;
-                    context->animation_list[i].calculated_h = current_h;
-                    
-                    debug("🎬 Async Frame %d/%d Window %d: RESIZE PHASE t=%.3f resize_mt=%.3f anchor=(%.1f,%.1f) pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d", 
-                          frame, total_frames, context->animation_list[i].wid, t, resize_mt, current_anchor_x, current_anchor_y, current_x, current_y, current_w, current_h, context->animation_list[i].resize_anchor);
-                }
-            } else {
-                // CORRECTED: Standard single-phase animation with proper anchor-based interpolation
-                // Calculate anchor points for start and end positions
-                float start_anchor_x, start_anchor_y, end_anchor_x, end_anchor_y;
-                
-                switch (context->animation_list[i].resize_anchor) {
-                    case 0: // top-left anchor
-                        start_anchor_x = start_x;
-                        start_anchor_y = start_y;
-                        end_anchor_x = end_x;
-                        end_anchor_y = end_y;
-                        break;
-                    case 1: // top-right anchor
-                        start_anchor_x = start_x + start_w;
-                        start_anchor_y = start_y;
-                        end_anchor_x = end_x + end_w;
-                        end_anchor_y = end_y;
-                        break;
-                    case 2: // bottom-left anchor
-                        start_anchor_x = start_x;
-                        start_anchor_y = start_y + start_h;
-                        end_anchor_x = end_x;
-                        end_anchor_y = end_y + end_h;
-                        break;
-                    case 3: // bottom-right anchor
-                        start_anchor_x = start_x + start_w;
-                        start_anchor_y = start_y + start_h;
-                        end_anchor_x = end_x + end_w;
-                        end_anchor_y = end_y + end_h;
-                        break;
-                    default:
-                        start_anchor_x = start_x;
-                        start_anchor_y = start_y;
-                        end_anchor_x = end_x;
-                        end_anchor_y = end_y;
-                        break;
                 }
                 
-                // Interpolate both size and anchor position
-                current_w = start_w + (end_w - start_w) * mt;
-                current_h = start_h + (end_h - start_h) * mt;
-                float current_anchor_x = start_anchor_x + (end_anchor_x - start_anchor_x) * mt;
-                float current_anchor_y = start_anchor_y + (end_anchor_y - start_anchor_y) * mt;
-                
-                // Calculate window position based on interpolated anchor and current size
-                switch (context->animation_list[i].resize_anchor) {
-                    case 0: // top-left anchor
-                        current_x = current_anchor_x;
-                        current_y = current_anchor_y;
-                        break;
-                    case 1: // top-right anchor
-                        current_x = current_anchor_x - current_w;
-                        current_y = current_anchor_y;
-                        break;
-                    case 2: // bottom-left anchor
-                        current_x = current_anchor_x;
-                        current_y = current_anchor_y - current_h;
-                        break;
-                    case 3: // bottom-right anchor
-                        current_x = current_anchor_x - current_w;
-                        current_y = current_anchor_y - current_h;
-                        break;
-                    default:
-                        current_x = current_anchor_x;
-                        current_y = current_anchor_y;
-                        break;
-                }
-                
-                // Store calculated dimensions for this frame (single phase)
+                // Store calculated dimensions for this frame (PiP doesn't change actual window size)
                 context->animation_list[i].calculated_x = current_x;
                 context->animation_list[i].calculated_y = current_y;
                 context->animation_list[i].calculated_w = current_w;
                 context->animation_list[i].calculated_h = current_h;
                 
-                debug("🎬 Async Frame %d/%d Window %d: SINGLE PHASE t=%.3f mt=%.3f anchor=(%.1f,%.1f) pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d", 
-                      frame, total_frames, context->animation_list[i].wid, t, mt, current_anchor_x, current_anchor_y, current_x, current_y, current_w, current_h, context->animation_list[i].resize_anchor);
+                //debug("🎬 Async Frame %d/%d Window %d: SINGLE PHASE t=%.3f mt=%.3f anchor=(%.1f,%.1f) pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d", 
+                //      frame, total_frames, context->animation_list[i].wid, t, mt, current_anchor_x, current_anchor_y, current_x, current_y, current_w, current_h, context->animation_list[i].resize_anchor);
             }
             
-            // Execute PiP animation for this frame using transactions for better coordination
+            // Execute PiP animation for this frame using enhanced parameter passing with transactions
             if (frame == 0) {
-                // First frame: create PiP with transaction coordination
-                CFTypeRef transaction = SLSTransactionCreate(g_connection);
+                // Apply window frame first to ensure proper setup
+                window_manager_set_window_frame(context->animation_list[i].window, end_x, end_y, end_w, end_h);
                 
-                window_manager_resize_window(context->animation_list[i].window, end_w, end_h);
-                
-                // Use transaction-aware PiP creation
-                scripting_addition_scale_window_forced_mode_with_transaction(
-                    context->animation_list[i].wid, 
-                    transaction,
-                    0, // create mode
-                    current_x, current_y, current_w, current_h
-                );
-                
-                // Apply opacity fade transition in the same transaction if enabled
+                // Apply opacity fade transition in the frame transaction if enabled
                 float opacity_fade_duration = g_window_manager.window_opacity_duration;
                 if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
-                    SLSTransactionSetWindowSystemAlpha(transaction, context->animation_list[i].wid, 0.3f);
+                    SLSTransactionSetWindowSystemAlpha(frame_transaction, context->animation_list[i].wid, 0.3f);
                 }
                 
-                // Commit all changes atomically
-                SLSTransactionCommit(transaction, 0);
-                CFRelease(transaction);
+                // Create PiP with enhanced parameters using the frame transaction
+                scripting_addition_anim_window_pip_mode_with_transaction(
+                    context->animation_list[i].wid, 
+                    frame_transaction,
+                    0,  // create mode
+                    start_x, start_y, start_w, start_h,  // start frame
+                    current_x, current_y, current_w, current_h,  // current frame
+                    end_x, end_y, end_w, end_h  // end frame
+                );
                 
                 // Follow up with opacity animation if enabled
                 if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
@@ -1939,58 +1934,51 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
                 debug("🎬 Async Creating PiP+TX for window %d at (%.1f,%.1f,%.1fx%.1f)", 
                       context->animation_list[i].wid, current_x, current_y, current_w, current_h);
             } else if (frame == total_frames) {
-                // Last frame: restore PiP with transaction coordination
-                CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                
-                float opacity_fade_duration = g_window_manager.window_opacity_duration;
-                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
-                    SLSTransactionSetWindowSystemAlpha(transaction, context->animation_list[i].wid, 0.7f);
-                }
-                
-                // Use transaction-aware PiP restoration
-                scripting_addition_scale_window_forced_mode_with_transaction(
+                // Last frame: restore PiP using the frame transaction
+                scripting_addition_anim_window_pip_mode_with_transaction(
                     context->animation_list[i].wid,
-                    transaction,
-                    2, // restore mode
-                    0, 0, 0, 0 // coordinates ignored for restore
+                    frame_transaction,
+                    2,  // restore mode
+                    start_x, start_y, start_w, start_h,  // start frame
+                    current_x, current_y, current_w, current_h,  // current frame
+                    end_x, end_y, end_w, end_h  // end frame
                 );
                 
-                // Commit all changes atomically
-                SLSTransactionCommit(transaction, 0);
-                CFRelease(transaction);
-                
+                // Restore full opacity after restoration
+                float opacity_fade_duration = g_window_manager.window_opacity_duration;
                 if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled) {
                     scripting_addition_set_opacity(context->animation_list[i].wid, 1.0f, opacity_fade_duration * 0.5f);
                 }
                 
                 debug("🎬 Async Restoring PiP+TX for window %d", context->animation_list[i].wid);
             } else {
-                // Middle frames: animate PiP with transaction coordination for smoother updates
-                CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                
-                // Use transaction-aware PiP movement
-                scripting_addition_scale_window_forced_mode_with_transaction(
+                // Middle frames: animate PiP using the frame transaction
+                scripting_addition_anim_window_pip_mode_with_transaction(
                     context->animation_list[i].wid,
-                    transaction,
-                    1, // move mode
-                    current_x, current_y, current_w, current_h
+                    frame_transaction,
+                    1,  // move mode
+                    start_x, start_y, start_w, start_h,  // start frame
+                    current_x, current_y, current_w, current_h,  // current frame
+                    end_x, end_y, end_w, end_h  // end frame
                 );
                 
-                // Optional: Add subtle opacity pulsing during animation in the same transaction
+                // Apply opacity changes for smoother transition near the end
                 float opacity_fade_duration = g_window_manager.window_opacity_duration;
-                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled && (frame % 5 == 0)) {
-                    float pulse_opacity = 0.85f + 0.15f * sinf(t * 3.14159f); // Subtle pulse between 0.85 and 1.0
-                    SLSTransactionSetWindowSystemAlpha(transaction, context->animation_list[i].wid, pulse_opacity);
+                if ((opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled && frame > total_frames * 0.8f) {
+                    // Fade out slightly near the end for smoother transition
+                    float fade_progress = (frame - total_frames * 0.8f) / (total_frames * 0.2f);
+                    float target_opacity = 1.0f - (fade_progress * 0.2f); // Subtle fade
+                    SLSTransactionSetWindowSystemAlpha(frame_transaction, context->animation_list[i].wid, target_opacity);
                 }
-                
-                // Commit all changes atomically
-                SLSTransactionCommit(transaction, 0);
-                CFRelease(transaction);
                 
                 debug("🎬 Async Animating PiP+TX for window %d to (%.1f,%.1f,%.1fx%.1f)", 
                       context->animation_list[i].wid, current_x, current_y, current_w, current_h);
             }
         }
+        
+        // Commit the frame transaction for all windows at once (async version)
+        SLSTransactionCommit(frame_transaction, 0);
+        CFRelease(frame_transaction);
         
         // Wait for next frame (unless this is the last frame)
         if (frame < total_frames && context->animation_running) {
@@ -2008,7 +1996,7 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
         }
     }
     
-    // Clean up
+    // Clean up (aligned with sync version)
     pthread_mutex_lock(&g_window_manager.window_animations_lock);
     for (int i = 0; i < animation_count; ++i) {
         // Remove from animation table
@@ -2022,12 +2010,7 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
             scripting_addition_set_opacity(context->animation_list[i].wid, 1.0f, 0.0f);
         }
         
-        // Ensure final position is exact using the standard method
-        window_manager_set_window_frame(context->animation_list[i].window, 
-                                      context->animation_list[i].x, 
-                                      context->animation_list[i].y, 
-                                      context->animation_list[i].w, 
-                                      context->animation_list[i].h);
+        // NOTE: Removed window_manager_set_window_frame call to prevent flicker (aligned with sync version)
         
         // Process any pending view updates that were blocked during animation
         struct view *view = window_manager_find_managed_window(&g_window_manager, context->animation_list[i].window);
@@ -2042,22 +2025,22 @@ static void *window_manager_animate_window_list_frame_based_thread_proc(void *da
     free(context->animation_list);
     free(context);
     
-    debug("🎬 Frame-based async animation thread completed");
+    debug("🎬 pip-based async animation thread completed");
     return NULL;
 }
 #pragma clang diagnostic pop
 
-void window_manager_animate_window_list_frame_based_async(struct window_capture *window_list, int window_count)
+void window_manager_animate_window_list_pip_async(struct window_capture *window_list, int window_count)
 {
     TIME_FUNCTION;
     
-    debug("🎬 Starting frame-based ASYNC animation for %d windows (frame_rate=%.1f fps)", 
+    debug("🎬 Starting pip-based ASYNC animation for %d windows (frame_rate=%.1f fps)", 
           window_count, g_window_manager.window_animation_frame_rate);
     
     // Check if any of these windows are already being animated
     for (int i = 0; i < window_count; ++i) {
         if (table_find(&g_window_manager.window_animations_table, &window_list[i].window->id)) {
-            debug("🎬 Window %d already animating, skipping frame-based async animation", window_list[i].window->id);
+            debug("🎬 Window %d already animating, skipping pip-based async animation", window_list[i].window->id);
             // Fallback to immediate positioning for all windows
             for (int j = 0; j < window_count; ++j) {
                 window_manager_set_window_frame(window_list[j].window, 
@@ -2068,6 +2051,33 @@ void window_manager_animate_window_list_frame_based_async(struct window_capture 
             }
             return;
         }
+    }
+    
+    // Check if any windows actually need to move/resize before starting animation
+    bool animation_needed = false;
+    float movement_threshold = 1.0f; // pixels
+    
+    for (int i = 0; i < window_count; ++i) {
+        CGRect current_frame;
+        SLSGetWindowBounds(g_connection, window_list[i].window->id, &current_frame);
+        
+        float x_diff = fabsf(current_frame.origin.x - window_list[i].x);
+        float y_diff = fabsf(current_frame.origin.y - window_list[i].y);
+        float w_diff = fabsf(current_frame.size.width - window_list[i].w);
+        float h_diff = fabsf(current_frame.size.height - window_list[i].h);
+        
+        if (x_diff > movement_threshold || y_diff > movement_threshold || 
+            w_diff > movement_threshold || h_diff > movement_threshold) {
+            animation_needed = true;
+            debug("🎬 Async Window %d needs animation: pos_diff=(%.1f,%.1f) size_diff=(%.1f,%.1f)", 
+                  window_list[i].window->id, x_diff, y_diff, w_diff, h_diff);
+            break;
+        }
+    }
+    
+    if (!animation_needed) {
+        debug("🎬 Async No animation needed - all windows already in target positions");
+        return;
     }
     
     // Create animation context
@@ -2103,16 +2113,7 @@ void window_manager_animate_window_list_frame_based_async(struct window_capture 
         context->animation_list[i].calculated_w = context->animation_list[i].original_frame.size.width;
         context->animation_list[i].calculated_h = context->animation_list[i].original_frame.size.height;
         
-        // Calculate size difference ratio to determine if 2-phase animation is beneficial
-        context->animation_list[i].size_ratio = calculate_size_difference_ratio(
-            context->animation_list[i].original_w, context->animation_list[i].original_h,
-            window_list[i].w, window_list[i].h
-        );
-        
-        // Enable 2-phase animation for significant size changes (integrated from proxy system)
-        context->animation_list[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled && 
-                                                 window_count >= 2 && 
-                                                 context->animation_list[i].size_ratio > g_window_manager.window_animation_fade_threshold);
+        // Calculate size difference ratio to determine if 2-phase animation is 
         
         // Use centralized anchoring system for all animations
         CGRect start_rect = context->animation_list[i].original_frame;
@@ -2133,13 +2134,36 @@ void window_manager_animate_window_list_frame_based_async(struct window_capture 
         unified_anchor_info anchor = calculate_unified_anchor(start_rect, end_rect,
                                                             parent_split,
                                                             g_window_manager.window_animation_edge_threshold,
-                                                            NULL); // No animation struct for frame-based
+                                                            NULL); // No animation struct for pip-based
         
         // Set resize_anchor from centralized calculation
         context->animation_list[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
         
-        debug("🔗 Frame-async: Window %d centralized anchor=%d parent_split=%d", 
+        debug("🔗 Async Frame: Window %d centralized anchor=%d parent_split=%d", 
               context->animation_list[i].wid, context->animation_list[i].resize_anchor, parent_split);
+        
+        // Apply starting size multiplier if configured (aligned with sync version)
+        if (g_window_manager.window_animation_starting_size != 1.0f) {
+            float size_multiplier = g_window_manager.window_animation_starting_size;
+            float target_w = window_list[i].w;
+            float target_h = window_list[i].h;
+
+            // Calculate the starting size based on target size and multiplier
+            float starting_w = target_w * size_multiplier;
+            float starting_h = target_h * size_multiplier;
+
+            // Center the scaled starting size within the original position
+            float center_x = context->animation_list[i].original_frame.origin.x + context->animation_list[i].original_frame.size.width / 2.0f;
+            float center_y = context->animation_list[i].original_frame.origin.y + context->animation_list[i].original_frame.size.height / 2.0f;
+
+            context->animation_list[i].original_frame.origin.x = center_x - starting_w / 2.0f;
+            context->animation_list[i].original_frame.origin.y = center_y - starting_h / 2.0f;
+            context->animation_list[i].original_frame.size.width = starting_w;
+            context->animation_list[i].original_frame.size.height = starting_h;
+
+            debug("🎬 Async Applied starting size multiplier %.2f: target=%.0fx%.0f starting=%.0fx%.0f",
+                  size_multiplier, target_w, target_h, starting_w, starting_h);
+        }
        
         // Add a dummy entry to prevent duplicate animations
         static struct window_animation dummy_animation = {0};
@@ -2148,8 +2172,8 @@ void window_manager_animate_window_list_frame_based_async(struct window_capture 
     pthread_mutex_unlock(&g_window_manager.window_animations_lock);
     
     // Create and start the animation thread
-    if (pthread_create(&context->animation_thread, NULL, window_manager_animate_window_list_frame_based_thread_proc, context) != 0) {
-        debug("🎬 Failed to create frame-based async animation thread, falling back to immediate positioning");
+    if (pthread_create(&context->animation_thread, NULL, window_manager_animate_window_list_pip_thread_proc, context) != 0) {
+        debug("🎬 Failed to create pip-based async animation thread, falling back to immediate positioning");
         
         // Clean up and fallback to immediate positioning
         pthread_mutex_lock(&g_window_manager.window_animations_lock);
@@ -2172,17 +2196,17 @@ void window_manager_animate_window_list_frame_based_async(struct window_capture 
     pthread_detach(context->animation_thread);
 }
 
-void window_manager_animate_window_frame_based(struct window_capture *window_list, int window_count)
+void window_manager_animate_window_pip(struct window_capture *window_list, int window_count)
 {
     TIME_FUNCTION;
     
-    debug("🎬 Starting frame-based animation for %d windows (frame_rate=%.1f fps)\n", 
+    debug("🎬 Starting pip-based animation for %d windows (frame_rate=%.1f fps)\n", 
           window_count, g_window_manager.window_animation_frame_rate);
     
     // Check if any of these windows are already being animated
     for (int i = 0; i < window_count; ++i) {
         if (table_find(&g_window_manager.window_animations_table, &window_list[i].window->id)) {
-            debug("🎬 Window %d already animating, skipping frame-based animation", window_list[i].window->id);
+            debug("🎬 Window %d already animating, skipping pip-based animation", window_list[i].window->id);
             // Fallback to immediate positioning for all windows
             for (int j = 0; j < window_count; ++j) {
                 window_manager_set_window_frame(window_list[j].window, 
@@ -2193,6 +2217,33 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             }
             return;
         }
+    }
+    
+    // Check if any windows actually need to move/resize before starting animation
+    bool animation_needed = false;
+    float movement_threshold = 1.0f; // pixels
+    
+    for (int i = 0; i < window_count; ++i) {
+        CGRect current_frame;
+        SLSGetWindowBounds(g_connection, window_list[i].window->id, &current_frame);
+        
+        float x_diff = fabsf(current_frame.origin.x - window_list[i].x);
+        float y_diff = fabsf(current_frame.origin.y - window_list[i].y);
+        float w_diff = fabsf(current_frame.size.width - window_list[i].w);
+        float h_diff = fabsf(current_frame.size.height - window_list[i].h);
+        
+        if (x_diff > movement_threshold || y_diff > movement_threshold || 
+            w_diff > movement_threshold || h_diff > movement_threshold) {
+            animation_needed = true;
+            debug("🎬 Window %d needs animation: pos_diff=(%.1f,%.1f) size_diff=(%.1f,%.1f)", 
+                  window_list[i].window->id, x_diff, y_diff, w_diff, h_diff);
+            break;
+        }
+    }
+    
+    if (!animation_needed) {
+        debug("🎬 No animation needed - all windows already in target positions");
+        return;
     }
     
     static uint64_t last_animation_time = 0;
@@ -2268,7 +2319,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         unified_anchor_info anchor = calculate_unified_anchor(start_rect, end_rect,
                                                             parent_split,
                                                             g_window_manager.window_animation_edge_threshold,
-                                                            NULL); // No animation struct for frame-based
+                                                            NULL); // No animation struct for pip-based
         
         // Set resize_anchor from centralized calculation
         animation_data[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
@@ -2305,7 +2356,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                   size_multiplier, target_w, target_h, starting_w, starting_h);
         }
 
-        // Add a dummy entry to prevent duplicate animations
+        // Add a dummy entry to window_animations_table to prevent duplicate animations
         static struct window_animation dummy_animation = {0};
         table_add(&g_window_manager.window_animations_table, &window_list[i].window->id, &dummy_animation);
     }
@@ -2341,6 +2392,8 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         
         debug("🎬 Frame %d/%d: t=%.3f mt=%.3f (easing=%d)", frame, total_frames, t, mt, easing);
         
+        // Create a single transaction for all operations in this frame
+        CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
         
         for (int i = 0; i < window_count; ++i) {
             float start_x = animation_data[i].original_frame.origin.x;
@@ -2357,7 +2410,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
             
             // --- Always use anchor-based translation for all animations ---
             float slide_duration = animation_data[i].is_two_phase ? g_window_manager.window_animation_slide_ratio : 0.0f;
-            if (animation_data[i].is_two_phase && t <= slide_duration) {
+
                 float slide_t = t / slide_duration;
                 
                 float slide_mt;
@@ -2383,7 +2436,7 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                 animation_data[i].calculated_y = current_y;
                 animation_data[i].calculated_w = current_w;
                 animation_data[i].calculated_h = current_h;
-            } else {
+
                 float interp_mt =  mt;
 
                 current_w = animation_data[i].original_w + (end_w - animation_data[i].original_w) * interp_mt;
@@ -2524,29 +2577,18 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                 animation_data[i].calculated_w = current_w;
                 animation_data[i].calculated_h = current_h;
                 
-            }
+
                         
             // Apply opacity fade transition if enabled
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
-            
-
+            bool is_tl_anchor = animation_data[i].resize_anchor == 0;
 
             if (frame == 0) {
-                // Create transaction for smooth multi-window coordination
-                CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                
-                // Group all initial operations in one transaction
+                // Group all initial operations in the frame transaction
                 if (use_opacity_fade) {
-                    SLSTransactionSetWindowSystemAlpha(transaction, animation_data[i].capture.window->id, 0.3f);
+                    SLSTransactionSetWindowSystemAlpha(frame_transaction, animation_data[i].capture.window->id, 0.3f);
                 }
-                
-                // Add initial PiP scaling to transaction
-                // Note: This would require extending scripting_addition_scale_window_forced_mode 
-                // to accept transaction parameter for true batching
-                
-                SLSTransactionCommit(transaction, 0);
-                CFRelease(transaction);
 
                 char *title = window_title_ts(animation_data[i].capture.window);
                 
@@ -2603,11 +2645,11 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                 if (!right_edge_moves) strcat(stationary_edges, "R");
                 else strcat(moving_edges, "R");
                 
+
                 snprintf(edge_movement, sizeof(edge_movement), "stationary=[%s] moving=[%s]", 
                         strlen(stationary_edges) > 0 ? stationary_edges : "none",
                         strlen(moving_edges) > 0 ? moving_edges : "none");
                 
-                // Enhanced debug output with comprehensive anchoring data
                 printf("fdb ======================================================================\n"
                        "fdb ANCHORING ANALYSIS: %s -> %s\n"
                        "fdb ======================================================================\n"
@@ -2696,24 +2738,36 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                        start_edges.touches_left ? "left" :
                        start_edges.touches_right ? "right" : "center");
                       
-                    
-                    // move window straight away to satisfy bsp
+                
 
-                   if(!(start_edges.touches_top && start_edges.touches_left 
-                    && end_edges.touches_right && end_edges.touches_bottom)){
-                        //? this means your doing zoom-fullscreen
-                        //? not sure why it only affects top left?
-                        //? window_manager_set_window_frame(animation_data[i].capture.window, 
-                        //                          ??, 
-                        //                          ??, 
-                        //                          ??, 
-                        //                          ??);
-                    }
-                    window_manager_set_window_frame(animation_data[i].capture.window, 
-                                                  end_x, 
-                                                  end_y, 
-                                                  end_w, 
-                                                  end_h);
+                window_manager_set_window_frame(animation_data[i].capture.window, 
+                                                end_x, 
+                                                end_y, 
+                                                end_w, 
+                                                end_h);
+
+                // Use transaction-aware PiP animation
+                //CFTypeRef pip_transaction = SLSTransactionCreate(g_connection);
+                //scripting_addition_anim_window_pip_mode_with_transaction(
+                scripting_addition_anim_window_pip_mode(
+                    animation_data[i].capture.window->id, 
+                    //frame_transaction,
+                    0,
+                    start_x,
+                    start_y,
+                    start_w,
+                    start_h,
+                    current_x,
+                    current_y,
+                    current_w,
+                    current_h,
+                    end_x,
+                    end_y,
+                    end_w,
+                    end_h
+                );
+                //SLSTransactionCommit(pip_transaction, 0);
+                //CFRelease(pip_transaction);
                     
                 
                 // Start with reduced opacity and fade in
@@ -2722,60 +2776,72 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration); // Fade in
                 }
                 
-            } 
-            else if (frame == 1){
-                float size_diff = fabsf((end_w * end_h) - (start_w * start_h)) / (start_w * start_h);
-               
-                scripting_addition_scale_window_forced_mode(animation_data[i].capture.window->id,0,
-                    end_x,
-                    end_y,
-                    end_w,
-                    end_h);
-                    if(size_diff > 100.0f){
-                        usleep(100000); // brief pause for very large changes
-                    }
             } else if (frame == total_frames) {
                 // Fade out before restoring
                 //if (use_opacity_fade) {
                 //    scripting_addition_set_opacity(animation_data[i].capture.window->id, 0.7f, opacity_fade_duration * 0.5f);
                 //}
                 
-                scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
-                //window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
-                //window_manager_move_window(animation_data[i].capture.window, end_x, end_y);
-                //window_manager_resize_window(animation_data[i].capture.window, end_w, end_h);
-
+                // Use the frame transaction for restore operations
+                //scripting_addition_anim_window_pip_mode_with_transaction(animation_data[i].capture.
+                // window->id, 
+                scripting_addition_anim_window_pip_mode(
+                    //frame_transaction,
+                    animation_data[i].capture.window->id,
+                    2,
+                    start_x,
+                    start_y,
+                    start_w,
+                    start_h,
+                    current_x,
+                    current_y,
+                    current_w,
+                    current_h,
+                    end_x,
+                    end_y,
+                    end_w,
+                    end_h);
+                
                 // Restore full opacity after restoration
                 if (use_opacity_fade) {
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration * 0.5f);
                 }
             } else {
-                // Create transaction for smooth PiP updates with opacity changes
-                CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                
-                // First apply the PiP scaling
-                scripting_addition_scale_window_forced_mode(
+                // Use the frame transaction for smooth PiP updates with opacity changes
+                // move/resize via PiP
+                //scripting_addition_anim_window_pip_mode_with_transaction(
+                scripting_addition_anim_window_pip_mode(
+
                     animation_data[i].capture.window->id,
-                    1, // move mode
+                    //frame_transaction,
+                    1,
+                    start_x,
+                    start_y,
+                    start_w,
+                    start_h,
                     current_x,
                     current_y,
                     current_w,
-                    current_h 
-                );
+                    current_h,
+                    end_x,
+                    end_y,
+                    end_w,
+                    end_h);
                 
-                // Then apply any opacity changes in the same transaction
+                // Apply any opacity changes in the same frame transaction
                 if (use_opacity_fade && frame > total_frames * 0.8f) {
                     // Fade out slightly near the end for smoother transition
                     float fade_progress = (frame - total_frames * 0.8f) / (total_frames * 0.2f);
                     float target_opacity = 1.0f - (fade_progress * 0.2f); // Subtle fade
-                    SLSTransactionSetWindowSystemAlpha(transaction, animation_data[i].capture.window->id, target_opacity);
+                    SLSTransactionSetWindowSystemAlpha(frame_transaction, animation_data[i].capture.window->id, target_opacity);
                 }
-                
-                SLSTransactionCommit(transaction, 0);
-                CFRelease(transaction);
             }
             
         }
+        
+        // Commit the frame transaction for all windows at once
+        SLSTransactionCommit(frame_transaction, 0);
+        CFRelease(frame_transaction);
         
         // Wait for next frame (unless this is the last frame)
         if (frame < total_frames) {
@@ -2788,8 +2854,13 @@ void window_manager_animate_window_frame_based(struct window_capture *window_lis
         // Remove from animation table
         table_remove(&g_window_manager.window_animations_table, &animation_data[i].capture.window->id);
         
+        // window_manager_set_window_frame(animation_data[i].capture.window, 
+        //                                        animation_data[i].capture.x, 
+        //                                        animation_data[i].capture.y, 
+        //                                        animation_data[i].capture.w, , 
+        //                                        animation_data[i].capture.h);
         // Ensure PiP is properly restored (safety cleanup)
-        scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
+        //scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
 
         // Restore normal opacity (safety cleanup)
         if (g_window_manager.window_opacity_duration > 0.0f && g_window_manager.window_animation_opacity_enabled) {
@@ -2804,15 +2875,17 @@ void window_manager_animate_window_list(struct window_capture *window_list, int 
     TIME_FUNCTION;
 
     if (g_window_manager.window_animation_duration) {
-        // Use frame-based animation if enabled via a flag
-        if (g_window_manager.window_animation_frame_based_enabled) {
-            debug("fdb FRAME-BASED SYNC LIST %d windows (for testing)\n", window_count);
-            // Temporarily use synchronous version for debugging
-            window_manager_animate_window_frame_based(window_list, window_count);
+        if (g_window_manager.window_animation_pip_enabled) {
+            if(g_window_manager.window_animation_pip_async_enabled){
+                debug("pip async");
+                window_manager_animate_window_list_pip_async(window_list, window_count);
+            } else {
+                debug("pip pip-based window list %d\n", window_count);
+                window_manager_animate_window_pip(window_list, window_count);
+            } 
         } else {
             debug("fdb CLASSIC LIST %d windows\n", window_count);
-            //window_manager_animate_window_list_async(window_list, window_count);
-            window_manager_animate_window_list_frame_based_async(window_list, window_count);
+            window_manager_animate_window_list_async(window_list, window_count);
         }
     } else {
         for (int i = 0; i < window_count; ++i) {
@@ -2826,14 +2899,17 @@ void window_manager_animate_window(struct window_capture capture)
     TIME_FUNCTION;
 
     if (g_window_manager.window_animation_duration) {
-        // Use frame-based animation if enabled via a flag
-        //if (g_window_manager.window_animation_frame_based_enabled) {
-            //debug("fdb FRAME-BASED SINGLE WINDOW %d window\n", window_count);
-            window_manager_animate_window_frame_based(&capture, 1);
-        //} 
-        //else {
-        //    window_manager_animate_window_list_frame_based_async(&capture, 1);
-        //}
+
+        if (g_window_manager.window_animation_pip_enabled) {
+            //debug("fdb pip-based SINGLE WINDOW %d window\n", window_count);
+            if(g_window_manager.window_animation_pip_async_enabled){
+                debug("fdb WARNING: Async flag is ignored for pip-based animations\n");
+            } else {
+            window_manager_animate_window_pip(&capture, 1);
+            }
+        } else {
+            window_manager_animate_window_list(&capture, 1);
+        }
     } else {
         window_manager_set_window_frame(capture.window, capture.x, capture.y, capture.w, capture.h);
     }
@@ -5383,8 +5459,9 @@ void window_manager_init(struct window_manager *wm)
     wm->window_animation_fast_mode = false;                    // Fast mode disabled by default
     wm->window_animation_starting_size = 1.0f;                 // Start at target size by default (no scaling effect)
     
-    wm->window_animation_frame_based_enabled = false;          // Frame-based animation disabled by default (POC)
+    wm->window_animation_pip_enabled = false;          // pip-based animation disabled by default (POC)
     wm->window_animation_frame_rate = 60.0f;                   // Default 60 fps for AX API calls
+    wm->window_animation_pip_async_enabled = false;            // PiP async processing disabled by default
 
     wm->insert_feedback_color = rgba_color_from_hex(0xffd75f5f);
 

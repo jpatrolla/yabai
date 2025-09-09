@@ -17,6 +17,11 @@
 					"line": 1225,
 					"column": 12,
 					"label": "window_manager_animate_window_list_async"
+				},
+				{
+					"line": 1798,
+					"column": 71,
+					"label": "positions"
 				}
 			]
 		}

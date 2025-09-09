@@ -56,8 +56,9 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_ANIMATION_REDUCED_RESOLUTION "window_animation_reduced_resolution"
 #define COMMAND_CONFIG_ANIMATION_FAST_MODE      "window_animation_fast_mode"
 #define COMMAND_CONFIG_ANIMATION_STARTING_SIZE  "window_animation_starting_size"
-#define COMMAND_CONFIG_ANIMATION_FRAME_BASED    "window_animation_frame_based_enabled"
+#define COMMAND_CONFIG_ANIMATION_pip    "window_animation_pip_enabled"
 #define COMMAND_CONFIG_ANIMATION_FRAME_RATE     "window_animation_frame_rate"
+#define COMMAND_CONFIG_ANIMATION_PIP_ASYNC      "window_animation_pip_async_enabled"
 #define COMMAND_CONFIG_SHADOW                "window_shadow"
 #define COMMAND_CONFIG_MENUBAR_OPACITY       "menubar_opacity"
 #define COMMAND_CONFIG_ACTIVE_WINDOW_OPACITY "active_window_opacity"
@@ -1607,14 +1608,14 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
             }
-        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_FRAME_BASED)) {
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_pip)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_frame_based_enabled]);
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_pip_enabled]);
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
-                g_window_manager.window_animation_frame_based_enabled = false;
+                g_window_manager.window_animation_pip_enabled = false;
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
-                g_window_manager.window_animation_frame_based_enabled = true;
+                g_window_manager.window_animation_pip_enabled = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
@@ -1629,6 +1630,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 } else {
                     daemon_fail(rsp, "value '%.*s' is not a valid frame rate (1.0-120.0)\n", value.length, value.text);
                 }
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_PIP_ASYNC)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_animation_pip_async_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_pip_async_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_pip_async_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
         } else if (token_equals(command, COMMAND_CONFIG_SHADOW)) {
             struct token value = get_token(&message);
@@ -2883,10 +2895,18 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 printf("🎬 Phase 1: Manual animation to target (30 frames, 33ms each)...\n");
                 
                 // Phase 1: Animate TO target position using direct scripting addition
-                scripting_addition_scale_window_custom_mode(acting_window->id,0,
+                scripting_addition_anim_window_pip_mode(acting_window->id,0,
                                              original_frame.origin.x, 
                                              original_frame.origin.y,
                                              original_frame.size.width, 
+                                             original_frame.size.height,
+                                             test_x,
+                                             test_y,
+                                             test_w,
+                                             test_h,
+                                             original_frame.origin.x,
+                                             original_frame.origin.y,
+                                             original_frame.size.width,
                                              original_frame.size.height);
                 
                 for (int frame = 0; frame <= total_frames; frame++) {
@@ -2906,7 +2926,9 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     } else {
                         printf("🎬 Frame %d/%d: MOVE PiP to (%.1f,%.1f,%.1fx%.1f)\n", 
                                frame, total_frames, current_x, current_y, current_w, current_h);
-                        scripting_addition_scale_window_custom_mode(acting_window->id, 1, 
+                        scripting_addition_anim_window_pip_mode(acting_window->id, 1, 
+                                                                   current_x, current_y, current_w, current_h,
+                                                                   test_x, test_y, test_w, test_h,
                                                                    current_x, current_y, current_w, current_h);
                     }
                     
@@ -2940,7 +2962,10 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                         printf("🎬 Frame %d/%d: RESTORE PiP\n", frame, total_frames);
                         scripting_addition_restore_pip(acting_window->id);
                     } else {
-                        scripting_addition_scale_window_custom_mode(acting_window->id, 1, 
+                        scripting_addition_anim_window_pip_mode(acting_window->id, 1, 
+                                                                   current_x, current_y, current_w, current_h,
+                                                                   original_frame.origin.x, original_frame.origin.y,
+                                                                   original_frame.size.width, original_frame.size.height,
                                                                    current_x, current_y, current_w, current_h);
                     }
                     
@@ -2997,15 +3022,25 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     
                     // Use FORCED mode 1 (move) for intermediate frames
                     if (frame == 0) {
-                        scripting_addition_scale_window_forced_mode(acting_window->id,0,
+                        CFTypeRef transaction = SLSTransactionCreate(g_connection);
+                        scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id,
+                                             transaction,
+                                             0,
                                              current_x, 
                                              current_y,
                                              current_w, 
                                              current_h);
+                        SLSTransactionCommit(transaction, 0);
+                        CFRelease(transaction);
                     } else {
                        
-                        scripting_addition_scale_window_forced_mode(acting_window->id, 1, 
+                        CFTypeRef transaction = SLSTransactionCreate(g_connection);
+                        scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
+                                                                   transaction,
+                                                                   1, 
                                                                    current_x, current_y, current_w, current_h);
+                        SLSTransactionCommit(transaction, 0);
+                        CFRelease(transaction);
                     }
                     
                     // Wait for next frame
@@ -3038,8 +3073,13 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                         printf("🚀 Frame %d/%d: FORCED RESTORE PiP\n", frame, total_frames);
                         scripting_addition_restore_pip_forced(acting_window->id);
                     } else {
-                        scripting_addition_scale_window_forced_mode(acting_window->id, 1, 
+                        CFTypeRef transaction = SLSTransactionCreate(g_connection);
+                        scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
+                                                                   transaction,
+                                                                   1, 
                                                                    current_x, current_y, current_w, current_h);
+                        SLSTransactionCommit(transaction, 0);
+                        CFRelease(transaction);
                     }
                     
                     // Wait for next frame
@@ -3138,16 +3178,26 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     // Create PiP for nudge animation
                     printf("🎯 NUDGE Frame %d/%d: CREATE nudge PiP at (%.1f,%.1f)\n", 
                            frame, total_frames, current_x, current_frame.origin.y);
-                    scripting_addition_scale_window_forced_mode(acting_window->id, 0,
+                    CFTypeRef transaction = SLSTransactionCreate(g_connection);
+                    scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
+                                                              transaction,
+                                                              0,
                                                               current_x, current_frame.origin.y,
                                                               current_frame.size.width, current_frame.size.height);
+                    SLSTransactionCommit(transaction, 0);
+                    CFRelease(transaction);
                 } else {
                     // Move PiP for animation
                     printf("🎯 NUDGE Frame %d/%d: MOVE nudge PiP to (%.1f,%.1f)\n", 
                            frame, total_frames, current_x, current_frame.origin.y);
-                    scripting_addition_scale_window_forced_mode(acting_window->id, 1,
+                    CFTypeRef transaction = SLSTransactionCreate(g_connection);
+                    scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
+                                                              transaction,
+                                                              1,
                                                               current_x, current_frame.origin.y,
                                                               current_frame.size.width, current_frame.size.height);
+                    SLSTransactionCommit(transaction, 0);
+                    CFRelease(transaction);
                 }
                 
                 if (frame < total_frames) {
@@ -3169,13 +3219,9 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 if (frame == total_frames) {
                     // Restore PiP and return to exact original position
                     printf("🎯 NUDGE Frame %d/%d: RESTORE nudge PiP to original position\n", frame, total_frames);
-                    scripting_addition_restore_pip_forced(acting_window->id);
+
                 } else {
-                    printf("🎯 NUDGE Frame %d/%d: RETURN to (%.1f,%.1f)\n", 
-                           frame, total_frames, current_x, current_frame.origin.y);
-                    scripting_addition_scale_window_forced_mode(acting_window->id, 1,
-                                                              current_x, current_frame.origin.y,
-                                                              current_frame.size.width, current_frame.size.height);
+                   
                 }
                 
                 if (frame < total_frames) {
