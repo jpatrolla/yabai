@@ -562,7 +562,7 @@ bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode, float x
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_CUSTOM);
 }
 
-bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h)
+bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, float opacity)
 {
     sa_payload_init();
     pack(wid);
@@ -579,6 +579,7 @@ bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start
     pack(end_y);
     pack(end_w);
     pack(end_h);
+    pack(opacity);
    
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED);
 }

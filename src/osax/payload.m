@@ -771,6 +771,9 @@ static void do_window_scale_forced(char *message)
     unpack(end_w);
     unpack(end_h);
     
+    // Unpack opacity value (0.0 to 1.0)
+    float opacity;
+    unpack(opacity);
 
     CGRect frame = {};
     if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
@@ -803,6 +806,11 @@ static void do_window_scale_forced(char *message)
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
+            
+            // Apply opacity if specified (opacity > 0 means apply it)
+            if (opacity >= 0.0f && opacity <= 1.0f) {
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            }
             break;
         }
         
@@ -822,12 +830,22 @@ static void do_window_scale_forced(char *message)
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
+            
+            // Apply opacity if specified (opacity > 0 means apply it)
+            if (opacity >= 0.0f && opacity <= 1.0f) {
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            }
             break;
         }
         
         case 2: // restore_pip - reset to original transform
         {
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2,  original_transform);
+            
+            // Restore full opacity when restoring transform
+            if (opacity >= 0.0f && opacity <= 1.0f) {
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            }
             break;
         }
         default:

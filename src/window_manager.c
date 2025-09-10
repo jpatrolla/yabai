@@ -2265,12 +2265,18 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                 animation_data[i].calculated_y = current_y;
                 animation_data[i].calculated_w = current_w;
                 animation_data[i].calculated_h = current_h;
-                
-
                         
             // Apply opacity fade transition if enabled
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
+            float threshold = g_window_manager.window_animation_fade_threshold;
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
+            float current_opacity;
+            if(animation_needed){
+                current_opacity =  use_opacity_fade ? fmaxf(threshold, fminf(1.0f, threshold + (mt * (1.0f - threshold)))) : 1.0f;
+            } else {
+                current_opacity = 1.0f;
+            }
+            
 
             if (frame == 0) {
                 // Group all initial operations in the frame transaction
@@ -2332,7 +2338,6 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                 else strcat(moving_edges, "L");
                 if (!right_edge_moves) strcat(stationary_edges, "R");
                 else strcat(moving_edges, "R");
-                
 
                 snprintf(edge_movement, sizeof(edge_movement), "stationary=[%s] moving=[%s]", 
                         strlen(stationary_edges) > 0 ? stationary_edges : "none",
@@ -2426,19 +2431,14 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                        start_edges.touches_left ? "left" :
                        start_edges.touches_right ? "right" : "center");
                       
-                
                 window_manager_set_window_frame(animation_data[i].capture.window, 
                                                 end_x, 
                                                 end_y, 
                                                 end_w, 
                                                 end_h);
 
-                // Use transaction-aware PiP animation
-                //CFTypeRef pip_transaction = SLSTransactionCreate(g_connection);
-                //scripting_addition_anim_window_pip_mode_with_transaction(
                 scripting_addition_anim_window_pip_mode(
                     animation_data[i].capture.window->id, 
-                    //frame_transaction,
                     0,
                     start_x,
                     start_y,
@@ -2451,29 +2451,14 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_x,
                     end_y,
                     end_w,
-                    end_h
+                    end_h,
+                    current_opacity  // opacity for initial creation
                 );
-                //SLSTransactionCommit(pip_transaction, 0);
-                //CFRelease(pip_transaction);
-                    
-                
-                // Start with reduced opacity and fade in
-                if (use_opacity_fade) {
-                    scripting_addition_set_opacity(animation_data[i].capture.window->id, 0.3f, 0.0f); // Set initial low opacity
-                    scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration); // Fade in
-                }
                 
             } else if (frame == total_frames) {
-                // Fade out before restoring
-                //if (use_opacity_fade) {
-                //    scripting_addition_set_opacity(animation_data[i].capture.window->id, 0.7f, opacity_fade_duration * 0.5f);
-                //}
                 
-                // Use the frame transaction for restore operations
-                //scripting_addition_anim_window_pip_mode_with_transaction(animation_data[i].capture.
-                // window->id, 
+
                 scripting_addition_anim_window_pip_mode(
-                    //frame_transaction,
                     animation_data[i].capture.window->id,
                     2,
                     start_x,
@@ -2487,16 +2472,15 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_x,
                     end_y,
                     end_w,
-                    end_h);
+                    end_h,
+                    current_opacity // full opacity for restore
+                );
                 
                 // Restore full opacity after restoration
                 if (use_opacity_fade) {
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration * 0.5f);
                 }
             } else {
-                // Use the frame transaction for smooth PiP updates with opacity changes
-                // move/resize via PiP
-                //scripting_addition_anim_window_pip_mode_with_transaction(
                 scripting_addition_anim_window_pip_mode(
                     animation_data[i].capture.window->id,
                     //frame_transaction,
@@ -2512,15 +2496,9 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_x,
                     end_y,
                     end_w,
-                    end_h);
-                
-                // Apply any opacity changes in the same frame transaction
-                if (use_opacity_fade && frame > total_frames * 0.8f) {
-                    // Fade out slightly near the end for smoother transition
-                    float fade_progress = (frame - total_frames * 0.8f) / (total_frames * 0.2f);
-                    float target_opacity = 1.0f - (fade_progress * 0.2f); // Subtle fade
-                    SLSTransactionSetWindowSystemAlpha(frame_transaction, animation_data[i].capture.window->id, target_opacity);
-                }
+                    end_h,
+                    current_opacity  // dynamic opacity during animation
+                );
             }
         }
         // Commit the frame transaction for all windows at once
