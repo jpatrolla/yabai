@@ -1,4 +1,6 @@
 #include <CoreFoundation/CFBase.h>
+#include <CoreGraphics/CGAffineTransform.h>
+#include <CoreGraphics/CGDirectDisplay.h>
 #include <Foundation/Foundation.h>
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
@@ -799,93 +801,73 @@ static void do_window_scale_forced(char *message)
     // 1,1 does not work at all, or causes issues.
     // 1,0 not good either.
 
-    // screen size
-    int padding = 20; // testing for now.
-    CGRect screen_frame = CGDisplayBounds(CGMainDisplayID());
+    CGRect display = CGDisplayBounds(CGMainDisplayID());
+    float target_width = current_w;
+    float target_height = current_h;
+    float x_scale = current_w/target_width;   
+    float y_scale = current_h/target_height;
+    CGFloat transformed_x = -(current_x); 
+    CGFloat transformed_y = -(current_y); 
     
-    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-(frame.origin.x), -(frame.origin.y));
+    CGAffineTransform current_scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(opacity, opacity));
+    
+    CGAffineTransform start_translate = CGAffineTransformMakeTranslation(-(start_x), -(start_y));
+    CGAffineTransform current_translate = CGAffineTransformMakeTranslation(-(current_x), -(current_y));
+    CGAffineTransform end_translate = CGAffineTransformMakeTranslation(-(end_x), -(end_y));
+
+    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
     CGAffineTransform current_transform;
     SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
-    
+
     switch (mode) {
-        case 0: 
+        case 0: // Initial setup - move window to start position
         {
-            float x_scale = frame.size.width / start_w;
-            float y_scale = frame.size.height / start_h;
-
-            CGFloat transformed_x = -(frame.origin.x);
-            CGFloat transformed_y = -(frame.origin.y); // -dy;
-            
-            CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
-            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
-            
-            //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
-
-            //SLSTransactionSetWindowAlphaAnimated(transaction, wid, 1, 1.0);
-            
-            // Apply opacity if specified (opacity > 0 means apply it)
-            //if (opacity >= 0.0f && opacity <= 1.0f) {
-            //SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
-            //}
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, start_translate);
             
             // Handle proxy setup for frame 0
             if (proxy_wid != 0) {
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
                 SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
                 SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
+                SLSTransactionOrderWindowGroup(transaction, proxy_wid, 1, wid);
             }
             break;
         }
         
         case 1: // move_pip - update position using current interpolated values
         {
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
-            // Calculate scale factors based on current interpolated sizee
-            float x_scale = frame.size.width / current_w;
-            float y_scale = frame.size.height / current_h;
             
-            // Calculate translation for current interpolated position
-            CGFloat transformed_x = -(current_x);
-            CGFloat transformed_y = -(current_y);
-            
-            // Apply the transform
-            CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
-            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
-            
-            //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
-            
-            // Apply opacity if specified (opacity > 0 means apply it)
-            //if (opacity >= 0.0f && opacity <= 1.0f) {
-            //}
-            
-            // Handle proxy fading during animation
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
+            bool is_growing = (start_w < end_w || start_h < end_h);
+            bool is_shrinking = (start_w > end_w || start_h > end_h);
+            bool stays_same_size = (!is_growing && !is_shrinking);
+            float proxy_progress = 1.0f - duration;
 
-            if (proxy_wid != 0) {
-                // Simple fade logic: fade out proxy over first quarter of animation
-                // Note: For now using a simple fade based on current position progress
-                // This will be refined later with proper fade timing
-                float fade_progress = opacity; // Will be calculated based on animation progress
-                float proxy_opacity = 1.0f - fade_progress;
-                if (proxy_opacity < 0.0f) proxy_opacity = 0.0f;
-                
-                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, proxy_opacity); // Keep some
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, transform);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, current_translate);
+            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, current_translate);
+            
+            // Make proxy and window opacity complementary to avoid visual overlap
+            // When proxy is fully visible (1.0), window is invisible (0.0)
+            // When proxy is invisible (0.0), window is fully visible (opacity)
+            float window_alpha = opacity * (1.0f - proxy_progress);
+            float proxy_alpha = proxy_progress;
+            
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, window_alpha);
+            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, proxy_alpha);
 
-                // e visibility
-            }
             break;
         }
         
         case 2: // restore_pip - reset to original transform
         {
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2,  original_transform);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, end_translate);
+            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
             SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0);
-            
             SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+            SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
 
             break;
         }
+        
         default:
             break;
     }

@@ -615,7 +615,13 @@ static void window_manager_create_window_proxy(int animation_connection, float a
     CFTypeRef empty_region = CGRegionCreateEmptyRegion();
 
     uint64_t tags = 1ULL << 46;
-    SLSNewWindowWithOpaqueShapeAndContext(animation_connection, 2, frame_region, empty_region, 13|(1 << 18), &tags, 0, 0, 64, &proxy->id, NULL);
+    if(alpha < 1.0f){
+        // Create transparent window for windows with opacity
+        SLSNewWindow(animation_connection, 2, 0, 0, frame_region, &proxy->id);
+    }else{
+        // Create opaque window for fully opaque windows (existing behavior)
+        SLSNewWindowWithOpaqueShapeAndContext(animation_connection, 2, frame_region, empty_region, 13|(1 << 18), &tags, 0, 0, 64, &proxy->id, NULL);
+    }
     
     SLSSetWindowOpacity(animation_connection, proxy->id, 0);
     
@@ -2060,6 +2066,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
         animation_data[i].proxy.level = window_level(window_id);
         animation_data[i].proxy.sub_level = window_sub_level(window_id);
         
+
         // Capture screenshot of the window at its original size
         CFArrayRef screenshot_array = SLSHWCaptureWindowList(g_connection, &window_id, 1, 
                                                              kCGWindowImageDefault | kCGWindowImageNominalResolution);
@@ -2077,8 +2084,6 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                 
                 if (animation_data[i].proxy.id != 0) {
                     animation_data[i].proxy_created = true;
-                    SLSSetWindowOpacity(g_connection, animation_data[i].proxy.id, 1);
-                    SLSOrderWindow(g_connection,  animation_data[i].proxy.id, 1, 0);
                     debug("🎭 Real proxy window created: %d -> %d", window_id, animation_data[i].proxy.id);
                 } else {
                     debug("🎭 Failed to create proxy window for window %d", window_id);
@@ -2315,10 +2320,13 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
 
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
+            
+            float original_opacity = 1.0f;
+            SLSGetWindowAlpha(g_connection, animation_data[i].capture.window->id, &original_opacity);
             float current_opacity;
-            
-                current_opacity = t;
-            
+            // Clamp current_opacity to be minimum original_opacity, interpolating to full opacity
+            current_opacity = original_opacity + (1.0f - original_opacity) * t;
+            float progress = mt;
             
 
             if (frame == 0) {
@@ -2497,8 +2505,8 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                                                             end_y,
                                                             end_w,
                                                             end_h,
-                                                            0,  // opacity for initial creation
-                                                            0.0f,  // duration (0 = immediate)
+                                                            current_opacity,
+                                                            progress,  // duration (0 = immediate)
                                                             animation_data[i].proxy.id  // proxy window ID
             );
                 
@@ -2523,8 +2531,8 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_y,
                     end_w,
                     end_h,
-                    1.0, // full opacity for restore
-                    0.0f,  // duration (0 = immediate)
+                    current_opacity, // full opacity for restore
+                    progress,  // duration (0 = immediate)
                     animation_data[i].proxy.id  // proxy window ID
                 );
                 
@@ -2551,7 +2559,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_w,
                     end_h,
                     current_opacity,  // dynamic opacity during animation
-                    0.0f,  // duration (0 = immediate)
+                    progress,  // duration (0 = immediate)
                     animation_data[i].proxy.id  // proxy window ID
                 );
             }
