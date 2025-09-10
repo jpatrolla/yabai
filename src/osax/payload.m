@@ -802,7 +802,7 @@ static void do_window_scale_forced(char *message)
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
-            SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2, transform);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
             break;
         }
         
@@ -821,13 +821,13 @@ static void do_window_scale_forced(char *message)
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
-            SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2, transform);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
             break;
         }
         
         case 2: // restore_pip - reset to original transform
         {
-            SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2,  original_transform);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2,  original_transform);
             break;
         }
         default:
