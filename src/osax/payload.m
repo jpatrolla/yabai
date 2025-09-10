@@ -750,7 +750,6 @@ static void do_window_scale_forced(char *message)
         return;
     }
     
-    // Unpack the operation mode and coordinates
     int mode;
     unpack(mode);
     
@@ -772,69 +771,43 @@ static void do_window_scale_forced(char *message)
     unpack(end_w);
     unpack(end_h);
     
-    // Get window bounds and validate
+
     CGRect frame = {};
     if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
-        NSLog(@"🎯 do_window_scale_forced: failed to get window bounds for wid=%d", wid);
         return;
     }
     CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
+    
+    int guess1 = 0;
+    int guess2 = 0;
     // 0,0 works
     // 0,1 does not work
     // 1,1 does not work at all, or causes issues.
     // 1,0 not good either.
-    int guess1 = 0;
-    int guess2 = 0;
 
-    
     CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-(frame.origin.x), -(frame.origin.y));
     CGAffineTransform current_transform;
     SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
     
-    // Create frame region for shape setting (used in case 0)
-    //CFTypeRef frame_region = NULL;
-    //if (mode == 0) {
-    //    if (CGSNewRegionWithRect(&frame, &frame_region) != kCGErrorSuccess) {
-    //        NSLog(@"🎯 do_window_scale_forced: failed to create frame region for wid=%d", wid);
-    //        return;
-    //    }
-    //}
     switch (mode) {
-        case 0: // create_pip - scale window and position it
+        case 0: 
         {
-            NSLog(@"🎯 create_pip_forced: wid=%d frame=(%.1f,%.1f,%.1fx%.1f) end=(%.1f,%.1f,%.1fx%.1f)", 
-                  wid, frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
-                  end_x, end_y, end_w, end_h);
-                  
-            // Set window shape before transform
-
-            //SLSSetWindowClipShape( SLSMainConnectionID(), wid, &frame_region);
-            //SLSTransactionSetWindowShape(transaction, wid, -(frame.origin.x), -(frame.origin.y), frame_region);
-            
-            // Calculate scale factors (how much to shrink the window)
             float x_scale = frame.size.width / end_w;
             float y_scale = frame.size.height / end_h;
 
-            // Calculate translation to position the scaled window
             CGFloat transformed_x = -(end_x);
             CGFloat transformed_y = -(end_y);
             
-            // Apply scale then translate
             CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
             SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2, transform);
-
             break;
         }
         
         case 1: // move_pip - update position using current interpolated values
         {
-            //if (CGAffineTransformEqualToTransform(current_transform, original_transform)) {
-            //    NSLog(@"🎯 move_pip_forced: window not scaled, ignoring move for wid=%d", wid);
-            //    return;
-            
             // Calculate scale factors based on current interpolated size
             float x_scale = frame.size.width / current_w;
             float y_scale = frame.size.height / current_h;
@@ -854,24 +827,14 @@ static void do_window_scale_forced(char *message)
         
         case 2: // restore_pip - reset to original transform
         {
-
-        //   SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
             SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2,  original_transform);
-            // Note: No frame_region to release in restore case
             break;
         }
-        
         default:
-            NSLog(@"🎯 do_window_scale_forced: unknown mode %d for wid=%d", mode, wid);
             break;
     }
-
     SLSTransactionCommit(transaction, 0);
     CFRelease(transaction);
-    // Clean up frame region if it was created
-    //if (frame_region) {
-    //    CFRelease(frame_region);
-    //}
 }
 
 static void do_window_scale_forced_with_transaction(char *message)
