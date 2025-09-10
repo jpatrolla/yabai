@@ -901,66 +901,9 @@ static tree_position_info analyze_tree_position(struct window *window) {
     return info;
 }
 
-// Analyze window positioning within BSP tree structure
-static inline void analyze_window_position(struct window *window, struct window_animation *animation)
-{
-    // Initialize positioning metadata
-    animation->is_stacked_top = false;
-    animation->is_stacked_bottom = false;
-    animation->is_side_by_side = false;
-    animation->parent_split = SPLIT_NONE;
-    
-    if (!window) {
-        debug("%s: No window provided", __FUNCTION__);
-        return;
-    }
-    
-    // Get the current space and view
-    uint64_t sid = window_space(window->id);
-    struct view *view = space_manager_find_view(&g_space_manager, sid);
-    if (!view || !view->root) {
-        debug("%s: No view or root found for window %d", __FUNCTION__, window->id);
-        return;
-    }
-    
-    // Find the window node in the BSP tree
-    struct window_node *node = view_find_window_node(view, window->id);
-    if (!node || !node->parent) {
-        debug("%s: No node or parent found for window %d", __FUNCTION__, window->id);
-        return;
-    }
-    
-    struct window_node *parent = node->parent;
-    animation->parent_split = parent->split;
-    
-    debug("%s: Window %d - parent split: %d, node is %s child", 
-          __FUNCTION__, window->id, parent->split, 
-          (parent->left == node) ? "left" : "right");
-    
-    if (parent->split == SPLIT_Y) {
-        // Vertical split - windows are stacked
-        animation->is_side_by_side = false;
-        
-        // Determine if this is the top or bottom window
-        if (parent->left == node) {
-            // This node is the left child in a vertical split = top window
-            animation->is_stacked_top = true;
-            animation->is_stacked_bottom = false;
-            debug("%s: Window %d identified as TOP window in vertical stack", __FUNCTION__, window->id);
-        } else if (parent->right == node) {
-            // This node is the right child in a vertical split = bottom window
-            animation->is_stacked_top = false;
-            animation->is_stacked_bottom = true;
-            debug("%s: Window %d identified as BOTTOM window in vertical stack", __FUNCTION__, window->id);
-        }
-    } else if (parent->split == SPLIT_X) {
-        // Horizontal split - windows are side by side
-        animation->is_side_by_side = true;
-        animation->is_stacked_top = false;
-        animation->is_stacked_bottom = false;
-        debug("%s: Window %d identified as side-by-side layout", __FUNCTION__, window->id);
-    }
-}
+// Analyze window positioning within BSP tree structure - REMOVED FOR CLEAN REFERENCE
+// This function was part of the enhanced animation system
+// static inline void analyze_window_position(struct window *window, struct window_animation *animation) { ... }
 
 // ============================================================================
 // CENTRALIZED SPLIT-AWARE COMMON-EDGE ANCHORING SYSTEM
@@ -1058,7 +1001,9 @@ static unified_anchor_info calculate_unified_anchor(CGRect start_rect, CGRect en
         return anchor;
     }
     
-    // Check for stacked window overrides
+    // Check for stacked window overrides - DISABLED FOR CLEAN REFERENCE
+    // These checks used fields that were removed from the simplified window_animation structure
+    /*
     if (animation && g_window_manager.window_animation_override_stacked_top && animation->is_stacked_top) {
         anchor.legacy_resize_anchor = g_window_manager.window_animation_stacked_top_anchor;
         switch (anchor.legacy_resize_anchor) {
@@ -1079,6 +1024,7 @@ static unified_anchor_info calculate_unified_anchor(CGRect start_rect, CGRect en
         }
         return anchor;
     }
+    */
     
     // Check for common edges within threshold (core anchoring logic)
     anchor.has_common_top = fabs(start_rect.origin.y - end_rect.origin.y) <= edge_threshold;
@@ -1224,52 +1170,9 @@ static unified_anchor_info calculate_unified_anchor(CGRect start_rect, CGRect en
     return anchor;
 }
 
-// Interpolate with centralized anchor system
-static CGRect interpolate_with_unified_anchor(CGRect start_rect, CGRect end_rect, unified_anchor_info anchor, 
-                                            float progress, CGRect container_bounds, 
-                                            float min_width, float min_height) {
-    CGRect result;
-    
-    // Calculate target position relative to anchor
-    float start_anchor_offset_x = anchor.anchor_x - start_rect.origin.x;
-    float start_anchor_offset_y = anchor.anchor_y - start_rect.origin.y;
-    float end_anchor_offset_x = anchor.anchor_x - end_rect.origin.x;
-    float end_anchor_offset_y = anchor.anchor_y - end_rect.origin.y;
-    
-    // Interpolate size with minimum constraints
-    result.size.width = fmaxf(min_width, start_rect.size.width + (end_rect.size.width - start_rect.size.width) * progress);
-    result.size.height = fmaxf(min_height, start_rect.size.height + (end_rect.size.height - start_rect.size.height) * progress);
-    
-    // Interpolate anchor offset and calculate position
-    float current_anchor_offset_x = start_anchor_offset_x + (end_anchor_offset_x - start_anchor_offset_x) * progress;
-    float current_anchor_offset_y = start_anchor_offset_y + (end_anchor_offset_y - start_anchor_offset_y) * progress;
-    
-    result.origin.x = anchor.anchor_x - current_anchor_offset_x;
-    result.origin.y = anchor.anchor_y - current_anchor_offset_y;
-    
-    // Apply container bounds constraints if provided
-    if (!CGRectIsEmpty(container_bounds)) {
-        if (result.origin.x < container_bounds.origin.x) {
-            result.origin.x = container_bounds.origin.x;
-        }
-        if (result.origin.y < container_bounds.origin.y) {
-            result.origin.y = container_bounds.origin.y;
-        }
-        if (result.origin.x + result.size.width > container_bounds.origin.x + container_bounds.size.width) {
-            result.origin.x = container_bounds.origin.x + container_bounds.size.width - result.size.width;
-        }
-        if (result.origin.y + result.size.height > container_bounds.origin.y + container_bounds.size.height) {
-            result.origin.y = container_bounds.origin.y + container_bounds.size.height - result.size.height;
-        }
-    }
-    
-    return result;
-}
+// Removed unused interpolate_with_unified_anchor function
 
-// Legacy compatibility function - converts unified anchor to old resize_anchor int
-static int unified_anchor_to_legacy_resize_anchor(unified_anchor_info anchor) {
-    return anchor.legacy_resize_anchor;
-}
+// Removed unused unified_anchor_to_legacy_resize_anchor function
 
 
 
@@ -1288,186 +1191,24 @@ static CVReturn window_manager_animate_window_list_thread_proc(CVDisplayLinkRef 
     if (t >= 1.0) t = 1.0f;
 
     float mt;
-    if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
-        // Use linear interpolation for simplified/fast mode
-        mt = t;
-    } else {
-        // Use configured easing function
-        switch (context->animation_easing) {
+    switch (context->animation_easing) {
 #define ANIMATION_EASING_TYPE_ENTRY(value) case value##_type: mt = value(t); break;
-            ANIMATION_EASING_TYPE_LIST
+        ANIMATION_EASING_TYPE_LIST
 #undef ANIMATION_EASING_TYPE_ENTRY
-        }
     }
 
-    CFTypeRef transaction = SLSTransactionCreate(context->animation_connection);
     for (int i = 0; i < animation_count; ++i) {
         if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
 
-        // Calculate size difference ratio for this window
-        float size_ratio = calculate_size_difference_ratio(
-            context->animation_list[i].proxy.frame.size.width,
-            context->animation_list[i].proxy.frame.size.height,
-            context->animation_list[i].w,
-            context->animation_list[i].h
-        );
-
-        // UNIFIED SPLIT-AWARE ANCHORING ANIMATION SYSTEM
-        if (context->animation_list[i].is_two_phase) {
-            // Two-phase animation with unified anchoring
-            float slide_duration = g_window_manager.window_animation_slide_ratio;
-            
-            // Calculate unified anchor information once per animation
-            CGRect start_rect = context->animation_list[i].proxy.frame;
-            CGRect end_rect = CGRectMake(context->animation_list[i].x, context->animation_list[i].y, 
-                                       context->animation_list[i].w, context->animation_list[i].h);
-            
-            unified_anchor_info anchor = calculate_unified_anchor(start_rect, end_rect, 
-                                                                context->animation_list[i].parent_split,
-                                                                g_window_manager.window_animation_edge_threshold,
-                                                                &context->animation_list[i]);
-            
-            // Enhanced debug logging for unified anchor detection
-            const char *op_type = (anchor.operation_type == WINDOW_OPERATION_RESIZE) ? "resize" : 
-                                 (anchor.operation_type == WINDOW_OPERATION_TRANSLATE) ? "move" : "mixed";
-            debug("🔗 Window %d (2-phase): anchor(%.1f,%.1f) edges(T:%d B:%d L:%d R:%d) split:%d op:%s monitor:%d", 
-                  context->animation_list[i].wid, anchor.anchor_x, anchor.anchor_y,
-                  anchor.has_common_top, anchor.has_common_bottom, 
-                  anchor.has_common_left, anchor.has_common_right,
-                  context->animation_list[i].parent_split, op_type, anchor.crosses_monitors);
-            
-            // Get container bounds for constraint enforcement
-            uint32_t did = window_display_id(context->animation_list[i].wid);
-            CGRect container_bounds = display_bounds_constrained(did, false);
-            
-            // Define minimum size constraints
-            float min_width = 100.0f;
-            float min_height = 50.0f;
-            
-            if (t <= slide_duration) {
-                // Phase 1: Slide with unified anchor preservation
-                float slide_t = t / slide_duration;
-                float slide_mt = ease_out_circ(slide_t);
-                
-                // For slide phase, maintain size but move to anchor-relative position
-                CGRect slide_end_rect = CGRectMake(context->animation_list[i].x, context->animation_list[i].y,
-                                                  start_rect.size.width, start_rect.size.height);
-                
-                CGRect current_rect = interpolate_with_unified_anchor(start_rect, slide_end_rect, anchor, slide_mt, 
-                                                                    container_bounds, min_width, min_height);
-                
-                context->animation_list[i].proxy.tx = current_rect.origin.x;
-                context->animation_list[i].proxy.ty = current_rect.origin.y;
-                context->animation_list[i].proxy.tw = current_rect.size.width;
-                context->animation_list[i].proxy.th = current_rect.size.height;
-            } else {
-                // Phase 2: Resize with unified anchor preservation
-                float resize_t = (t - slide_duration) / (1.0f - slide_duration);
-                float resize_mt = ease_in_out_cubic(resize_t);
-                
-                // Start from slide end position and resize to final
-                CGRect resize_start_rect = CGRectMake(context->animation_list[i].x, context->animation_list[i].y,
-                                                     start_rect.size.width, start_rect.size.height);
-                
-                CGRect current_rect = interpolate_with_unified_anchor(resize_start_rect, end_rect, anchor, resize_mt,
-                                                                    container_bounds, min_width, min_height);
-                
-                context->animation_list[i].proxy.tx = current_rect.origin.x;
-                context->animation_list[i].proxy.ty = current_rect.origin.y;
-                context->animation_list[i].proxy.tw = current_rect.size.width;
-                context->animation_list[i].proxy.th = current_rect.size.height;
-            }
-            
-            // Handle multi-monitor handoffs with special easing for unified anchoring
-            if (anchor.crosses_monitors && t > 0.2f && t < 0.8f) {
-                // Apply smoother motion for monitor transitions
-                float monitor_mt = ease_in_out_sine(t);
-                context->animation_list[i].proxy.tx = lerp(start_rect.origin.x, monitor_mt, context->animation_list[i].x);
-                context->animation_list[i].proxy.ty = lerp(start_rect.origin.y, monitor_mt, context->animation_list[i].y);
-            }
-            
-            // Update legacy resize_anchor for compatibility
-            context->animation_list[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
-            
-            // Use the same transform calculation as classic animation
-            CGAffineTransform transform = CGAffineTransformMakeTranslation(-context->animation_list[i].proxy.tx, -context->animation_list[i].proxy.ty);
-            CGAffineTransform scale = CGAffineTransformMakeScale(context->animation_list[i].proxy.frame.size.width / context->animation_list[i].proxy.tw, context->animation_list[i].proxy.frame.size.height / context->animation_list[i].proxy.th);
-            SLSTransactionSetWindowTransform(transaction, context->animation_list[i].proxy.id, 0, 0, CGAffineTransformConcat(transform, scale));
-        } else {
-            // Enhanced single-phase animation with unified anchoring
-            CGRect start_rect = context->animation_list[i].proxy.frame;
-            CGRect end_rect = CGRectMake(context->animation_list[i].x, context->animation_list[i].y, 
-                                       context->animation_list[i].w, context->animation_list[i].h);
-            
-            unified_anchor_info anchor = calculate_unified_anchor(start_rect, end_rect, 
-                                                                context->animation_list[i].parent_split,
-                                                                g_window_manager.window_animation_edge_threshold,
-                                                                &context->animation_list[i]);
-            
-            // Enhanced debug logging for unified single-phase anchor detection
-            const char *op_type = (anchor.operation_type == WINDOW_OPERATION_RESIZE) ? "resize" : 
-                                 (anchor.operation_type == WINDOW_OPERATION_TRANSLATE) ? "move" : "mixed";
-            debug("🔗 Window %d (single): anchor(%.1f,%.1f) edges(T:%d B:%d L:%d R:%d) split:%d op:%s", 
-                  context->animation_list[i].wid, anchor.anchor_x, anchor.anchor_y,
-                  anchor.has_common_top, anchor.has_common_bottom, 
-                  anchor.has_common_left, anchor.has_common_right,
-                  context->animation_list[i].parent_split, op_type);
-            
-            uint32_t did = window_display_id(context->animation_list[i].wid);
-            CGRect container_bounds = display_bounds_constrained(did, false);
-            float min_width = 100.0f;
-            float min_height = 50.0f;
-            
-            CGRect current_rect = interpolate_with_unified_anchor(start_rect, end_rect, anchor, mt,
-                                                                container_bounds, min_width, min_height);
-            
-            context->animation_list[i].proxy.tx = current_rect.origin.x;
-            context->animation_list[i].proxy.ty = current_rect.origin.y;
-            context->animation_list[i].proxy.tw = current_rect.size.width;
-            context->animation_list[i].proxy.th = current_rect.size.height;
-            
-            // Handle multi-monitor handoffs
-            if (anchor.crosses_monitors) {
-                float monitor_mt = ease_in_out_sine(mt);
-                context->animation_list[i].proxy.tx = lerp(start_rect.origin.x, monitor_mt, context->animation_list[i].x);
-                context->animation_list[i].proxy.ty = lerp(start_rect.origin.y, monitor_mt, context->animation_list[i].y);
-            }
-            
-            // Update legacy resize_anchor for compatibility
-            context->animation_list[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
-            
-            // Transform logic
-            CGAffineTransform transform = CGAffineTransformMakeTranslation(-context->animation_list[i].proxy.tx, -context->animation_list[i].proxy.ty);
-            CGAffineTransform scale = CGAffineTransformMakeScale(context->animation_list[i].proxy.frame.size.width / context->animation_list[i].proxy.tw, context->animation_list[i].proxy.frame.size.height / context->animation_list[i].proxy.th);
-            SLSTransactionSetWindowTransform(transaction, context->animation_list[i].proxy.id, 0, 0, CGAffineTransformConcat(transform, scale));
-        }
+        CGAffineTransform transform = CGAffineTransformMakeTranslation(-context->animation_list[i].proxy.tx, -context->animation_list[i].proxy.ty);
+        CGAffineTransform scale = CGAffineTransformMakeScale(context->animation_list[i].proxy.frame.size.width / context->animation_list[i].proxy.tw, context->animation_list[i].proxy.frame.size.height / context->animation_list[i].proxy.th);
+        SLSSetWindowTransform(context->animation_connection, context->animation_list[i].proxy.id, CGAffineTransformConcat(transform, scale));
 
         float alpha = 0.0f;
         SLSGetWindowAlpha(context->animation_connection, context->animation_list[i].wid, &alpha);
-        
-        // Apply opacity fade for large size differences (Approach 1: Crossfade)
-        if (g_window_manager.window_animation_fade_enabled && size_ratio > g_window_manager.window_animation_fade_threshold) {
-            float fade_intensity = g_window_manager.window_animation_fade_intensity;
-            float opacity_curve;
-            
-            if (t < 0.3f) {
-                // Fade out during first 30% of animation
-                opacity_curve = 1.0f - (t / 0.3f) * fade_intensity;
-            } else if (t > 0.7f) {
-                // Fade back in during last 30%
-                opacity_curve = (1.0f - fade_intensity) + ((t - 0.7f) / 0.3f) * fade_intensity;
-            } else {
-                // Stay at reduced opacity during middle 40%
-                opacity_curve = 1.0f - fade_intensity;
-            }
-            
-            alpha *= opacity_curve;
-        }
-        
-        if (alpha != 0.0f) SLSTransactionSetWindowAlpha(transaction, context->animation_list[i].proxy.id, alpha);
+        if (alpha != 0.0f) SLSSetWindowAlpha(context->animation_connection, context->animation_list[i].proxy.id, alpha);
     }
-    SLSTransactionCommit(transaction, 0);
-    CFRelease(transaction);
+
     if (t != 1.0f) goto out;
 
     pthread_mutex_lock(&g_window_manager.window_animations_lock);
@@ -1524,12 +1265,6 @@ void window_manager_animate_window_list_async(struct window_capture *window_list
         context->animation_list[i].skip   = false;
         memset(&context->animation_list[i].proxy, 0, sizeof(struct window_proxy));
 
-        // Initialize two-phase animation fields
-        context->animation_list[i].original_w = 0;
-        context->animation_list[i].original_h = 0;
-        context->animation_list[i].is_two_phase = false;
-        context->animation_list[i].resize_anchor = 0;
-
         struct window_animation *existing_animation = table_find(&g_window_manager.window_animations_table, &context->animation_list[i].wid);
         if (existing_animation) {
             __atomic_store_n(&existing_animation->skip, true, __ATOMIC_RELEASE);
@@ -1582,29 +1317,6 @@ void window_manager_animate_window_list_async(struct window_capture *window_list
         pthread_join(threads[i], NULL);
     }
     });
-
-    // Calculate unified anchor for every window (centralized system)
-    for (int i = 0; i < window_count; ++i) {
-        CGRect start_rect = context->animation_list[i].proxy.frame;
-        CGRect end_rect = CGRectMake(context->animation_list[i].x, context->animation_list[i].y,
-                                   context->animation_list[i].w, context->animation_list[i].h);
-        
-        // Analyze BSP positioning for context
-        analyze_window_position(context->animation_list[i].window, &context->animation_list[i]);
-        
-        // Use unified anchoring system
-        unified_anchor_info anchor = calculate_unified_anchor(start_rect, end_rect,
-                                                            context->animation_list[i].parent_split,
-                                                            g_window_manager.window_animation_edge_threshold,
-                                                            &context->animation_list[i]);
-        
-        // Set legacy resize_anchor for compatibility with existing code
-        context->animation_list[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
-        
-        debug("🔗 Setup: Window %d unified anchor=%d legacy_anchor=%d split=%d", 
-              context->animation_list[i].wid, (int)(anchor.anchor_x), 
-              context->animation_list[i].resize_anchor, context->animation_list[i].parent_split);
-    }
 
     TIME_BODY(window_manager_animate_window_list_async___swap_proxy_in, {
     scripting_addition_swap_window_proxy_in(context->animation_list, context->animation_count);
@@ -1724,9 +1436,7 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
             float end_h = context->animation_list[i].h;
             
             float current_x, current_y, current_w, current_h;
-            
-            // Apply 2-phase animation logic if enabled for this window
-            if (context->animation_list[i].is_two_phase) {
+
                 float slide_duration = g_window_manager.window_animation_slide_ratio;
                 
                 if (t <= slide_duration) {
@@ -1781,7 +1491,7 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
                     debug("🎬 Async Frame %d/%d Window %d: RESIZE PHASE t=%.3f resize_mt=%.3f pos=(%.1f,%.1f) size=(%.1f,%.1f)", 
                           frame, total_frames, context->animation_list[i].wid, t, resize_mt, current_x, current_y, current_w, current_h);
                 }
-            } else {
+
                 // Enhanced single-phase animation with stationary edge detection (aligned with sync version)
                 float interp_mt = mt;
 
@@ -1903,7 +1613,7 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
                 
                 //debug("🎬 Async Frame %d/%d Window %d: SINGLE PHASE t=%.3f mt=%.3f anchor=(%.1f,%.1f) pos=(%.1f,%.1f) size=(%.1f,%.1f) anchor=%d", 
                 //      frame, total_frames, context->animation_list[i].wid, t, mt, current_anchor_x, current_anchor_y, current_x, current_y, current_w, current_h, context->animation_list[i].resize_anchor);
-            }
+
             
             // Execute PiP animation for this frame using enhanced parameter passing with transactions
             if (frame == 0) {
@@ -2137,7 +1847,7 @@ void window_manager_animate_window_list_pip_async(struct window_capture *window_
                                                             NULL); // No animation struct for pip-based
         
         // Set resize_anchor from centralized calculation
-        context->animation_list[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
+        context->animation_list[i].resize_anchor = anchor.legacy_resize_anchor;
         
         debug("🔗 Async Frame: Window %d centralized anchor=%d parent_split=%d", 
               context->animation_list[i].wid, context->animation_list[i].resize_anchor, parent_split);
@@ -2296,10 +2006,10 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
             window_list[i].w, window_list[i].h
         );
 
-        // Enable 2-phase animation for significant size changes (integrated from proxy system)
-        animation_data[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled &&
-                                         window_count >= 2 &&
-                                         animation_data[i].size_ratio > g_window_manager.window_animation_fade_threshold);
+
+        //animation_data[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled &&
+        //                                 window_count >= 2 &&
+        //                                 animation_data[i].size_ratio > g_window_manager.window_animation_fade_threshold);
 
         // Use centralized anchoring system for all animations
         CGRect start_rect = animation_data[i].original_frame;
@@ -2322,7 +2032,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                                                             NULL); // No animation struct for pip-based
         
         // Set resize_anchor from centralized calculation
-        animation_data[i].resize_anchor = unified_anchor_to_legacy_resize_anchor(anchor);
+        animation_data[i].resize_anchor = anchor.legacy_resize_anchor;
 
         // Assign anchor_point to the calculated resize_anchor value
         animation_data[i].anchor_point = animation_data[i].resize_anchor;
@@ -2333,28 +2043,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
         animation_data[i].calculated_w = animation_data[i].original_frame.size.width;
         animation_data[i].calculated_h = animation_data[i].original_frame.size.height;
 
-        // Apply starting size multiplier if configured (for scaling animation effect)
-        if (g_window_manager.window_animation_starting_size != 1.0f) {
-            float size_multiplier = g_window_manager.window_animation_starting_size;
-            float target_w = window_list[i].w;
-            float target_h = window_list[i].h;
-
-            // Calculate the starting size based on target size and multiplier
-            float starting_w = target_w * size_multiplier;
-            float starting_h = target_h * size_multiplier;
-
-            // Center the scaled starting size within the original position
-            float center_x = animation_data[i].original_frame.origin.x + animation_data[i].original_frame.size.width / 2.0f;
-            float center_y = animation_data[i].original_frame.origin.y + animation_data[i].original_frame.size.height / 2.0f;
-
-            animation_data[i].original_frame.origin.x = center_x - starting_w / 2.0f;
-            animation_data[i].original_frame.origin.y = center_y - starting_h / 2.0f;
-            animation_data[i].original_frame.size.width = starting_w;
-            animation_data[i].original_frame.size.height = starting_h;
-
-            debug("🎬 Applied starting size multiplier %.2f: target=%.0fx%.0f starting=%.0fx%.0f",
-                  size_multiplier, target_w, target_h, starting_w, starting_h);
-        }
+       
 
         // Add a dummy entry to window_animations_table to prevent duplicate animations
         static struct window_animation dummy_animation = {0};
@@ -2582,7 +2271,6 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
             // Apply opacity fade transition if enabled
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
-            bool is_tl_anchor = animation_data[i].resize_anchor == 0;
 
             if (frame == 0) {
                 // Group all initial operations in the frame transaction
@@ -2739,7 +2427,6 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                        start_edges.touches_right ? "right" : "center");
                       
                 
-
                 window_manager_set_window_frame(animation_data[i].capture.window, 
                                                 end_x, 
                                                 end_y, 
@@ -2811,7 +2498,6 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                 // move/resize via PiP
                 //scripting_addition_anim_window_pip_mode_with_transaction(
                 scripting_addition_anim_window_pip_mode(
-
                     animation_data[i].capture.window->id,
                     //frame_transaction,
                     1,
@@ -2836,9 +2522,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     SLSTransactionSetWindowSystemAlpha(frame_transaction, animation_data[i].capture.window->id, target_opacity);
                 }
             }
-            
         }
-        
         // Commit the frame transaction for all windows at once
         SLSTransactionCommit(frame_transaction, 0);
         CFRelease(frame_transaction);
@@ -2880,7 +2564,7 @@ void window_manager_animate_window_list(struct window_capture *window_list, int 
                 debug("pip async");
                 window_manager_animate_window_list_pip_async(window_list, window_count);
             } else {
-                debug("pip pip-based window list %d\n", window_count);
+                // placeholder for now until we get async working
                 window_manager_animate_window_pip(window_list, window_count);
             } 
         } else {
