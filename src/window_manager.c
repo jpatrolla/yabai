@@ -2116,7 +2116,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
     for (int frame = 0; frame <= total_frames; ++frame) {
         double t = (double)frame / (double)total_frames;
         if (t > 1.0) t = 1.0;
-        
+         CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
         float mt;
         if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
             // Use linear interpolation for simplified/fast mode
@@ -2133,7 +2133,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
         debug("🎬 Frame %d/%d: t=%.3f mt=%.3f (easing=%d)", frame, total_frames, t, mt, easing);
         
         // Create a single transaction for all operations in this frame
-        CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
+       
         
         for (int i = 0; i < window_count; ++i) {
             float start_x = animation_data[i].original_frame.origin.x;
@@ -2325,7 +2325,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
             SLSGetWindowAlpha(g_connection, animation_data[i].capture.window->id, &original_opacity);
             float current_opacity;
             // Clamp current_opacity to be minimum original_opacity, interpolating to full opacity
-            current_opacity = original_opacity + (1.0f - original_opacity) * t;
+            //current_opacity = original_opacity + (1.0f - original_opacity) * t;
             float progress = mt;
             
 
@@ -2505,7 +2505,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                                                             end_y,
                                                             end_w,
                                                             end_h,
-                                                            current_opacity,
+                                                            original_opacity,
                                                             progress,  // duration (0 = immediate)
                                                             animation_data[i].proxy.id  // proxy window ID
             );
@@ -2531,7 +2531,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_y,
                     end_w,
                     end_h,
-                    current_opacity, // full opacity for restore
+                    original_opacity, 
                     progress,  // duration (0 = immediate)
                     animation_data[i].proxy.id  // proxy window ID
                 );
@@ -2558,7 +2558,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_y,
                     end_w,
                     end_h,
-                    current_opacity,  // dynamic opacity during animation
+                    original_opacity,  
                     progress,  // duration (0 = immediate)
                     animation_data[i].proxy.id  // proxy window ID
                 );

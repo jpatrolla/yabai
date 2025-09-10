@@ -800,7 +800,8 @@ static void do_window_scale_forced(char *message)
     // 0,1 does not work
     // 1,1 does not work at all, or causes issues.
     // 1,0 not good either.
-
+    float window_alpha;
+    SLSGetWindowAlpha(SLSMainConnectionID(), wid, &window_alpha);
     CGRect display = CGDisplayBounds(CGMainDisplayID());
     float target_width = current_w;
     float target_height = current_h;
@@ -808,7 +809,6 @@ static void do_window_scale_forced(char *message)
     float y_scale = current_h/target_height;
     CGFloat transformed_x = -(current_x); 
     CGFloat transformed_y = -(current_y); 
-    
     CGAffineTransform current_scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(opacity, opacity));
     
     CGAffineTransform start_translate = CGAffineTransformMakeTranslation(-(start_x), -(start_y));
@@ -840,19 +840,22 @@ static void do_window_scale_forced(char *message)
             bool is_growing = (start_w < end_w || start_h < end_h);
             bool is_shrinking = (start_w > end_w || start_h > end_h);
             bool stays_same_size = (!is_growing && !is_shrinking);
-            float proxy_progress = 1.0f - duration;
 
+            float proxy_progress = 1.0f - duration;
+            
+            // Clamp the maximum fade amount to the window's current transparency
+            // If window is 70% transparent, final_alpha should never exceed 0.7
+            float max_alpha = (window_alpha < 1.0f) ? window_alpha : opacity;
+            
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, current_translate);
             SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, current_translate);
             
-            // Make proxy and window opacity complementary to avoid visual overlap
-            // When proxy is fully visible (1.0), window is invisible (0.0)
-            // When proxy is invisible (0.0), window is fully visible (opacity)
-            float window_alpha = opacity * (1.0f - proxy_progress);
-            float proxy_alpha = proxy_progress;
+            // Apply complementary opacity with transparency clamping
+            float final_window_alpha = max_alpha * (1.0f - proxy_progress);
+            float final_proxy_alpha = proxy_progress;
             
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, window_alpha);
-            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, proxy_alpha);
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, stays_same_size ? window_alpha : final_window_alpha);
+            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, final_proxy_alpha);
 
             break;
         }
