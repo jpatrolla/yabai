@@ -1,3 +1,4 @@
+#include "window_manager.h"
 #include "sa.h"
 #include <sys/_types/_u_int16_t.h>
 #include <sys/qos.h>
@@ -609,18 +610,12 @@ static inline void window_manager_notify_jankyborders(struct window_animation *a
 static void window_manager_create_window_proxy(int animation_connection, float alpha, struct window_proxy *proxy)
 {
     if (!proxy->image) return;
-
     CFTypeRef frame_region;
     CGSNewRegionWithRect(&proxy->frame, &frame_region);
     CFTypeRef empty_region = CGRegionCreateEmptyRegion();
 
     uint64_t tags = 1ULL << 46;
     SLSNewWindowWithOpaqueShapeAndContext(animation_connection, 2, frame_region, empty_region, 13|(1 << 18), &tags, 0, 0, 64, &proxy->id, NULL);
-    
-    // Apply shadow settings based on configuration
-    if (!g_window_manager.window_animation_shadows_enabled || g_window_manager.window_animation_fast_mode) {
-        sls_window_disable_shadow(proxy->id);
-    }
     
     SLSSetWindowOpacity(animation_connection, proxy->id, 0);
     
@@ -635,16 +630,7 @@ static void window_manager_create_window_proxy(int animation_connection, float a
     SLSSetWindowLevel(animation_connection, proxy->id, proxy->level);
     SLSSetWindowSubLevel(animation_connection, proxy->id, proxy->sub_level);
     
-    // Apply blur effect if enabled and not in fast mode
-    if (g_window_manager.window_animation_blur_enabled && !g_window_manager.window_animation_fast_mode) {
-        int blur_radius = (int)g_window_manager.window_animation_blur_radius;
-        int blur_style = g_window_manager.window_animation_blur_style;
-        SLSSetWindowBackgroundBlurRadiusStyle(animation_connection, proxy->id, blur_radius, blur_style);
-        debug("Applied blur to proxy window %d: radius=%d, style=%d", proxy->id, blur_radius, blur_style);
-    }
-    
     proxy->context = SLWindowContextCreate(animation_connection, proxy->id, 0);
-
     CGRect frame = { {0, 0}, proxy->frame.size };
     CGContextClearRect(proxy->context, frame);
     CGContextDrawImage(proxy->context, frame, proxy->image);
@@ -1977,6 +1963,11 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
         // Store calculated dimensions per frame (since PiP doesn't change actual window size)
         float calculated_w, calculated_h;
         float calculated_x, calculated_y;
+        // Proxy system for smoother resize animations
+        bool needs_proxy;        // true if window changes size
+        struct window_proxy proxy; // full proxy structure for real window creation
+        bool proxy_created;      // true if proxy was successfully created
+        float proxy_fade_end;    // fraction of animation where proxy fully fades (0.25 = first quarter)
     } animation_data[window_count];
 
     // Prepare animation data and mark windows as animating
@@ -2006,10 +1997,6 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
             window_list[i].w, window_list[i].h
         );
 
-
-        //animation_data[i].is_two_phase = (g_window_manager.window_animation_two_phase_enabled &&
-        //                                 window_count >= 2 &&
-        //                                 animation_data[i].size_ratio > g_window_manager.window_animation_fade_threshold);
 
         // Use centralized anchoring system for all animations
         CGRect start_rect = animation_data[i].original_frame;
@@ -2043,11 +2030,70 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
         animation_data[i].calculated_w = animation_data[i].original_frame.size.width;
         animation_data[i].calculated_h = animation_data[i].original_frame.size.height;
 
-       
+        // Initialize proxy system
+        float size_threshold = 5.0f; // Minimum size change to warrant proxy (pixels)
+        bool size_changes = (fabsf(animation_data[i].original_frame.size.width - window_list[i].w) > size_threshold ||
+                            fabsf(animation_data[i].original_frame.size.height - window_list[i].h) > size_threshold);
+        
+        animation_data[i].needs_proxy = size_changes;
+        memset(&animation_data[i].proxy, 0, sizeof(struct window_proxy));
+        animation_data[i].proxy_created = false;
+        animation_data[i].proxy_fade_end = g_window_manager.window_animation_fade_threshold; // Fade out proxy during first quarter of animation
 
         // Add a dummy entry to window_animations_table to prevent duplicate animations
         static struct window_animation dummy_animation = {0};
         table_add(&g_window_manager.window_animations_table, &window_list[i].window->id, &dummy_animation);
+    }
+    
+    // Create screenshot proxies for windows that need them
+    for (int i = 0; i < window_count; ++i) {
+        if (!animation_data[i].needs_proxy) continue;
+        
+        debug("🎭 Creating real proxy window for window %d (size change detected)", 
+              animation_data[i].capture.window->id);
+        
+        // Create a real proxy window using existing infrastructure
+        uint32_t window_id = animation_data[i].capture.window->id;
+        
+        // Get window properties for proxy
+        SLSGetWindowBounds(g_connection, window_id, &animation_data[i].proxy.frame);
+        animation_data[i].proxy.level = window_level(window_id);
+        animation_data[i].proxy.sub_level = window_sub_level(window_id);
+        
+        // Capture screenshot of the window at its original size
+        CFArrayRef screenshot_array = SLSHWCaptureWindowList(g_connection, &window_id, 1, 
+                                                             kCGWindowImageDefault | kCGWindowImageNominalResolution);
+        
+        if (screenshot_array && CFArrayGetCount(screenshot_array) > 0) {
+            // Get the screenshot image
+            animation_data[i].proxy.image = (CGImageRef)CFRetain(CFArrayGetValueAtIndex(screenshot_array, 0));
+            CFRelease(screenshot_array);
+            
+            if (animation_data[i].proxy.image) {
+                // Create the actual proxy window using existing function
+                float alpha = 1.0f;
+                SLSGetWindowAlpha(g_connection, window_id, &alpha);
+                window_manager_create_window_proxy(g_connection, alpha, &animation_data[i].proxy);
+                
+                if (animation_data[i].proxy.id != 0) {
+                    animation_data[i].proxy_created = true;
+                    SLSSetWindowOpacity(g_connection, animation_data[i].proxy.id, 1);
+                    SLSOrderWindow(g_connection,  animation_data[i].proxy.id, 1, 0);
+                    debug("🎭 Real proxy window created: %d -> %d", window_id, animation_data[i].proxy.id);
+                } else {
+                    debug("🎭 Failed to create proxy window for window %d", window_id);
+                    if (animation_data[i].proxy.image) {
+                        CFRelease(animation_data[i].proxy.image);
+                        animation_data[i].proxy.image = NULL;
+                    }
+                }
+            }
+        }
+        
+        if (!animation_data[i].proxy_created) {
+            debug("🎭 Failed to create screenshot proxy for window %d", window_id);
+            animation_data[i].needs_proxy = false; // Disable proxy for this window
+        }
     }
     
     // Animation parameters
@@ -2266,23 +2312,20 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                 animation_data[i].calculated_w = current_w;
                 animation_data[i].calculated_h = current_h;
                         
-            // Apply opacity fade transition if enabled
             float opacity_fade_duration = g_window_manager.window_opacity_duration;
-            float threshold = g_window_manager.window_animation_fade_threshold;
+
             bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
             float current_opacity;
-            if(animation_needed){
-                current_opacity =  use_opacity_fade ? fmaxf(threshold, fminf(1.0f, threshold + (mt * (1.0f - threshold)))) : 1.0f;
-            } else {
-                current_opacity = 1.0f;
-            }
+            
+                current_opacity = t;
+            
             
 
             if (frame == 0) {
                 // Group all initial operations in the frame transaction
-                if (use_opacity_fade) {
-                    SLSTransactionSetWindowSystemAlpha(frame_transaction, animation_data[i].capture.window->id, 0.3f);
-                }
+                //if (use_opacity_fade) {
+                //    SLSTransactionSetWindowSystemAlpha(frame_transaction, animation_data[i].capture.window->id, 0.3f);
+                //}
 
                 char *title = window_title_ts(animation_data[i].capture.window);
                 
@@ -2431,33 +2474,40 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                        start_edges.touches_left ? "left" :
                        start_edges.touches_right ? "right" : "center");
                       
+                
+
+                //window_manager_set_window_opacity(&g_window_manager, animation_data[i].capture.window , 0);
                 window_manager_set_window_frame(animation_data[i].capture.window, 
                                                 end_x, 
                                                 end_y, 
                                                 end_w, 
                                                 end_h);
-
-                scripting_addition_anim_window_pip_mode(
-                    animation_data[i].capture.window->id, 
-                    0,
-                    start_x,
-                    start_y,
-                    start_w,
-                    start_h,
-                    current_x,
-                    current_y,
-                    current_w,
-                    current_h,
-                    end_x,
-                    end_y,
-                    end_w,
-                    end_h,
-                    current_opacity  // opacity for initial creation
-                );
                 
+                scripting_addition_anim_window_pip_mode( animation_data[i].capture.window->id, 
+                                                            0,
+                                                            start_x,
+                                                            start_y,
+                                                            start_w,
+                                                            start_h,
+                                                            current_x,
+                                                            current_y,
+                                                            current_w,
+                                                            current_h,
+                                                            end_x,
+                                                            end_y,
+                                                            end_w,
+                                                            end_h,
+                                                            0,  // opacity for initial creation
+                                                            0.0f,  // duration (0 = immediate)
+                                                            animation_data[i].proxy.id  // proxy window ID
+            );
+                
+                
+                
+            } else if( frame == 1 ){
+
+
             } else if (frame == total_frames) {
-                
-
                 scripting_addition_anim_window_pip_mode(
                     animation_data[i].capture.window->id,
                     2,
@@ -2473,7 +2523,9 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_y,
                     end_w,
                     end_h,
-                    current_opacity // full opacity for restore
+                    1.0, // full opacity for restore
+                    0.0f,  // duration (0 = immediate)
+                    animation_data[i].proxy.id  // proxy window ID
                 );
                 
                 // Restore full opacity after restoration
@@ -2481,9 +2533,10 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, opacity_fade_duration * 0.5f);
                 }
             } else {
+                // Proxy fade logic is now handled in do_window_scale_forced
+                
                 scripting_addition_anim_window_pip_mode(
                     animation_data[i].capture.window->id,
-                    //frame_transaction,
                     1,
                     start_x,
                     start_y,
@@ -2497,7 +2550,9 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
                     end_y,
                     end_w,
                     end_h,
-                    current_opacity  // dynamic opacity during animation
+                    current_opacity,  // dynamic opacity during animation
+                    0.0f,  // duration (0 = immediate)
+                    animation_data[i].proxy.id  // proxy window ID
                 );
             }
         }
@@ -2513,21 +2568,23 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
     
     // Clean up
     for (int i = 0; i < window_count; ++i) {
-        // Remove from animation table
+
         table_remove(&g_window_manager.window_animations_table, &animation_data[i].capture.window->id);
-        
-        // window_manager_set_window_frame(animation_data[i].capture.window, 
-        //                                        animation_data[i].capture.x, 
-        //                                        animation_data[i].capture.y, 
-        //                                        animation_data[i].capture.w, , 
-        //                                        animation_data[i].capture.h);
-        // Ensure PiP is properly restored (safety cleanup)
-        //scripting_addition_restore_pip_forced(animation_data[i].capture.window->id);
+
+        // Clean up proxy windows
+        if (animation_data[i].needs_proxy && animation_data[i].proxy_created && animation_data[i].proxy.id != 0) {
+            //debug("🎭 Cleaning up proxy %d for window %d", 
+                //  animation_data[i].proxy.id, animation_data[i].capture.window->id);
+            
+            // testing proxy visibility.disabling cleanup for now
+            //window_manager_destroy_window_proxy(g_connection, &animation_data[i].proxy);
+            //animation_data[i].proxy_created = false;
+        }
 
         // Restore normal opacity (safety cleanup)
-        if (g_window_manager.window_opacity_duration > 0.0f && g_window_manager.window_animation_opacity_enabled) {
-            scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, 0.0f);
-        }
+        //if (g_window_manager.window_opacity_duration > 0.0f && g_window_manager.window_animation_opacity_enabled) {
+        //    scripting_addition_set_opacity(animation_data[i].capture.window->id, 1.0f, 0.0f);
+        //}
         // NOTE: Removed window_manager_set_window_frame call to prevent flicker   
     }
 }
@@ -2540,9 +2597,10 @@ void window_manager_animate_window_list(struct window_capture *window_list, int 
         if (g_window_manager.window_animation_pip_enabled) {
             if(g_window_manager.window_animation_pip_async_enabled){
                 debug("pip async");
+                // async still wip until animation sequence locked in
                 window_manager_animate_window_list_pip_async(window_list, window_count);
             } else {
-                // placeholder for now until we get async working
+                // current focus:
                 window_manager_animate_window_pip(window_list, window_count);
             } 
         } else {
@@ -2591,19 +2649,19 @@ void window_manager_set_window_frame(struct window *window, float x, float y, fl
 
     //push_jankyborders_stack(1325, window->id, stack_count, stack_index );
 
-if (window && window->id &&
-      window_manager_find_managed_window(&g_window_manager, window)) {
-    struct view *view =
-        window_manager_find_managed_window(&g_window_manager, window);
-    struct window_node *node = view_find_window_node(view, window->id);  
-        if (node && node->window_count > 1) {
-            uint32_t left_padding = 0;
-            x += left_padding;
-            //y = node->area.y;
-            width -= left_padding;
-            //height = node->area.h;
-        }
-}
+    if (window && window->id &&
+        window_manager_find_managed_window(&g_window_manager, window)) {
+        struct view *view =
+            window_manager_find_managed_window(&g_window_manager, window);
+        struct window_node *node = view_find_window_node(view, window->id);  
+            if (node && node->window_count > 1) {
+                uint32_t left_padding = 0;
+                x += left_padding;
+                //y = node->area.y;
+                width -= left_padding;
+                //height = node->area.h;
+            }
+    }
 
     AX_ENHANCED_UI_WORKAROUND(window->application->ref, {
         // NOTE(koekeishiya): Due to macOS constraints (visible screen-area), we might need to resize the window *before* moving it.

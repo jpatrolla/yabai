@@ -46,6 +46,8 @@ extern int SLSMainConnectionID(void);
 extern CGError SLSGetConnectionPSN(int cid, ProcessSerialNumber *psn);
 extern CGError SLSGetWindowAlpha(int cid, uint32_t wid, float *alpha);
 extern CGError SLSSetWindowAlpha(int cid, uint32_t wid, float alpha);
+
+
 extern OSStatus SLSMoveWindowWithGroup(int cid, uint32_t wid, CGPoint *point);
 extern CGError SLSReassociateWindowsSpacesByGeometry(int cid, CFArrayRef window_list);
 extern CGError SLSGetWindowOwner(int cid, uint32_t wid, int *window_cid);
@@ -68,6 +70,7 @@ extern CFTypeRef SLSTransactionCreate(int cid);
 extern CGError SLSTransactionCommit(CFTypeRef transaction, int synchronous);
 extern CGError SLSTransactionOrderWindowGroup(CFTypeRef transaction, uint32_t wid, int order, uint32_t rel_wid);
 extern CGError SLSTransactionSetWindowSystemAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
+extern CGError SLSTransactionSetWindowAlphaAnimated(CFTypeRef transaction, uint32_t wid, float alpha, float duration);
 extern CGError SLSTransactionSetWindowTransform(CFTypeRef transaction, uint32_t wid, int unknown, int unknown2, CGAffineTransform t);
 extern CGError SLSTransactionSetWindowShape(CFTypeRef transaction, uint32_t wid, float x_offset, float y_offset, CFTypeRef shape);
 extern CGError SLSSetWindowSubLevel(int cid, uint32_t wid, int level);
@@ -774,6 +777,14 @@ static void do_window_scale_forced(char *message)
     // Unpack opacity value (0.0 to 1.0)
     float opacity;
     unpack(opacity);
+    
+    // Unpack duration value (in seconds, 0.0 = immediate)
+    float duration;
+    unpack(duration);
+    
+    // Unpack proxy window ID (0 = no proxy)
+    uint32_t proxy_wid;
+    unpack(proxy_wid);
 
     CGRect frame = {};
     if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
@@ -788,6 +799,10 @@ static void do_window_scale_forced(char *message)
     // 1,1 does not work at all, or causes issues.
     // 1,0 not good either.
 
+    // screen size
+    int padding = 20; // testing for now.
+    CGRect screen_frame = CGDisplayBounds(CGMainDisplayID());
+    
     CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-(frame.origin.x), -(frame.origin.y));
     CGAffineTransform current_transform;
     SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
@@ -795,28 +810,37 @@ static void do_window_scale_forced(char *message)
     switch (mode) {
         case 0: 
         {
-            float x_scale = frame.size.width / end_w;
-            float y_scale = frame.size.height / end_h;
+            float x_scale = frame.size.width / start_w;
+            float y_scale = frame.size.height / start_h;
 
-            CGFloat transformed_x = -(end_x);
-            CGFloat transformed_y = -(end_y);
+            CGFloat transformed_x = -(frame.origin.x);
+            CGFloat transformed_y = -(frame.origin.y); // -dy;
             
             CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
+
+            //SLSTransactionSetWindowAlphaAnimated(transaction, wid, 1, 1.0);
             
             // Apply opacity if specified (opacity > 0 means apply it)
-            if (opacity >= 0.0f && opacity <= 1.0f) {
-                SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            //if (opacity >= 0.0f && opacity <= 1.0f) {
+            //SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            //}
+            
+            // Handle proxy setup for frame 0
+            if (proxy_wid != 0) {
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
             }
             break;
         }
         
         case 1: // move_pip - update position using current interpolated values
         {
-            // Calculate scale factors based on current interpolated size
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            // Calculate scale factors based on current interpolated sizee
             float x_scale = frame.size.width / current_w;
             float y_scale = frame.size.height / current_h;
             
@@ -829,11 +853,26 @@ static void do_window_scale_forced(char *message)
             CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
             
             //SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
             
             // Apply opacity if specified (opacity > 0 means apply it)
-            if (opacity >= 0.0f && opacity <= 1.0f) {
-                SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
+            //if (opacity >= 0.0f && opacity <= 1.0f) {
+            //}
+            
+            // Handle proxy fading during animation
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, transform);
+
+            if (proxy_wid != 0) {
+                // Simple fade logic: fade out proxy over first quarter of animation
+                // Note: For now using a simple fade based on current position progress
+                // This will be refined later with proper fade timing
+                float fade_progress = opacity; // Will be calculated based on animation progress
+                float proxy_opacity = 1.0f - fade_progress;
+                if (proxy_opacity < 0.0f) proxy_opacity = 0.0f;
+                
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, proxy_opacity); // Keep some
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, transform);
+
+                // e visibility
             }
             break;
         }
@@ -841,11 +880,10 @@ static void do_window_scale_forced(char *message)
         case 2: // restore_pip - reset to original transform
         {
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2,  original_transform);
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0);
             
-            // Restore full opacity when restoring transform
-            if (opacity >= 0.0f && opacity <= 1.0f) {
-                SLSTransactionSetWindowSystemAlpha(transaction, wid, opacity);
-            }
+            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+
             break;
         }
         default:

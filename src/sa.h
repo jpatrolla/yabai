@@ -26,7 +26,7 @@ bool scripting_addition_focus_window(uint32_t wid);
 bool scripting_addition_scale_window(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_scale_window_custom(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode,float start_x, float start_y, float start_w, float start_h, float end_x, float end_y, float end_w, float end_h);
-bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, float opacity);
+bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, float opacity, float duration, uint32_t proxy_wid);
 bool scripting_addition_anim_window_pip_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h);
 bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x, float y, float w, float h);
 bool scripting_addition_scale_window_forced_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float x, float y, float w, float h);
