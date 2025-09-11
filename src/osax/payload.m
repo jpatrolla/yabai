@@ -44,6 +44,15 @@
 #define unpack(v) memcpy(&v, message, sizeof(v)); message += sizeof(v)
 #define lerp(a, t, b) (((1.0-t)*a) + (t*b))
 
+// Warp mesh constants
+#define WARP_MESH_WIDTH 16
+#define WARP_MESH_HEIGHT 16
+#define WARP_MESH_POINTS (WARP_MESH_WIDTH * WARP_MESH_HEIGHT)
+
+// Transitional opacity controls for big size changes
+#define TRANSITION_SIZE_THRESHOLD 0.45f  // If current width < 45% of final width
+#define TRANSITION_MIN_OPACITY 0.7f      // Clamp opacity to minimum 70%
+
 extern int SLSMainConnectionID(void);
 extern CGError SLSGetConnectionPSN(int cid, ProcessSerialNumber *psn);
 extern CGError SLSGetWindowAlpha(int cid, uint32_t wid, float *alpha);
@@ -60,6 +69,7 @@ extern CGError SLSGetWindowTransform(int cid, uint32_t wid, CGAffineTransform *t
 extern CGError SLSSetWindowTransform(int cid, uint32_t wid, CGAffineTransform t);
 extern CGError SLSSetWindowShape(int cid, uint32_t wid, float x_offset, float y_offset, CFTypeRef shape);
 extern CGError SLSSetWindowClipShape(int cid, uint32_t wid, CFTypeRef shape);
+extern CGError SLSSetWindowWarp(int cid, uint32_t wid, int w, int h, CGPoint *mesh);
 extern CGError SLSOrderWindow(int cid, uint32_t wid, int order, uint32_t rel_wid);
 extern CGError CGSNewRegionWithRect(CGRect *rect, CFTypeRef *outRegion);
 extern void SLSManagedDisplaySetCurrentSpace(int cid, CFStringRef display_ref, uint64_t sid);
@@ -409,6 +419,93 @@ static inline void set_ivar_value(id instance, const char *name, id value)
 static inline uint64_t get_space_id(id space)
 {
     return ((uint64_t (*)(id, SEL)) objc_msgSend)(space, @selector(spid));
+}
+
+// Warp mesh generation functions
+static void create_base_mesh(CGPoint *mesh, CGRect bounds)
+{
+    float step_x = bounds.size.width / (WARP_MESH_WIDTH - 1);
+    float step_y = bounds.size.height / (WARP_MESH_HEIGHT - 1);
+    
+    for (int y = 0; y < WARP_MESH_HEIGHT; y++) {
+        for (int x = 0; x < WARP_MESH_WIDTH; x++) {
+            int index = y * WARP_MESH_WIDTH + x;
+            mesh[index].x = bounds.origin.x + (x * step_x);
+            mesh[index].y = bounds.origin.y + (y * step_y);
+        }
+    }
+}
+
+static void apply_wobble_effect(CGPoint *mesh, CGRect bounds, float time, float intensity)
+{
+    float step_x = bounds.size.width / (WARP_MESH_WIDTH - 1);
+    float step_y = bounds.size.height / (WARP_MESH_HEIGHT - 1);
+    
+    for (int y = 0; y < WARP_MESH_HEIGHT; y++) {
+        for (int x = 0; x < WARP_MESH_WIDTH; x++) {
+            int index = y * WARP_MESH_WIDTH + x;
+            
+            // Base position
+            float base_x = bounds.origin.x + (x * step_x);
+            float base_y = bounds.origin.y + (y * step_y);
+            
+            // Normalized coordinates (0.0 to 1.0)
+            float norm_x = (float)x / (WARP_MESH_WIDTH - 1);
+            float norm_y = (float)y / (WARP_MESH_HEIGHT - 1);
+            
+            // Multiple sine waves for complex wobble
+            float offset_x = intensity * (
+                sin(time * 2.0f + norm_x * 8.0f) * 0.5f +
+                sin(time * 3.0f + norm_y * 6.0f) * 0.3f +
+                sin(time * 1.5f + (norm_x + norm_y) * 4.0f) * 0.2f
+            );
+            
+            float offset_y = intensity * (
+                cos(time * 2.5f + norm_y * 7.0f) * 0.4f +
+                cos(time * 1.8f + norm_x * 5.0f) * 0.3f +
+                cos(time * 2.2f + (norm_x - norm_y) * 3.0f) * 0.3f
+            );
+            
+            mesh[index].x = base_x + offset_x;
+            mesh[index].y = base_y + offset_y;
+        }
+    }
+}
+
+static void apply_ripple_effect(CGPoint *mesh, CGRect bounds, float time, float intensity, CGPoint center)
+{
+    float step_x = bounds.size.width / (WARP_MESH_WIDTH - 1);
+    float step_y = bounds.size.height / (WARP_MESH_HEIGHT - 1);
+    
+    for (int y = 0; y < WARP_MESH_HEIGHT; y++) {
+        for (int x = 0; x < WARP_MESH_WIDTH; x++) {
+            int index = y * WARP_MESH_WIDTH + x;
+            
+            // Base position
+            float base_x = bounds.origin.x + (x * step_x);
+            float base_y = bounds.origin.y + (y * step_y);
+            
+            // Distance from center
+            float dx = base_x - center.x;
+            float dy = base_y - center.y;
+            float distance = sqrt(dx * dx + dy * dy);
+            
+            // Ripple calculation
+            float ripple = sin(distance * 0.02f - time * 4.0f) * intensity * exp(-distance * 0.001f);
+            
+            // Apply ripple in radial direction
+            if (distance > 0) {
+                float norm_dx = dx / distance;
+                float norm_dy = dy / distance;
+                
+                mesh[index].x = base_x + norm_dx * ripple;
+                mesh[index].y = base_y + norm_dy * ripple;
+            } else {
+                mesh[index].x = base_x;
+                mesh[index].y = base_y;
+            }
+        }
+    }
 }
 
 static inline id space_for_display_with_id(CFStringRef display_uuid, uint64_t space_id)
@@ -803,16 +900,27 @@ static void do_window_scale_forced(char *message)
     float window_alpha;
     SLSGetWindowAlpha(SLSMainConnectionID(), wid, &window_alpha);
     CGRect display = CGDisplayBounds(CGMainDisplayID());
-    float target_width = current_w;
-    float target_height = current_h;
-    float x_scale = current_w/target_width;   
-    float y_scale = current_h/target_height;
-    CGFloat transformed_x = -(current_x); 
-    CGFloat transformed_y = -(current_y); 
-    CGAffineTransform current_scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(opacity, opacity));
     
-    CGAffineTransform start_translate = CGAffineTransformMakeTranslation(-(start_x), -(start_y));
+    //float current_w = start_w + (end_w - start_w) * duration;
+    //float ch = start_h + (end_h - start_h) * duration;
+    //float cx = start_x + (end_x - start_x) * duration;  // stays == sx if TL is fixed
+    //float cy = start_y + (end_y - start_y) * duration;  // stays == sy if TL is fixed
+
+    // 2) compute the scale required to render the window as (cw x ch)
+    //    (WindowServer expects you to scale from the window’s natural size)
+    float start_x_factor = frame.size.width / current_w;
+    float start_y_factor = frame.size.height / current_h;
+
+    // 3) build the transform: Translate(anchor) ∘ Scale ∘ Translate(-anchor)
+    CGFloat ax = -current_x;   // TL x we want to pin
+    CGFloat ay = -current_y;   // TL y we want to pin
+    bool is_tl = start_x == end_x && start_y == end_y;
+    CGAffineTransform curr_scale = CGAffineTransformMakeScale(start_x_factor, start_y_factor);
+    CGAffineTransform curr_transform = CGAffineTransformConcat(CGAffineTransformConcat(CGAffineTransformIdentity, curr_scale),CGAffineTransformMakeTranslation(ax, ay));
+
+    CGAffineTransform start_translate = CGAffineTransformMakeTranslation((start_x), (start_y));
     CGAffineTransform current_translate = CGAffineTransformMakeTranslation(-(current_x), -(current_y));
+
     CGAffineTransform end_translate = CGAffineTransformMakeTranslation(-(end_x), -(end_y));
 
     CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
@@ -822,14 +930,12 @@ static void do_window_scale_forced(char *message)
     switch (mode) {
         case 0: // Initial setup - move window to start position
         {
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, start_translate);
-            
-            // Handle proxy setup for frame 0
             if (proxy_wid != 0) {
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
-                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
                 SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
                 SLSTransactionOrderWindowGroup(transaction, proxy_wid, 1, wid);
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, start_translate);
             }
             break;
         }
@@ -843,27 +949,42 @@ static void do_window_scale_forced(char *message)
 
             float proxy_progress = 1.0f - duration;
             
+            // Check for big transitional changes - if current width is less than threshold of final width
+            bool is_big_transition = (current_w < (end_w * TRANSITION_SIZE_THRESHOLD));
+            
             // Clamp the maximum fade amount to the window's current transparency
             // If window is 70% transparent, final_alpha should never exceed 0.7
             float max_alpha = (window_alpha < 1.0f) ? window_alpha : opacity;
             
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, current_translate);
-            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, current_translate);
-            
+            // For big transitions, enforce minimum opacity to maintain visibility
+            if (is_big_transition && max_alpha < TRANSITION_MIN_OPACITY) {
+                max_alpha = TRANSITION_MIN_OPACITY;
+            }
+
             // Apply complementary opacity with transparency clamping
             float final_window_alpha = max_alpha * (1.0f - proxy_progress);
             float final_proxy_alpha = proxy_progress;
-            
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, stays_same_size ? window_alpha : final_window_alpha);
-            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, final_proxy_alpha);
-
+            if(is_tl) {
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, curr_transform);
+            } else {
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, current_translate);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, current_translate);
+            }
+                SLSTransactionSetWindowSystemAlpha(transaction, wid,  final_window_alpha);
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, final_proxy_alpha);
             break;
         }
         
         case 2: // restore_pip - reset to original transform
         {
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, end_translate);
-            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
+            if(is_tl) {
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, curr_transform);
+            } else {
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, end_translate);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0f * duration);
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+            }
             SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0);
             SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
             SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
@@ -1074,6 +1195,71 @@ static void do_window_animate_frame(char *message)
     
     NSLog(@"🎬 animate_frame: wid=%d progress=%.2f pos=(%.1f,%.1f) size=(%.1fx%.1f) anchor=%d scale=(%.2f,%.2f)", 
           wid, progress, current_x, current_y, current_w, current_h, anchor_point, x_scale, y_scale);
+}
+
+static void do_window_warp(char *message)
+{
+    uint32_t wid;
+    unpack(wid);
+    if (!wid) return;
+
+    // Unpack warp parameters
+    int effect_type; // 0=none, 1=wobble, 2=ripple
+    float time;      // Animation time
+    float intensity; // Effect intensity
+    float center_x, center_y; // Center point for ripple effect
+    
+    unpack(effect_type);
+    unpack(time);
+    unpack(intensity);
+    unpack(center_x);
+    unpack(center_y);
+    
+    // Get window bounds
+    CGRect window_frame = {};
+    if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &window_frame) != kCGErrorSuccess) {
+        NSLog(@"🌊 do_window_warp: failed to get window bounds for wid=%d", wid);
+        return;
+    }
+    
+    // Create mesh array
+    CGPoint mesh[WARP_MESH_POINTS];
+    
+    switch (effect_type) {
+        case 0: // No effect - reset to normal
+        {
+            // Create a perfectly regular mesh
+            create_base_mesh(mesh, window_frame);
+            NSLog(@"🌊 warp_reset: wid=%d", wid);
+            break;
+        }
+        
+        case 1: // Wobble effect
+        {
+            apply_wobble_effect(mesh, window_frame, time, intensity);
+            NSLog(@"🌊 warp_wobble: wid=%d time=%.2f intensity=%.2f", wid, time, intensity);
+            break;
+        }
+        
+        case 2: // Ripple effect
+        {
+            CGPoint center = CGPointMake(center_x, center_y);
+            apply_ripple_effect(mesh, window_frame, time, intensity, center);
+            NSLog(@"🌊 warp_ripple: wid=%d time=%.2f intensity=%.2f center=(%.1f,%.1f)", 
+                  wid, time, intensity, center_x, center_y);
+            break;
+        }
+        
+        default:
+            NSLog(@"🌊 warp_unknown: unsupported effect type %d for wid=%d", effect_type, wid);
+            return;
+    }
+    
+    // Apply the warp mesh to the window
+    CGError result = SLSSetWindowWarp(SLSMainConnectionID(), wid, WARP_MESH_WIDTH, WARP_MESH_HEIGHT, mesh);
+    if (result != kCGErrorSuccess) {
+        NSLog(@"🌊 warp_error: SLSSetWindowWarp failed with error %d for wid=%d", result, wid);
+    }
 }
 
 static void do_window_move(char *message)
@@ -1455,6 +1641,9 @@ static void handle_message(int sockfd, char *message)
     } break;
     case SA_OPCODE_WINDOW_ANIMATE_FRAME: {
         do_window_animate_frame(message);
+    } break;
+    case SA_OPCODE_WINDOW_WARP: {
+        do_window_warp(message);
     } break;
     case SA_OPCODE_WINDOW_SWAP_PROXY_IN: {
         do_window_swap_proxy_in(message);

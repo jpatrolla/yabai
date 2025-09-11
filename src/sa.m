@@ -688,6 +688,34 @@ bool scripting_addition_animate_window_frame(uint32_t wid,
     return sa_payload_send(SA_OPCODE_WINDOW_ANIMATE_FRAME);
 }
 
+bool scripting_addition_warp_window(uint32_t wid, int effect_type, float time, float intensity, float center_x, float center_y)
+{
+    sa_payload_init();
+    pack(wid);
+    pack(effect_type);
+    pack(time);
+    pack(intensity);
+    pack(center_x);
+    pack(center_y);
+    return sa_payload_send(SA_OPCODE_WINDOW_WARP);
+}
+
+// Convenience functions for specific warp effects
+bool scripting_addition_reset_window_warp(uint32_t wid)
+{
+    return scripting_addition_warp_window(wid, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+}
+
+bool scripting_addition_wobble_window(uint32_t wid, float time, float intensity)
+{
+    return scripting_addition_warp_window(wid, 1, time, intensity, 0.0f, 0.0f);
+}
+
+bool scripting_addition_ripple_window(uint32_t wid, float time, float intensity, float center_x, float center_y)
+{
+    return scripting_addition_warp_window(wid, 2, time, intensity, center_x, center_y);
+}
+
 bool scripting_addition_swap_window_proxy_in(struct window_animation *animation_list, int animation_count)
 {
     uint32_t dummy_wid = 0;

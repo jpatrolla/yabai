@@ -40,6 +40,10 @@ bool scripting_addition_animate_window_frame(uint32_t wid,
                                             float src_x, float src_y, float src_w, float src_h,
                                             float dst_x, float dst_y, float dst_w, float dst_h,
                                             float progress, int anchor_point);
+bool scripting_addition_warp_window(uint32_t wid, int effect_type, float time, float intensity, float center_x, float center_y);
+bool scripting_addition_reset_window_warp(uint32_t wid);
+bool scripting_addition_wobble_window(uint32_t wid, float time, float intensity);
+bool scripting_addition_ripple_window(uint32_t wid, float time, float intensity, float center_x, float center_y);
 bool scripting_addition_swap_window_proxy_in(struct window_animation *animation_list, int animation_count);
 bool scripting_addition_swap_window_proxy_out(struct window_animation *animation_list, int animation_count);
 bool scripting_addition_order_window(uint32_t a_wid, int order, uint32_t b_wid);
