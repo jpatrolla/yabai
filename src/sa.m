@@ -562,7 +562,7 @@ bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode, float x
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_CUSTOM);
 }
 
-bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, float opacity, float duration, uint32_t proxy_wid)
+bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, float opacity, float duration, uint32_t proxy_wid, int resize_anchor, int meta)
 {
     sa_payload_init();
     pack(wid);
@@ -582,11 +582,13 @@ bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start
     pack(opacity);
     pack(duration);
     pack(proxy_wid);
+    pack(resize_anchor);
+    pack(meta);
    
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED);
 }
 
-bool scripting_addition_anim_window_pip_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h)
+bool scripting_addition_anim_window_pip_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, int resize_anchor, int meta)
 {
     sa_payload_init();
     pack(wid);
@@ -605,7 +607,9 @@ bool scripting_addition_anim_window_pip_mode_with_transaction(uint32_t wid, CFTy
     pack(end_y);
     pack(end_w);
     pack(end_h);
-    printf("Sending ANIM_PIP+TX: wid=%d, tx=%p, mode=%d, current=(%.1f,%.1f,%.1fx%.1f)\n", wid, transaction, mode, current_x, current_y, current_w, current_h);
+    pack(resize_anchor);
+    pack(meta);
+    printf("Sending ANIM_PIP+TX: wid=%d, tx=%p, mode=%d, current=(%.1f,%.1f,%.1fx%.1f), anchor=%d, meta=%d\n", wid, transaction, mode, current_x, current_y, current_w, current_h, resize_anchor, meta);
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED_TX);
 }
 

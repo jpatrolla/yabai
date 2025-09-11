@@ -800,7 +800,6 @@
 
     void view_stack_window_node(struct window_node *node, struct window *window)
     {
-        debug("🌈 view stack window node %u in node %p\n", window->id, node);
         int insert_index = node->window_count;
 
         for (int i = 0; i < node->window_count; ++i) {
@@ -962,7 +961,6 @@
             if (window_node_is_leaf(node)) {
                 for (int i = 0; i < node->window_count; ++i) {
                     if (table_find(&g_window_manager.window_animations_table, &node->window_list[i])) {
-                        debug("🎬 View %lld has animating window %d - blocking BSP layout update", view->sid, node->window_list[i]);
                         return true;
                     }
                 }
@@ -976,9 +974,7 @@
     }
 
     void view_flush(struct view *view)
-    {
-        debug("🐇🐇🐇🐇 flushing view %lld\n", view->sid);
-        
+    {        
         // Prevent BSP layout updates while windows are animating to avoid position conflicts
         if (view_has_animating_windows(view)) {
             debug("🎬 Blocking view_flush for view %lld - windows are currently animating", view->sid);
@@ -987,7 +983,7 @@
         }
         
         if (space_is_visible(view->sid)) {
-                // Clamp fence ratios so neither side can shrink past its min_width
+            // Clamp fence ratios so neither side can shrink past its min_width
             enforce_min_width_recursive(view->root);
             window_node_update(view,view->root);        
             window_node_flush(view->root);
@@ -995,7 +991,6 @@
         } else {
             view_set_flag(view, VIEW_IS_DIRTY);
         }
-        debug("[SWEEP 🧹🧹🧹] Sweeping at view_flush\n");
         window_manager_sweep_stacks(view,  &g_window_manager);
     }
 

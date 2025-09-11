@@ -2910,7 +2910,9 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                                              original_frame.size.height,
                                              0.7f,  // create with reduced opacity
                                              0.0f,  // duration (0 = immediate)
-                                             0);    // no proxy
+                                             0,     // no proxy
+                                             0,     // resize_anchor - default
+                                             0);    // meta - default
                 
                 for (int frame = 0; frame <= total_frames; frame++) {
                     float t = (float)frame / (float)total_frames;
@@ -2935,7 +2937,9 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                                                                    current_x, current_y, current_w, current_h,
                                                                    0.7f,  // maintain opacity during animation
                                                                    0.0f,  // duration (0 = immediate)
-                                                                   0);    // no proxy
+                                                                   0,     // no proxy
+                                                                   0,     // resize_anchor - default
+                                                                   0);    // meta - default
                     }
                     
                     // Wait for next frame
@@ -2975,7 +2979,9 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                                                                    current_x, current_y, current_w, current_h,
                                                                    1.0f,  // fade back to full opacity during restore
                                                                    0.0f,  // duration (0 = immediate)
-                                                                   0);    // no proxy
+                                                                   0,     // no proxy
+                                                                   0,     // resize_anchor - default
+                                                                   0);    // meta - default
                     }
                     
                     // Wait for next frame

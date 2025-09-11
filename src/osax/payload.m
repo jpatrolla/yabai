@@ -884,6 +884,20 @@ static void do_window_scale_forced(char *message)
     // Unpack proxy window ID (0 = no proxy)
     uint32_t proxy_wid;
     unpack(proxy_wid);
+    
+    // Unpack resize anchor (0-3: TL, TR, BL, BR)
+    int resize_anchor;
+    unpack(resize_anchor);
+    
+    // Unpack meta data (additional flags/info)
+    int meta;
+    unpack(meta);
+    
+    // Unpack individual values from meta using bit operations
+    int opacity_enabled = meta & 0x1;                    // bit 0
+    int fade_threshold = (meta >> 1) & 0xFF;             // bits 1-8 (0-255)
+    int extra_flag = (meta >> 9) & 0x1;                  // bit 9 (for future use)
+    // bits 10-31 reserved for additional flags/values
 
     CGRect frame = {};
     if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
@@ -893,28 +907,48 @@ static void do_window_scale_forced(char *message)
     
     int guess1 = 0;
     int guess2 = 0;
-    // 0,0 works
-    // 0,1 does not work
-    // 1,1 does not work at all, or causes issues.
-    // 1,0 not good either.
+
     float window_alpha;
     SLSGetWindowAlpha(SLSMainConnectionID(), wid, &window_alpha);
     CGRect display = CGDisplayBounds(CGMainDisplayID());
     
-    //float current_w = start_w + (end_w - start_w) * duration;
-    //float ch = start_h + (end_h - start_h) * duration;
-    //float cx = start_x + (end_x - start_x) * duration;  // stays == sx if TL is fixed
-    //float cy = start_y + (end_y - start_y) * duration;  // stays == sy if TL is fixed
-
-    // 2) compute the scale required to render the window as (cw x ch)
-    //    (WindowServer expects you to scale from the window’s natural size)
     float start_x_factor = frame.size.width / current_w;
     float start_y_factor = frame.size.height / current_h;
 
-    // 3) build the transform: Translate(anchor) ∘ Scale ∘ Translate(-anchor)
     CGFloat ax = -current_x;   // TL x we want to pin
     CGFloat ay = -current_y;   // TL y we want to pin
+
     bool is_tl = start_x == end_x && start_y == end_y;
+    bool is_growing = (start_w < end_w || start_h < end_h);
+    bool is_shrinking = (start_w > end_w || start_h > end_h);
+    bool stays_same_size = (!is_growing && !is_shrinking);
+    bool is_big_transition = (current_w < (end_w * TRANSITION_SIZE_THRESHOLD));
+    float max_alpha = (window_alpha < 1.0f) ? window_alpha : opacity;
+    float proxy_progress = 1.0f - duration;
+    
+    float fade_threshold_value = fade_threshold / 255.0f;
+    
+    // For big transitions, enforce minimum opacity to maintain visibility
+    if (is_big_transition && max_alpha < TRANSITION_MIN_OPACITY) {
+        max_alpha = TRANSITION_MIN_OPACITY;
+    }
+    
+    float final_window_alpha, final_proxy_alpha;
+    if (opacity_enabled) {
+        // Use fade threshold for opacity calculations
+        final_window_alpha = max_alpha * (1.0f - proxy_progress);
+        final_proxy_alpha = proxy_progress;
+        
+        // Apply fade threshold - only fade if below threshold
+        if (final_window_alpha < fade_threshold_value) {
+            final_window_alpha = fade_threshold_value;
+        }
+    } else {
+        // Opacity animations disabled - keep full opacity
+        final_window_alpha = max_alpha;
+        final_proxy_alpha = 0.0f;
+    }
+
     CGAffineTransform curr_scale = CGAffineTransformMakeScale(start_x_factor, start_y_factor);
     CGAffineTransform curr_transform = CGAffineTransformConcat(CGAffineTransformConcat(CGAffineTransformIdentity, curr_scale),CGAffineTransformMakeTranslation(ax, ay));
 
@@ -931,45 +965,23 @@ static void do_window_scale_forced(char *message)
         case 0: // Initial setup - move window to start position
         {
             if (proxy_wid != 0) {
-                SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
-                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
+                
                 SLSTransactionOrderWindowGroup(transaction, proxy_wid, 1, wid);
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, start_translate);
-            }
+                
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, is_tl ? curr_transform : start_translate) ;
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, is_tl ? curr_transform : start_translate);
+            } 
             break;
         }
         
         case 1: // move_pip - update position using current interpolated values
         {
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, is_tl ? curr_transform : current_translate);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, is_tl ? curr_transform : current_translate);
             
-            bool is_growing = (start_w < end_w || start_h < end_h);
-            bool is_shrinking = (start_w > end_w || start_h > end_h);
-            bool stays_same_size = (!is_growing && !is_shrinking);
-
-            float proxy_progress = 1.0f - duration;
-            
-            // Check for big transitional changes - if current width is less than threshold of final width
-            bool is_big_transition = (current_w < (end_w * TRANSITION_SIZE_THRESHOLD));
-            
-            // Clamp the maximum fade amount to the window's current transparency
-            // If window is 70% transparent, final_alpha should never exceed 0.7
-            float max_alpha = (window_alpha < 1.0f) ? window_alpha : opacity;
-            
-            // For big transitions, enforce minimum opacity to maintain visibility
-            if (is_big_transition && max_alpha < TRANSITION_MIN_OPACITY) {
-                max_alpha = TRANSITION_MIN_OPACITY;
-            }
-
-            // Apply complementary opacity with transparency clamping
-            float final_window_alpha = max_alpha * (1.0f - proxy_progress);
-            float final_proxy_alpha = proxy_progress;
-            if(is_tl) {
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, curr_transform);
-            } else {
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, current_translate);
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, current_translate);
-            }
                 SLSTransactionSetWindowSystemAlpha(transaction, wid,  final_window_alpha);
                 SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, final_proxy_alpha);
             break;
@@ -977,17 +989,15 @@ static void do_window_scale_forced(char *message)
         
         case 2: // restore_pip - reset to original transform
         {
-            if(is_tl) {
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, curr_transform);
-            } else {
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, end_translate);
+            if (proxy_wid == 0) {
                 SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
-                SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0f * duration);
                 SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+                SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
             }
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0);
-            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
-            SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2,  is_tl ? curr_transform : end_translate);
+
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, final_window_alpha);
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, window_alpha);
 
             break;
         }
@@ -1036,6 +1046,20 @@ static void do_window_scale_forced_with_transaction(char *message)
     unpack(end_y);
     unpack(end_w);
     unpack(end_h);
+    
+    // Unpack resize anchor (0-3: TL, TR, BL, BR)
+    int resize_anchor;
+    unpack(resize_anchor);
+    
+    // Unpack meta data (additional flags/info)
+    int meta;
+    unpack(meta);
+    
+    // Unpack individual values from meta using bit operations
+    int opacity_enabled = meta & 0x1;                    // bit 0
+    int fade_threshold = (meta >> 1) & 0xFF;             // bits 1-8 (0-255)
+    int extra_flag = (meta >> 9) & 0x1;                  // bit 9 (for future use)
+    // bits 10-31 reserved for additional flags/values
     
     // Get window bounds and validate
     CGRect frame = {};
