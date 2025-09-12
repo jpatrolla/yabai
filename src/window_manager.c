@@ -1487,8 +1487,7 @@ typedef struct {
 static bool pip_check_req(struct window_capture *window_list, int window_count);
 static void pip_prep_windows(struct window_capture *window_list, int window_count, pip_anmxn *anmxn);
 static void pip_calc_anchor_points(int window_count, pip_anmxn *anmxn, 
-                                   double t, float mt, int easing, int frame, int total_frames,
-                                   CFTypeRef frame_transaction);
+                                   double t, float mt, int easing, int frame, int total_frames);
 
 // pip-based animation context structure
 struct window_frame_animation_context {
@@ -1546,19 +1545,10 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
           duration, frame_rate, total_frames, frame_duration);
     
     context->animation_clock = mach_absolute_time();
-    
-    for (int frame = 0; frame <= total_frames && context->animation_running; ++frame) {
+
+        for (int frame = 0; frame <= total_frames && context->animation_running; ++frame) {
         double t = (double)frame / (double)total_frames;
         if (t > 1.0) t = 1.0;
-
-
-        // todo: migrate animation over to a scripting addition function for true transaction batching
-        // I realise it would much better if we animated the windows with
-        // scripting addition for true transaction batching
-        // Better animation control with the SLS APIs
-        
-        CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
-        
         float mt;
         if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
             // Use linear interpolation for simplified/fast mode
@@ -1570,35 +1560,16 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
             #undef ANIMATION_EASING_TYPE_ENTRY
                 default: mt = t; // Linear fallback
             }
-        }
+            }
 
+        pip_calc_anchor_points(animation_count, anmxn, t, mt, easing, frame, total_frames);
 
-        pip_calc_anchor_points(animation_count, anmxn, t, mt, easing, frame, total_frames, frame_transaction);
-
+        // Animate all windows for this frame using scripting addition
         for (int i = 0; i < animation_count; ++i) {
-            if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
-            
-            // Use the new a_rect coordinate system
-            float sx = anmxn[i].start.x;    float sy = anmxn[i].start.y;    float sw = anmxn[i].start.w;    float sh = anmxn[i].start.h;
-            float ex = anmxn[i].end.x;      float ey = anmxn[i].end.y;      float ew = anmxn[i].end.w;      float eh = anmxn[i].end.h;
-            float cx = anmxn[i].current.x;  float cy = anmxn[i].current.y;  float cw = anmxn[i].current.w;  float ch = anmxn[i].current.h;
-            
-            // Handle opacity fading if enabled
-            float opacity_fade_duration = g_window_manager.window_opacity_duration;
-            bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
-            
-            float fade_t = 1.0f;
-            SLSGetWindowAlpha(g_connection, anmxn[i].capture.window->id, &fade_t);
-
-            log_a("fdb async start (x=%.1f y=%.1f w=%.1f h=%.1f) current: (x=%.1f y=%.1f w=%.1f h=%.1f) end: (x=%.1f y=%.1f w=%.1f h=%.1f) frame %d/%d t=%.3f mt=%.3f fade_t=%.3f\n",
-                  sx, sy, sw, sh,
-                  cx, cy, cw, ch,
-                  ex, ey, ew, eh,
-                  frame, total_frames, t, mt, fade_t);
-
-            if (frame == 0) {
-               
-                // skip setting frame if window is zoomed or if start and end are identical
+            int ex, ey, ew, eh;
+            ex = anmxn[i].end.x; ey = anmxn[i].end.y; ew = anmxn[i].end.w; eh = anmxn[i].end.h;
+            //window_manager_set_opacity(&g_window_manager, &anmxn[i].capture, 0.0);
+            if(frame == 0){
                 struct view *view = window_manager_find_managed_window(&g_window_manager, anmxn[i].capture.window);
                 if (view) {
                     struct window_node *node = view_find_window_node(view, anmxn[i].capture.window->id);
@@ -1611,54 +1582,132 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
                         window_manager_set_window_frame_async_delayed(anmxn[i].capture.window, ex, ey, ew, eh, 200); // 200ms delay
                     }
                 }
-                
-                // mode 0: initial frame/setup pip
-                scripting_addition_anim_window_pip_mode( 
-                    anmxn[i].capture.window->id, 0,
-                    sx, sy, sw, sh,
-                    cx, cy, cw, ch,
-                    ex, ey, ew, eh,
-                    fade_t, mt,  // duration (0 = immediate)
-                    anmxn[i].proxy.id,
-                    anmxn[i].resize_anchor,
-                    0  // meta - placeholder for now
-                );  
-            } else if (frame == total_frames) {
-                // mode 2: final frome/restore pip
-                scripting_addition_anim_window_pip_mode(
-                    anmxn[i].capture.window->id, 2,
-                    sx,sy,sw,sh,
-                    cx,cy,cw,ch,
-                    ex,ey,ew,eh,
-                    fade_t, mt,
-                    anmxn[i].proxy.id,
-                    anmxn[i].resize_anchor,
-                    0  // meta - placeholder for now
-                );
+            } else if (frame == total_frames){
+                //window_manager_set_window_frame(anmxn[i].capture.window, anmxn[i].end.x, anmxn[i].end.y, anmxn[i].end.w, anmxn[i].end.h);
             } else {
-                // mode 1 = update pip
-                scripting_addition_anim_window_pip_mode(
-                    anmxn[i].capture.window->id, 1,
-                    sx,sy,sw,sh,
-                    cx,cy,cw,ch,
-                    ex,ey,ew,eh,
-                    fade_t, mt,
-                    anmxn[i].proxy.id,
-                    anmxn[i].resize_anchor,
-                    0  // meta - placeholder for now
-                );
-            }
-        } // End of window loop
-        
-        // Commit the frame transaction for all windows at once
-        SLSTransactionCommit(frame_transaction, 0);
-        CFRelease(frame_transaction);
-        
+            
+
+            if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
+            
+            // Get coordinates from anmxn data
+            float src_x = anmxn[i].start.x;    float src_y = anmxn[i].start.y;    
+            float src_w = anmxn[i].start.w;    float src_h = anmxn[i].start.h;
+            float dst_x = anmxn[i].end.x;      float dst_y = anmxn[i].end.y;      
+            float dst_w = anmxn[i].end.w;      float dst_h = anmxn[i].end.h;
+            
+            // Call scripting addition for window frame animation
+            scripting_addition_animate_window_frame(
+                anmxn[i].capture.window->id,
+                src_x, src_y, src_w, src_h,
+                dst_x, dst_y, dst_w, dst_h,
+                mt,  // use the eased progress value
+                anmxn[i].resize_anchor
+            );}
+        }
+
         // Wait for next frame (unless this is the last frame)
         if (frame < total_frames && context->animation_running) {
             usleep((useconds_t)(frame_duration * 1000000));
         }
-    }
+    } // End of frame loop
+
+    //    // todo: migrate animations over to sa for true transaction batching
+    //    // I realise it would much better if we animated the windows with
+    //    // scripting addition for true transaction batching
+    //    // Better animation control with the SLS APIs
+    //    // will do that for the warp animation
+
+    //    CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
+        
+    
+
+
+    
+
+    //    for (int i = 0; i < animation_count; ++i) {
+    //        if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
+            
+    //        // Use the new a_rect coordinate system
+    //        float sx = anmxn[i].start.x;    float sy = anmxn[i].start.y;    float sw = anmxn[i].start.w;    float sh = anmxn[i].start.h;
+    //        float ex = anmxn[i].end.x;      float ey = anmxn[i].end.y;      float ew = anmxn[i].end.w;      float eh = anmxn[i].end.h;
+    //        float cx = anmxn[i].current.x;  float cy = anmxn[i].current.y;  float cw = anmxn[i].current.w;  float ch = anmxn[i].current.h;
+            
+    //        // Handle opacity fading if enabled
+    //        float opacity_fade_duration = g_window_manager.window_opacity_duration;
+    //        bool use_opacity_fade = (opacity_fade_duration > 0.0f) && g_window_manager.window_animation_opacity_enabled;
+            
+    //        float fade_t = 1.0f;
+    //        SLSGetWindowAlpha(g_connection, anmxn[i].capture.window->id, &fade_t);
+
+    //        log_a("fdb async start (x=%.1f y=%.1f w=%.1f h=%.1f) current: (x=%.1f y=%.1f w=%.1f h=%.1f) end: (x=%.1f y=%.1f w=%.1f h=%.1f) frame %d/%d t=%.3f mt=%.3f fade_t=%.3f\n",
+    //              sx, sy, sw, sh,
+    //              cx, cy, cw, ch,
+    //              ex, ey, ew, eh,
+    //              frame, total_frames, t, mt, fade_t);
+
+    //        if (frame == 0) {
+               
+    //            // skip setting frame if window is zoomed or if start and end are identical
+    //            struct view *view = window_manager_find_managed_window(&g_window_manager, anmxn[i].capture.window);
+    //            if (view) {
+    //                struct window_node *node = view_find_window_node(view, anmxn[i].capture.window->id);
+    //                if (node && !node->zoom) {
+    //                    window_manager_set_window_frame(anmxn[i].capture.window, ex, ey, ew, eh);
+    //                } else {
+    //                    // For zoomed windows, set the frame asynchronously with a delay to avoid AX API race condition
+    //                    // This prevents the window from briefly appearing at its final position before animation
+    //                    // The animation can continue immediately while the frame setting happens in the background
+    //                    window_manager_set_window_frame_async_delayed(anmxn[i].capture.window, ex, ey, ew, eh, 200); // 200ms delay
+    //                }
+    //            }
+                
+    //            // mode 0: initial frame/setup pip
+    //            scripting_addition_anim_window_pip_mode( 
+    //                anmxn[i].capture.window->id, 0,
+    //                sx, sy, sw, sh,
+    //                cx, cy, cw, ch,
+    //                ex, ey, ew, eh,
+    //                fade_t, mt,  // duration (0 = immediate)
+    //                anmxn[i].proxy.id,
+    //                anmxn[i].resize_anchor,
+    //                0  // meta - placeholder for now
+    //            );  
+    //        } else if (frame == total_frames) {
+    //            // mode 2: final frome/restore pip
+    //            scripting_addition_anim_window_pip_mode(
+    //                anmxn[i].capture.window->id, 2,
+    //                sx,sy,sw,sh,
+    //                cx,cy,cw,ch,
+    //                ex,ey,ew,eh,
+    //                fade_t, mt,
+    //                anmxn[i].proxy.id,
+    //                anmxn[i].resize_anchor,
+    //                0  // meta - placeholder for now
+    //            );
+    //        } else {
+    //            // mode 1 = update pip
+    //            scripting_addition_anim_window_pip_mode(
+    //                anmxn[i].capture.window->id, 1,
+    //                sx,sy,sw,sh,
+    //                cx,cy,cw,ch,
+    //                ex,ey,ew,eh,
+    //                fade_t, mt,
+    //                anmxn[i].proxy.id,
+    //                anmxn[i].resize_anchor,
+    //                0  // meta - placeholder for now
+    //            );
+    //        }
+    //    } // End of window loop
+        
+    //    // Commit the frame transaction for all windows at once
+    //    SLSTransactionCommit(frame_transaction, 0);
+    //    CFRelease(frame_transaction);
+        
+    //    // Wait for next frame (unless this is the last frame)
+    //    if (frame < total_frames && context->animation_running) {
+    //        usleep((useconds_t)(frame_duration * 1000000));
+    //    }
+    //}
     
     // Clean up (aligned with sync version)
     pthread_mutex_lock(&g_window_manager.window_animations_lock);
@@ -1666,11 +1715,13 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
         // Remove from animation table
         table_remove(&g_window_manager.window_animations_table, &anmxn[i].capture.window->id);
 
+        
+
         // Clean up proxy windows
-        if (anmxn[i].needs_proxy && anmxn[i].proxy_created && anmxn[i].proxy.id != 0) {
-            window_manager_destroy_window_proxy(g_connection, &anmxn[i].proxy);
-            anmxn[i].proxy_created = false;
-        }
+        //if (anmxn[i].needs_proxy && anmxn[i].proxy_created && anmxn[i].proxy.id != 0) {
+        //    window_manager_destroy_window_proxy(g_connection, &anmxn[i].proxy);
+        //    anmxn[i].proxy_created = false;
+        //}
         // NOTE: Removed window_manager_set_window_frame call to prevent flicker   
     }
     pthread_mutex_unlock(&g_window_manager.window_animations_lock);
@@ -1938,8 +1989,7 @@ static void pip_prep_windows(struct window_capture *window_list, int window_coun
 
 }
 static void pip_calc_anchor_points(int window_count, pip_anmxn *anmxn, 
-                                  double t, float mt, int easing, int frame, int total_frames,
-                                  CFTypeRef frame_transaction)
+                                  double t, float mt, int easing, int frame, int total_frames)
 {
     log_a("Calculating anchor points for %d windows, frame %d/%d, t=%.4f", 
                        window_count, frame, total_frames, t);
@@ -2355,7 +2405,7 @@ void window_manager_animate_window_pip(struct window_capture *window_list, int w
             }
         }
 
-        pip_calc_anchor_points(window_count, anmxn, t, mt, easing, frame, total_frames, frame_transaction);
+        pip_calc_anchor_points(window_count, anmxn, t, mt, easing, frame, total_frames);
 
         for (int i = 0; i < window_count; ++i) {
             // Use the new a_rect coordinate system

@@ -588,30 +588,7 @@ bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED);
 }
 
-bool scripting_addition_anim_window_pip_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, int resize_anchor, int meta)
-{
-    sa_payload_init();
-    pack(wid);
-    uint64_t transaction_ptr = (uint64_t)transaction;
-    pack(transaction_ptr);
-    pack(mode);
-    pack(start_x);
-    pack(start_y);
-    pack(start_w);
-    pack(start_h);
-    pack(current_x);
-    pack(current_y);
-    pack(current_w);
-    pack(current_h);
-    pack(end_x);
-    pack(end_y);
-    pack(end_w);
-    pack(end_h);
-    pack(resize_anchor);
-    pack(meta);
-    printf("Sending ANIM_PIP+TX: wid=%d, tx=%p, mode=%d, current=(%.1f,%.1f,%.1fx%.1f), anchor=%d, meta=%d\n", wid, transaction, mode, current_x, current_y, current_w, current_h, resize_anchor, meta);
-    return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED_TX);
-}
+
 
 bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x, float y, float w, float h)
 {
@@ -626,26 +603,7 @@ bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x
     return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED);
 }
 
-bool scripting_addition_scale_window_forced_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float x, float y, float w, float h)
-{
-    sa_payload_init();
-    pack(wid);
-    uint64_t transaction_ptr = (uint64_t)transaction;
-    pack(transaction_ptr);
-    pack(mode);
-    pack(x);
-    pack(y);
-    pack(w);
-    pack(h);
-    // Use clipping defaults for now (can be extended later)
-    float clip_x = 0, clip_y = 0, clip_w = 0, clip_h = 0;
-    pack(clip_x);
-    pack(clip_y);
-    pack(clip_w);
-    pack(clip_h);
-    printf("Sending FORCED+TX window scale: wid=%d, tx=%p, mode=%d, x=%f, y=%f, w=%f, h=%f\n", wid, transaction, mode, x, y, w, h);
-    return sa_payload_send(SA_OPCODE_WINDOW_SCALE_FORCED_TX);
-}
+
 
 bool scripting_addition_create_pip(uint32_t wid, float x, float y, float w, float h)
 {
@@ -762,6 +720,109 @@ bool scripting_addition_order_window(uint32_t a_wid, int order, uint32_t b_wid)
 }
 
 extern int g_connection;
+
+bool scripting_addition_animate_windows_list(uint64_t space_id, uint32_t window_count, float animation_progress, 
+                                             uint32_t frame_number, uint32_t total_frames, uint8_t animation_mode,
+                                             struct window_capture *window_list)
+{
+    if (window_count == 0 || !window_list) return false;
+    
+    sa_payload_init();
+    
+    // Pack the minimal metadata first
+    pack(space_id);
+    pack(window_count);
+    pack(animation_progress);
+    pack(frame_number);
+    pack(total_frames);
+    pack(animation_mode);
+    
+    // Pack each window's animation data
+    for (uint32_t i = 0; i < window_count; i++) {
+        uint32_t wid = window_list[i].window->id;
+        pack(wid);
+        
+        // Get current frame bounds for start position
+        CGRect current_frame;
+        SLSGetWindowBounds(g_connection, wid, &current_frame);
+        
+        // Pack start position (current frame)
+        float start_x = current_frame.origin.x;
+        float start_y = current_frame.origin.y;
+        float start_w = current_frame.size.width;
+        float start_h = current_frame.size.height;
+        pack(start_x); pack(start_y); pack(start_w); pack(start_h);
+        
+        // Pack end position (target from window_capture)
+        float end_x = window_list[i].x;
+        float end_y = window_list[i].y;
+        float end_w = window_list[i].w;
+        float end_h = window_list[i].h;
+        pack(end_x); pack(end_y); pack(end_w); pack(end_h);
+        
+        // Calculate resize anchor based on which edges are moving
+        int resize_anchor = 0; // default to top-left
+        // TODO: You can add logic here to determine anchor from centralized anchoring system
+        // For now, using simple default
+        pack(resize_anchor);
+        
+        // Pack window flags (for special handling like opacity animations)
+        uint8_t window_flags = 0; // no special flags for now
+        pack(window_flags);
+    }
+    
+    return sa_payload_send(SA_OPCODE_WINDOW_ANIMATE_LIST);
+}
+
+// Specialized version that sends pre-calculated animation coordinates
+bool scripting_addition_animate_windows_list_precalc(uint64_t space_id, uint32_t window_count, float animation_progress, 
+                                                     uint32_t frame_number, uint32_t total_frames, uint8_t animation_mode,
+                                                     uint32_t *window_ids, float *start_coords, float *current_coords, 
+                                                     float *end_coords, int *resize_anchors)
+{
+    if (window_count == 0 || !window_ids || !start_coords || !current_coords || !end_coords) return false;
+    
+    sa_payload_init();
+    
+    // Pack the minimal metadata first
+    pack(space_id);
+    pack(window_count);
+    pack(animation_progress);
+    pack(frame_number);
+    pack(total_frames);
+    pack(animation_mode);
+    
+    // Pack each window's pre-calculated animation data
+    for (uint32_t i = 0; i < window_count; i++) {
+        uint32_t wid = window_ids[i];
+        pack(wid);
+        
+        // Pack start position (from precalculated data)
+        float start_x = start_coords[i * 4 + 0];
+        float start_y = start_coords[i * 4 + 1];
+        float start_w = start_coords[i * 4 + 2];
+        float start_h = start_coords[i * 4 + 3];
+        pack(start_x); pack(start_y); pack(start_w); pack(start_h);
+        
+        // Pack end position (from precalculated data)
+        float end_x = end_coords[i * 4 + 0];
+        float end_y = end_coords[i * 4 + 1];
+        float end_w = end_coords[i * 4 + 2];
+        float end_h = end_coords[i * 4 + 3];
+        pack(end_x); pack(end_y); pack(end_w); pack(end_h);
+        
+        // Pack resize anchor
+        int resize_anchor = resize_anchors ? resize_anchors[i] : 0;
+        pack(resize_anchor);
+        
+        // Pack window flags (for special handling like opacity animations)
+        uint8_t window_flags = 0; // no special flags for now
+        pack(window_flags);
+    }
+    
+    return sa_payload_send(SA_OPCODE_WINDOW_ANIMATE_LIST);
+}
+
 bool scripting_addition_order_window_in(uint32_t *window_list, int window_count)
 {
     uint32_t dummy_wid = 0;

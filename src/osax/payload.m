@@ -892,6 +892,183 @@ static void do_window_scale_custom(char *message)
     
 }
 
+static void do_window_scale_forced_local(CFTypeRef transaction, uint32_t wid, int mode,
+                                         float start_x, float start_y, float start_w, float start_h,
+                                         float current_x, float current_y, float current_w, float current_h,
+                                         float end_x, float end_y, float end_w, float end_h,
+                                         float opacity, float duration, uint32_t proxy_wid, int resize_anchor, int meta)
+{
+    if (!wid) {
+        return;
+    }
+    
+    int sx, sy, sw, sh;
+    sx = start_x; sy = start_y; sw = start_w; sh = start_h;
+    int cx, cy, cw, ch;
+    cx = current_x; cy = current_y; cw = current_w; ch = current_h;
+    int ex, ey, ew, eh;
+    ex = end_x; ey = end_y; ew = end_w; eh = end_h;
+    
+    // Unpack individual values from meta using bit operations
+    int opacity_enabled = 0;                    // bit 0
+    int fade_threshold = 5;             // bits 1-8 (0-255)
+    int extra_flag = (meta >> 9) & 0x1;                  // bit 9 (for future use)
+    // bits 10-31 reserved for additional flags/values
+
+    CGRect frame = {};
+    if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
+        return;
+    }
+    
+    int guess1 = 0;
+    int guess2 = 0;
+
+    float window_alpha;
+    SLSGetWindowAlpha(SLSMainConnectionID(), wid, &window_alpha);
+    CGRect display = CGDisplayBounds(CGMainDisplayID());
+
+    float start_x_factor = frame.size.width / current_w;
+    float start_y_factor = frame.size.height / current_h;
+
+    CGFloat ax;
+    CGFloat ay;
+    switch (resize_anchor) {
+        case 0: // TL
+            ax = -current_x;
+            ay = -current_y;
+            break;
+        case 1: // TR
+            ax = -(current_x + current_w) + frame.size.width;
+            ay = -current_y;
+            break;
+        case 2: // BL
+            ax = -current_x;
+            ay = -(current_y + current_h) + frame.size.height;
+            break;
+        case 3: // BR
+            ax = -(current_x + current_w) + frame.size.width;
+            ay = -(current_y + current_h) + frame.size.height;
+            break;
+        default:
+            ax = -current_x;
+            ay = -current_y;
+            break;
+    }
+    CGAffineTransform curr_scale = CGAffineTransformMakeScale(start_x_factor, start_y_factor);
+
+    // Use our helper function with correct parameters:
+    // Window is physically at END position (ex, ey, ew, eh)
+    // We want to transform it to CURRENT position (cx, cy, cw, ch)
+    CGAffineTransform anchored_scale = create_anchor_transform(ex, ey, ew, eh, cx, cy, cw, ch, resize_anchor);
+    CGAffineTransform translate = CGAffineTransformMakeTranslation(current_x - end_x, current_y - end_y);
+    
+    // Combined transform: scale first, then translate
+    CGAffineTransform scale_and_translate = CGAffineTransformConcat(anchored_scale, translate);
+
+    // Get the original transform for fallback
+    CGAffineTransform original_transform;
+    bool has_original = (SLSGetWindowTransform(SLSMainConnectionID(), wid, &original_transform) == kCGErrorSuccess);
+    if (!has_original) {
+        original_transform = CGAffineTransformIdentity;
+    }
+
+    // Determine the appropriate transform based on what changed
+    bool changes_size = (fabs(start_w - end_w) > 1.0f || fabs(start_h - end_h) > 1.0f);
+    bool changes_position = (fabs(start_x - end_x) > 1.0f || fabs(start_y - end_y) > 1.0f);
+    
+    // Check if position change is only due to anchor-based scaling
+    bool is_anchor_induced_position_change = false;
+    if (changes_size && changes_position) {
+        switch (resize_anchor) {
+            case 0: // TL - top-left stays put, position shouldn't change due to scaling
+                is_anchor_induced_position_change = (start_x == end_x && start_y == end_y);
+                break;
+            case 1: // TR - top-right stays put, only X should change due to width scaling
+                is_anchor_induced_position_change = (start_y == end_y);
+                break;
+            case 2: // BL - bottom-left stays put, only Y should change due to height scaling  
+                is_anchor_induced_position_change = (start_x == end_x);
+                break;
+            case 3: // BR - bottom-right stays put, both X,Y change only due to scaling
+                is_anchor_induced_position_change = true;
+                break;
+            default:
+                is_anchor_induced_position_change = false;
+                break;
+        }
+    }
+    
+    CGAffineTransform final_transform;
+    if (changes_size && !changes_position) {
+        // Pure scaling - use anchored scale transform
+        final_transform = anchored_scale;
+    } else if (!changes_size && changes_position) {
+        // Pure translation - use translate transform
+        final_transform = translate;
+    } else if (changes_size && changes_position && is_anchor_induced_position_change) {
+        // Position change is only due to anchor-based scaling - use pure anchored scale
+        final_transform = anchored_scale;
+    } else if (changes_size && changes_position) {
+        // Both independent size and position changes - use combined transform
+        final_transform = scale_and_translate;
+    } else {
+        // No changes - use original transform
+        final_transform = original_transform;
+    }
+
+    float final_window_alpha = (mode == 2) ? opacity : window_alpha;
+
+    switch (mode) {
+        case 0: // Initial setup - move window to start position
+        {
+            SLSTransactionOrderWindowGroup(transaction, proxy_wid, 1, wid);
+            
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0f);
+            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
+
+            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, final_transform) ;
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
+            break;
+        }
+        
+        case 1: // move_pip - update position using current interpolated values
+        {
+            if (changes_size && !changes_position) {
+                // Pure scaling - use anchored scale transform
+                 SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  anchored_scale);
+            } else if (!changes_size && changes_position) {
+                // Pure translation - use translate transform
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, translate);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  translate);
+            } else if (changes_size && changes_position && is_anchor_induced_position_change) {
+                  SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
+                     SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, anchored_scale);
+            } else {
+                // Combined or no changes
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, final_transform);
+            }
+            break;
+        }
+        
+        case 2: // Final position - end animation
+        {
+            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+            SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
+
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, final_window_alpha);
+            SLSTransactionSetWindowSystemAlpha(transaction, wid, window_alpha);
+            break;
+        }
+        
+        default:
+            break;
+    }
+}
+
+
 
 static void do_window_scale_forced(char *message)
 {
@@ -1165,149 +1342,6 @@ static void do_window_scale_forced(char *message)
     CFRelease(transaction);
 }
 
-static void do_window_scale_forced_with_transaction(char *message)
-{
-    uint32_t wid;
-    unpack(wid);
-    if (!wid) {
-        return;
-    }
-     int guess1 = 0;
-    int guess2 = 0;
-    // Unpack transaction pointer 
-    uint64_t transaction_ptr;
-    unpack(transaction_ptr);
-    
-    // Cast back to transaction pointer
-    CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
-    
-    // Unpack the operation mode and coordinates
-    int mode;
-    unpack(mode);
-    
-    float start_x, start_y, start_w, start_h;
-    unpack(start_x);
-    unpack(start_y);
-    unpack(start_w);
-    unpack(start_h);
-   
-    float current_x, current_y, current_w, current_h;
-    unpack(current_x);
-    unpack(current_y);
-    unpack(current_w);
-    unpack(current_h);
-    
-    float end_x, end_y, end_w, end_h;
-    unpack(end_x);
-    unpack(end_y);
-    unpack(end_w);
-    unpack(end_h);
-    
-    // Unpack resize anchor (0-3: TL, TR, BL, BR)
-    int resize_anchor;
-    unpack(resize_anchor);
-    
-    // Unpack meta data (additional flags/info)
-    int meta;
-    unpack(meta);
-    
-    // Unpack individual values from meta using bit operations
-    int opacity_enabled = meta & 0x1;                    // bit 0
-    int fade_threshold = (meta >> 1) & 0xFF;             // bits 1-8 (0-255)
-    int extra_flag = (meta >> 9) & 0x1;                  // bit 9 (for future use)
-    // bits 10-31 reserved for additional flags/values
-    
-    // Get window bounds and validate
-    CGRect frame = {};
-    if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
-        NSLog(@"🎯 do_window_scale_forced_with_transaction: failed to get window bounds for wid=%d", wid);
-        return;
-    }
-    
-    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-(frame.origin.x), -(frame.origin.y));
-    CGAffineTransform current_transform;
-    SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
-    
-    // Create frame region for shape setting (used in case 0)
-    //CFTypeRef frame_region = NULL;
-    //if (mode == 0) {
-    //    if (CGSNewRegionWithRect(&frame, &frame_region) != kCGErrorSuccess) {
-    //        NSLog(@"🎯 do_window_scale_forced_with_transaction: failed to create frame region for wid=%d", wid);
-    //        return;
-    //    }
-    //}
-     
-    switch (mode) {
-        case 0: // create_pip - scale window and position it
-        {
-            NSLog(@"🎯 create_pip_forced_tx: wid=%d frame=(%.1f,%.1f,%.1fx%.1f) end=(%.1f,%.1f,%.1fx%.1f)", 
-                  wid, frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
-                  end_x, end_y, end_w, end_h);
-                  
-            // Set window shape before transform (with transaction)
-            //SLSTransactionSetWindowShape(transaction, wid, -(frame.origin.x), -(frame.origin.y), frame_region);
-            
-            // Calculate scale factors (how much to shrink the window)
-            float x_scale = frame.size.width / end_w;
-            float y_scale = frame.size.height / end_h;
-
-            // Calculate translation to position the scaled window
-            CGFloat transformed_x = -(end_x);
-            CGFloat transformed_y = -(end_y);
-            
-            // Apply scale then translate
-            CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
-            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
-            
-            SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2, transform);
-            break;
-        }
-        
-        case 1: // move_pip - update position using current interpolated values
-        {
-            //if (CGAffineTransformEqualToTransform(current_transform, original_transform)) {
-            //    NSLog(@"🎯 move_pip_forced_tx: window not scaled, ignoring move for wid=%d", wid);
-            //    return;
-            //}
-            
-            NSLog(@"🎯 move_pip_forced_tx: wid=%d current=(%.1f,%.1f,%.1fx%.1f)", 
-                  wid, current_x, current_y, current_w, current_h);
-            
-            // Calculate scale factors based on current interpolated size
-            float x_scale = frame.size.width / current_w;
-            float y_scale = frame.size.height / current_h;
-            
-            // Calculate translation for current interpolated position
-            CGFloat transformed_x = -(current_x);
-            CGFloat transformed_y = -(current_y);
-            
-            // Apply the transform
-            CGAffineTransform scale = CGAffineTransformMakeScale(x_scale, y_scale);
-            CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
-            
-            SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2, transform);
-            break;
-        }
-        
-        case 2: // restore_pip - reset to original transform
-        {
-            NSLog(@"🎯 restore_pip_forced_tx: wid=%d", wid);
-            SLSTransactionSetWindowTransform(transaction, wid,guess1,guess2, original_transform);
-            // Note: No frame_region to release in restore case
-            break;
-        }
-        
-        default:
-            NSLog(@"🎯 do_window_scale_forced_with_transaction: unknown mode %d for wid=%d", mode, wid);
-            break;
-    }
-    
-    // Clean up frame region if it was created
-    //if (frame_region) {
-    //    CFRelease(frame_region);
-    //}
-}
-
 static void do_window_animate_frame(char *message)
 {
     uint32_t wid;
@@ -1440,6 +1474,103 @@ static void do_window_warp(char *message)
     if (result != kCGErrorSuccess) {
         NSLog(@"🌊 warp_error: SLSSetWindowWarp failed with error %d for wid=%d", result, wid);
     }
+}
+
+static void do_animate_windows_list(char *message)
+{
+    // Unpack the minimal metadata
+    uint64_t space_id;
+    uint32_t window_count;
+    float animation_progress; // 0.0 to 1.0
+    uint32_t frame_number;
+    uint32_t total_frames;
+    uint8_t animation_mode; // 0=start, 1=update, 2=end
+    
+    unpack(space_id);
+    unpack(window_count);
+    unpack(animation_progress);
+    unpack(frame_number);
+    unpack(total_frames);
+    unpack(animation_mode);
+    
+    if (window_count == 0) {
+        NSLog(@"🎬 animate_windows_list: no windows to animate");
+        return;
+    }
+    
+    // Create a single transaction for all windows
+    CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
+    if (!transaction) {
+        NSLog(@"🎬 animate_windows_list: failed to create transaction");
+        return;
+    }
+    
+    NSLog(@"🎬 animate_windows_list: space=%llu count=%u progress=%.3f frame=%u/%u mode=%u", 
+          space_id, window_count, animation_progress, frame_number, total_frames, animation_mode);
+    
+    // Process each window in the batch
+    for (uint32_t i = 0; i < window_count; i++) {
+        uint32_t wid;
+        unpack(wid);
+        
+        if (!wid) continue;
+        //SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
+        // Unpack window animation data
+        float start_x, start_y, start_w, start_h;
+        float end_x, end_y, end_w, end_h;
+        int resize_anchor; // 0-3: TL, TR, BL, BR
+        uint8_t window_flags; // bit flags for special handling
+        
+        unpack(start_x); unpack(start_y); unpack(start_w); unpack(start_h);
+        unpack(end_x); unpack(end_y); unpack(end_w); unpack(end_h);
+        unpack(resize_anchor);
+        unpack(window_flags);
+        
+        // Calculate interpolated position and size
+        float current_x = start_x + (end_x - start_x) * animation_progress;
+        float current_y = start_y + (end_y - start_y) * animation_progress;
+        float current_w = start_w + (end_w - start_w) * animation_progress;
+        float current_h = start_h + (end_h - start_h) * animation_progress;
+        
+        // Calculate opacity based on animation progress and flags
+        float opacity = 1.0f;
+        if (window_flags & 0x01) { // opacity animation flag
+            float start_alpha = 1.0f;
+            float end_alpha = 1.0f;
+            opacity = start_alpha + (end_alpha - start_alpha) * animation_progress;
+        }
+        
+        // Default duration for SLS calls (not used in this context but required by local function)
+        float duration = 0.0f;
+        
+        // No proxy window in batch animations
+        uint32_t proxy_wid = 0;
+        
+        // Pack window flags into meta parameter (opacity enabled, fade threshold, etc.)
+        int meta = (window_flags & 0x01) ? 1 : 0; // opacity_enabled bit
+        meta |= (5 << 1); // fade_threshold = 5 (bits 1-8)
+        
+        // Use the existing local function to handle all the complex transform logic
+        do_window_scale_forced_local(transaction, wid, animation_mode,
+                                   start_x, start_y, start_w, start_h,
+                                   current_x, current_y, current_w, current_h,
+                                   end_x, end_y, end_w, end_h,
+                                   opacity, duration, proxy_wid, resize_anchor, meta);
+        
+        NSLog(@"🎬 window: wid=%u pos=(%.1f,%.1f) size=(%.1fx%.1f) anchor=%d mode=%u", 
+              wid, current_x, current_y, current_w, current_h, resize_anchor, animation_mode);
+    }
+    
+    // Commit the entire batch transaction
+    CGError commit_result = SLSTransactionCommit(transaction, 1); // synchronous commit
+    if (commit_result != kCGErrorSuccess) {
+        NSLog(@"🎬 animate_windows_list: transaction commit failed with error %d", commit_result);
+    }
+    
+    // Clean up
+    CFRelease(transaction);
+    
+    NSLog(@"🎬 animate_windows_list: batch completed for %u windows", window_count);
 }
 
 static void do_window_move(char *message)
@@ -1816,11 +1947,11 @@ static void handle_message(int sockfd, char *message)
     case SA_OPCODE_WINDOW_SCALE_FORCED: {
         do_window_scale_forced(message);
     } break;
-    case SA_OPCODE_WINDOW_SCALE_FORCED_TX: {
-        do_window_scale_forced_with_transaction(message);
-    } break;
     case SA_OPCODE_WINDOW_ANIMATE_FRAME: {
         do_window_animate_frame(message);
+    } break;
+    case SA_OPCODE_WINDOW_ANIMATE_LIST: {
+        do_animate_windows_list(message);
     } break;
     case SA_OPCODE_WINDOW_WARP: {
         do_window_warp(message);

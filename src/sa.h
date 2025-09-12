@@ -29,7 +29,6 @@ bool scripting_addition_scale_window_custom_mode(uint32_t wid, int mode,float st
 bool scripting_addition_anim_window_pip_mode(uint32_t wid, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, float opacity, float duration, uint32_t proxy_wid, int resize_anchor, int meta);
 bool scripting_addition_anim_window_pip_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float start_x, float start_y, float start_w, float start_h, float current_x, float current_y, float current_w, float current_h, float end_x, float end_y, float end_w, float end_h, int resize_anchor, int meta);
 bool scripting_addition_scale_window_forced_mode(uint32_t wid, int mode, float x, float y, float w, float h);
-bool scripting_addition_scale_window_forced_mode_with_transaction(uint32_t wid, CFTypeRef transaction, int mode, float x, float y, float w, float h);
 bool scripting_addition_create_pip(uint32_t wid, float x, float y, float w, float h);
 bool scripting_addition_move_pip(uint32_t wid, float x, float y);
 bool scripting_addition_restore_pip(uint32_t wid);
@@ -44,6 +43,13 @@ bool scripting_addition_warp_window(uint32_t wid, int effect_type, float time, f
 bool scripting_addition_reset_window_warp(uint32_t wid);
 bool scripting_addition_wobble_window(uint32_t wid, float time, float intensity);
 bool scripting_addition_ripple_window(uint32_t wid, float time, float intensity, float center_x, float center_y);
+bool scripting_addition_animate_windows_list(uint64_t space_id, uint32_t window_count, float animation_progress, 
+                                             uint32_t frame_number, uint32_t total_frames, uint8_t animation_mode,
+                                             struct window_capture *window_list);
+bool scripting_addition_animate_windows_list_precalc(uint64_t space_id, uint32_t window_count, float animation_progress, 
+                                                     uint32_t frame_number, uint32_t total_frames, uint8_t animation_mode,
+                                                     uint32_t *window_ids, float *start_coords, float *current_coords, 
+                                                     float *end_coords, int *resize_anchors);
 bool scripting_addition_swap_window_proxy_in(struct window_animation *animation_list, int animation_count);
 bool scripting_addition_swap_window_proxy_out(struct window_animation *animation_list, int animation_count);
 bool scripting_addition_order_window(uint32_t a_wid, int order, uint32_t b_wid);

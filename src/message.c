@@ -3038,8 +3038,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     // Use FORCED mode 1 (move) for intermediate frames
                     if (frame == 0) {
                         CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                        scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id,
-                                             transaction,
+                        scripting_addition_scale_window_forced_mode(acting_window->id,
                                              0,
                                              current_x, 
                                              current_y,
@@ -3050,8 +3049,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     } else {
                        
                         CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                        scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
-                                                                   transaction,
+                        scripting_addition_scale_window_forced_mode(acting_window->id, 
                                                                    1, 
                                                                    current_x, current_y, current_w, current_h);
                         SLSTransactionCommit(transaction, 0);
@@ -3089,8 +3087,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                         scripting_addition_restore_pip_forced(acting_window->id);
                     } else {
                         CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                        scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
-                                                                   transaction,
+                        scripting_addition_scale_window_forced_mode(acting_window->id, 
                                                                    1, 
                                                                    current_x, current_y, current_w, current_h);
                         SLSTransactionCommit(transaction, 0);
@@ -3194,8 +3191,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     printf("🎯 NUDGE Frame %d/%d: CREATE nudge PiP at (%.1f,%.1f)\n", 
                            frame, total_frames, current_x, current_frame.origin.y);
                     CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                    scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
-                                                              transaction,
+                    scripting_addition_scale_window_forced_mode(acting_window->id, 
                                                               0,
                                                               current_x, current_frame.origin.y,
                                                               current_frame.size.width, current_frame.size.height);
@@ -3206,8 +3202,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                     printf("🎯 NUDGE Frame %d/%d: MOVE nudge PiP to (%.1f,%.1f)\n", 
                            frame, total_frames, current_x, current_frame.origin.y);
                     CFTypeRef transaction = SLSTransactionCreate(g_connection);
-                    scripting_addition_scale_window_forced_mode_with_transaction(acting_window->id, 
-                                                              transaction,
+                    scripting_addition_scale_window_forced_mode(acting_window->id, 
                                                               1,
                                                               current_x, current_frame.origin.y,
                                                               current_frame.size.width, current_frame.size.height);
