@@ -978,9 +978,10 @@
         // Prevent BSP layout updates while windows are animating to avoid position conflicts
         if (view_has_animating_windows(view)) {
             debug("🎬 Blocking view_flush for view %lld - windows are currently animating", view->sid);
+
             view_set_flag(view, VIEW_IS_DIRTY); // Mark as needing update later
             return;
-        }
+        } 
         
         if (space_is_visible(view->sid)) {
             // Clamp fence ratios so neither side can shrink past its min_width

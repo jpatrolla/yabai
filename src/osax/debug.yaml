@@ -1,0 +1,828 @@
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,28.5)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=35.2 y=20.0 w=932.0 h=1031.5) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 27/48 t=0.562 mt=0.984 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=28.5 w=932.0 h=1031.5) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 27/48 t=0.562 mt=0.984 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 28/48, t=0.5833
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (19.88, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9874, final size: 932.00 x 1033.37
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=31.9 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 19.93) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9874, final size: 932.00 x 1033.37
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,26.6)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=31.9 y=20.0 w=932.0 h=1033.4) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 28/48 t=0.583 mt=0.987 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=26.6 w=932.0 h=1033.4) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 28/48 t=0.583 mt=0.987 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 29/48, t=0.6042
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (19.63, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9903, final size: 932.00 x 1034.87
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=29.2 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 19.79) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9903, final size: 932.00 x 1034.87
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,25.1)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=29.2 y=20.0 w=932.0 h=1034.9) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 29/48 t=0.604 mt=0.990 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=25.1 w=932.0 h=1034.9) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 29/48 t=0.604 mt=0.990 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 30/48, t=0.6250
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (19.07, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9926, final size: 932.00 x 1036.08
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=27.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 19.48) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9926, final size: 932.00 x 1036.08
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,23.9)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=27.0 y=20.0 w=932.0 h=1036.1) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 30/48 t=0.625 mt=0.993 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=23.9 w=932.0 h=1036.1) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 30/48 t=0.625 mt=0.993 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 31/48, t=0.6458
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (18.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9944, final size: 932.00 x 1037.06
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=25.3 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 18.89) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9944, final size: 932.00 x 1037.06
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,22.9)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=25.3 y=20.0 w=932.0 h=1037.1) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 31/48 t=0.646 mt=0.994 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=22.9 w=932.0 h=1037.1) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 31/48 t=0.646 mt=0.994 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 32/48, t=0.6667
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (16.10, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9959, final size: 932.00 x 1037.83
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=23.9 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 17.83) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9959, final size: 932.00 x 1037.83
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,22.2)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=23.9 y=20.0 w=932.0 h=1037.8) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 32/48 t=0.667 mt=0.996 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=22.2 w=932.0 h=1037.8) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 32/48 t=0.667 mt=0.996 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 33/48, t=0.6875
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (12.97, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9970, final size: 932.00 x 1038.43
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=22.8 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 16.08) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9970, final size: 932.00 x 1038.43
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,21.6)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=22.8 y=20.0 w=932.0 h=1038.4) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 33/48 t=0.688 mt=0.997 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=21.6 w=932.0 h=1038.4) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 33/48 t=0.688 mt=0.997 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 34/48, t=0.7083
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (8.09, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9979, final size: 932.00 x 1038.89
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=22.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 13.37) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9979, final size: 932.00 x 1038.89
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,21.1)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=22.0 y=20.0 w=932.0 h=1038.9) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 34/48 t=0.708 mt=0.998 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=21.1 w=932.0 h=1038.9) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 34/48 t=0.708 mt=0.998 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 35/48, t=0.7292
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (0.83, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9985, final size: 932.00 x 1039.23
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=21.4 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 9.32) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9985, final size: 932.00 x 1039.23
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.8)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=21.4 y=20.0 w=932.0 h=1039.2) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 35/48 t=0.729 mt=0.999 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.8 w=932.0 h=1039.2) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 35/48 t=0.729 mt=0.999 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 36/48, t=0.7500
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-9.62, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9990, final size: 932.00 x 1039.48
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.9 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, 3.50) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9990, final size: 932.00 x 1039.48
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.5)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.9 y=20.0 w=932.0 h=1039.5) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 36/48 t=0.750 mt=0.999 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.5 w=932.0 h=1039.5) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 36/48 t=0.750 mt=0.999 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 37/48, t=0.7708
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-24.20, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9994, final size: 932.00 x 1039.67
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.6 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -4.62) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9994, final size: 932.00 x 1039.67
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.3)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.6 y=20.0 w=932.0 h=1039.7) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 37/48 t=0.771 mt=0.999 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.3 w=932.0 h=1039.7) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 37/48 t=0.771 mt=0.999 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 38/48, t=0.7917
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-44.03, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9996, final size: 932.00 x 1039.79
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.4 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -15.66) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9996, final size: 932.00 x 1039.79
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.2)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.4 y=20.0 w=932.0 h=1039.8) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 38/48 t=0.792 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.2 w=932.0 h=1039.8) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 38/48 t=0.792 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 39/48, t=0.8125
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-70.41, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9998, final size: 932.00 x 1039.88
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.2 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -30.35) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9998, final size: 932.00 x 1039.88
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.1)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.2 y=20.0 w=932.0 h=1039.9) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 39/48 t=0.812 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.1 w=932.0 h=1039.9) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 39/48 t=0.812 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 40/48, t=0.8333
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-104.84, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9999, final size: 932.00 x 1039.93
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.1 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -49.53) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9999, final size: 932.00 x 1039.93
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.1)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.1 y=20.0 w=932.0 h=1039.9) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 40/48 t=0.833 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.1 w=932.0 h=1039.9) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 40/48 t=0.833 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 41/48, t=0.8542
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-149.04, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=0.9999, final size: 932.00 x 1039.97
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.1 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -74.15) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=0.9999, final size: 932.00 x 1039.97
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.1 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 41/48 t=0.854 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 41/48 t=0.854 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 42/48, t=0.8750
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-204.96, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1039.98
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -105.30) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1039.98
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 42/48 t=0.875 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 42/48 t=0.875 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 43/48, t=0.8958
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-274.79, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1039.99
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -144.19) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1039.99
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 43/48 t=0.896 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 43/48 t=0.896 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 44/48, t=0.9167
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-360.98, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -192.19) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 44/48 t=0.917 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 44/48 t=0.917 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 45/48, t=0.9375
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-466.24, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -250.82) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 45/48 t=0.938 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 45/48 t=0.938 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 46/48, t=0.9583
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-593.57, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -321.74) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 46/48 t=0.958 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 46/48 t=0.958 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 47/48, t=0.9792
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-746.29, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -406.79) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 47/48 t=0.979 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 47/48 t=0.979 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: Calculating anchor points for 2 windows, frame 48/48, t=1.0000
+[ANCHORS] COORDINATES: Window 0 start position: (968.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 0 end position: (20.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 0 calculated position: (-928.00, 20.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 0 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1774:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=20.0 ey=20.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=532.0 end_bottom=1060.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=20.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=952.0 diff=948.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning top edge: Y=20.0, X=20.0 (interpolated)
+[ANCHORS] COORDINATES: Window 1 start position: (968.00, 548.00) size: 932.00 x 512.00
+[ANCHORS] COORDINATES: Window 1 end position: (968.00, 20.00) size: 932.00 x 1040.00
+[ANCHORS] COORDINATES: Window 1 calculated position: (968.00, -508.00) size: 932.00 x 512.00
+[ANCHORS] PINNED_ANCHORS: Window 1 anchor interpolation: mt=1.0000, final size: 932.00 x 1040.00
+[ANCHORS] PINNED_ANCHORS: fdb🔍 Edge Detection for Window 1986:
+
+[ANCHORS] PINNED_ANCHORS: fdb    Top: sy=548.0 ey=20.0 diff=528.0 stationary=NO
+
+[ANCHORS] PINNED_ANCHORS: fdb    Bottom: start_bottom=1060.0 end_bottom=1060.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Left: sx=968.0 ex=968.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Right: start_right=1900.0 end_right=1900.0 diff=0.0 stationary=YES
+
+[ANCHORS] PINNED_ANCHORS: fdb    Threshold: 2.0 pixels
+
+[ANCHORS] PINNED_ANCHORS: 🔒 Pinning bottom-left corner: (968.0,20.0)
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=20.0 w=932.0 h=512.0) current: (x=20.0 y=20.0 w=932.0 h=1040.0) end: (x=20.0 y=20.0 w=932.0 h=1040.0) frame 48/48 t=1.000 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: fdb async start (x=968.0 y=548.0 w=932.0 h=512.0) current: (x=968.0 y=20.0 w=932.0 h=1040.0) end: (x=968.0 y=20.0 w=932.0 h=1040.0) frame 48/48 t=1.000 mt=1.000 fade_t=1.000
+
+[ANCHORS] PINNED_ANCHORS: 🎬 pip-based async animation thread completed

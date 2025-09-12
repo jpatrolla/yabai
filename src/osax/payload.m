@@ -1,4 +1,5 @@
 #include <CoreFoundation/CFBase.h>
+#include <CoreFoundation/CFCGTypes.h>
 #include <CoreGraphics/CGAffineTransform.h>
 #include <CoreGraphics/CGDirectDisplay.h>
 #include <Foundation/Foundation.h>
@@ -419,6 +420,54 @@ static inline void set_ivar_value(id instance, const char *name, id value)
 static inline uint64_t get_space_id(id space)
 {
     return ((uint64_t (*)(id, SEL)) objc_msgSend)(space, @selector(spid));
+}
+
+
+// BSP Grid Animation Transform Helper
+// Creates transform to animate window within screen bounds context
+// Window is physically at target position, needs to appear at source position
+// Anchor points: 0=TL, 1=TR, 2=BL, 3=BR
+static CGAffineTransform create_anchor_transform(
+                                                float target_x, float target_y, float target_w, float target_h,  // where window IS (relative to frame)
+                                                float source_x, float source_y, float source_w, float source_h,  // where it should APPEAR (relative to frame)
+                                                int anchor)
+{
+    // Calculate scale factors (source/target since we're going backwards)
+    float sx_factor = source_w / target_w;
+    float sy_factor = source_h / target_h;
+    
+    // Calculate anchor-based translation using the same logic as the original code
+    CGFloat ax, ay;
+    
+    switch (anchor) {
+        case 0: // TL
+            ax = -source_x;
+            ay = -source_y;
+            break;
+        case 1: // TR  
+            ax = -(source_x + source_w) + target_w;
+            ay = -source_y;
+            break;
+        case 2: // BL
+            ax = -source_x;
+            ay = -(source_y + source_h) + target_h;
+            break;
+        case 3: // BR
+            ax = -(source_x + source_w) + target_w;
+            ay = -(source_y + source_h) + target_h;
+            break;
+        default:
+            ax = -source_x;
+            ay = -source_y;
+            break;
+    }
+    
+    // Create transform: scale first, then translate (matching original pattern)
+    CGAffineTransform scale_transform = CGAffineTransformMakeScale(sx_factor, sy_factor);
+    CGAffineTransform final_transform = CGAffineTransformConcat(scale_transform, 
+                                                              CGAffineTransformMakeTranslation(ax, ay));
+    
+    return final_transform;
 }
 
 // Warp mesh generation functions
@@ -846,6 +895,8 @@ static void do_window_scale_custom(char *message)
 
 static void do_window_scale_forced(char *message)
 {
+    CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
+
     uint32_t wid;
     unpack(wid);
     if (!wid) {
@@ -860,19 +911,22 @@ static void do_window_scale_forced(char *message)
     unpack(start_y);
     unpack(start_w);
     unpack(start_h);
-   
+    int sx, sy, sw, sh;
+    sx = start_x; sy = start_y; sw = start_w; sh = start_h;
     float current_x, current_y, current_w, current_h;
     unpack(current_x);
     unpack(current_y);
     unpack(current_w);
     unpack(current_h);
-    
+    int cx, cy, cw, ch;
+    cx = current_x; cy = current_y; cw = current_w; ch = current_h;
     float end_x, end_y, end_w, end_h;
     unpack(end_x);
     unpack(end_y);
     unpack(end_w);
     unpack(end_h);
-    
+    int ex, ey, ew, eh;
+    ex = end_x; ey = end_y; ew = end_w; eh = end_h;
     // Unpack opacity value (0.0 to 1.0)
     float opacity;
     unpack(opacity);
@@ -894,8 +948,8 @@ static void do_window_scale_forced(char *message)
     unpack(meta);
     
     // Unpack individual values from meta using bit operations
-    int opacity_enabled = meta & 0x1;                    // bit 0
-    int fade_threshold = (meta >> 1) & 0xFF;             // bits 1-8 (0-255)
+    int opacity_enabled = 0;                    // bit 0
+    int fade_threshold = 5;             // bits 1-8 (0-255)
     int extra_flag = (meta >> 9) & 0x1;                  // bit 9 (for future use)
     // bits 10-31 reserved for additional flags/values
 
@@ -903,7 +957,6 @@ static void do_window_scale_forced(char *message)
     if (SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame) != kCGErrorSuccess) {
         return;
     }
-    CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
     
     int guess1 = 0;
     int guess2 = 0;
@@ -911,17 +964,53 @@ static void do_window_scale_forced(char *message)
     float window_alpha;
     SLSGetWindowAlpha(SLSMainConnectionID(), wid, &window_alpha);
     CGRect display = CGDisplayBounds(CGMainDisplayID());
-    
+
     float start_x_factor = frame.size.width / current_w;
     float start_y_factor = frame.size.height / current_h;
 
-    CGFloat ax = -current_x;   // TL x we want to pin
-    CGFloat ay = -current_y;   // TL y we want to pin
+
+    CGFloat ax;
+    CGFloat ay;
+    switch (resize_anchor) {
+        case 0: // TL
+            ax = -current_x;
+            ay = -current_y;
+            break;
+        case 1: // TR
+            ax = -(current_x + current_w) + frame.size.width;
+            ay = -current_y;
+            break;
+        case 2: // BL
+            ax = -current_x;
+            ay = -(current_y + current_h) + frame.size.height;
+            break;
+        case 3: // BR
+            ax = -(current_x + current_w) + frame.size.width;
+            ay = -(current_y + current_h) + frame.size.height;
+            break;
+        default:
+            ax = -current_x;
+            ay = -current_y;
+            break;
+    }
+    CGAffineTransform curr_scale = CGAffineTransformMakeScale(start_x_factor, start_y_factor);
+    //CGAffineTransform anchored_scale = CGAffineTransformConcat(CGAffineTransformConcat(CGAffineTransformIdentity, curr_scale),CGAffineTransformMakeTranslation(ax, ay));
+
+    // Use our helper function with correct parameters:
+    // Window is physically at END position (ex, ey, ew, eh)
+    // Want it to appear at CURRENT interpolated position (cx, cy, cw, ch)
+    // Transform: end → current
+    CGAffineTransform anchored_scale = create_anchor_transform(
+        cx , cy, cw, ch,   
+        ex, ey, ew, eh,          
+        resize_anchor);
 
     bool is_tl = start_x == end_x && start_y == end_y;
     bool is_growing = (start_w < end_w || start_h < end_h);
     bool is_shrinking = (start_w > end_w || start_h > end_h);
     bool stays_same_size = (!is_growing && !is_shrinking);
+    bool changes_size = (is_growing || is_shrinking);
+    bool changes_position = (start_x != end_x || start_y != end_y);
     bool is_big_transition = (current_w < (end_w * TRANSITION_SIZE_THRESHOLD));
     float max_alpha = (window_alpha < 1.0f) ? window_alpha : opacity;
     float proxy_progress = 1.0f - duration;
@@ -949,39 +1038,106 @@ static void do_window_scale_forced(char *message)
         final_proxy_alpha = 0.0f;
     }
 
-    CGAffineTransform curr_scale = CGAffineTransformMakeScale(start_x_factor, start_y_factor);
-    CGAffineTransform curr_transform = CGAffineTransformConcat(CGAffineTransformConcat(CGAffineTransformIdentity, curr_scale),CGAffineTransformMakeTranslation(ax, ay));
 
-    CGAffineTransform start_translate = CGAffineTransformMakeTranslation((start_x), (start_y));
-    CGAffineTransform current_translate = CGAffineTransformMakeTranslation(-(current_x), -(current_y));
+    CGAffineTransform translate = CGAffineTransformMakeTranslation(-(current_x), -(current_y));
+    CGAffineTransform scale_and_translate = CGAffineTransformConcat(curr_scale,  translate);
 
-    CGAffineTransform end_translate = CGAffineTransformMakeTranslation(-(end_x), -(end_y));
-
-    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
+    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-end_x, -end_y);
     CGAffineTransform current_transform;
     SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
+
+    CGAffineTransform final_transform;
+    
+    // More robust logic: Check if position change is due to anchor-based scaling
+    bool is_anchor_induced_position_change = false;
+    if (changes_size && changes_position) {
+        // Check if position change is only due to scaling from a specific anchor
+        switch (resize_anchor) {
+            case 0: // TL - top-left stays put, no position change expected
+                is_anchor_induced_position_change = false;
+                break;
+            case 1: // TR - top-right stays put, only X should change due to width scaling
+                is_anchor_induced_position_change = (start_y == end_y);
+                break;
+            case 2: // BL - bottom-left stays put, only Y should change due to height scaling  
+                is_anchor_induced_position_change = (start_x == end_x);
+                break;
+            case 3: // BR - bottom-right stays put, both X,Y change only due to scaling
+                is_anchor_induced_position_change = true;
+                break;
+            default:
+                is_anchor_induced_position_change = false;
+                break;
+        }
+    }
+    
+    if (changes_size && !changes_position) {
+        // Pure scaling - use anchored scale transform
+        final_transform = anchored_scale;
+    } else if (!changes_size && changes_position) {
+        // Pure translation - use translate transform
+        final_transform = translate;
+    } else if (changes_size && changes_position && is_anchor_induced_position_change) {
+        // Position change is only due to anchor-based scaling - use pure anchored scale
+        final_transform = anchored_scale;
+    } else if (changes_size && changes_position) {
+        // Both independent size and position changes - use combined transform
+        final_transform = scale_and_translate;
+    } else {
+        // No changes - use original transform
+        final_transform = original_transform;
+    }
 
     switch (mode) {
         case 0: // Initial setup - move window to start position
         {
-            if (proxy_wid != 0) {
+            //if (proxy_wid != 0) {
                 
                 SLSTransactionOrderWindowGroup(transaction, proxy_wid, 1, wid);
                 
-                SLSTransactionSetWindowSystemAlpha(transaction, wid, 0.0f);
-                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+                SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0f);
+                SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
 
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, is_tl ? curr_transform : start_translate) ;
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, is_tl ? curr_transform : start_translate);
-            } 
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, final_transform) ;
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
+            //} 
             break;
         }
         
         case 1: // move_pip - update position using current interpolated values
         {
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, is_tl ? curr_transform : current_translate);
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, is_tl ? curr_transform : current_translate);
-            
+            if (changes_size && !changes_position) {
+                // Pure scaling - use anchored scale transform
+                 SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  anchored_scale);
+            } else if (!changes_size && changes_position) {
+                // Pure translation - use translate transform
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, translate);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  translate);
+            } else if (changes_size && changes_position && is_anchor_induced_position_change) {
+                  SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
+                     SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, anchored_scale);
+                //SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, translate);
+                    //SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, translate);    
+                //                     SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, scale_and_translate);
+                //SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, scale_and_translate);
+                  
+            } else if (changes_size && changes_position) {
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
+                    SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, anchored_scale);
+                    SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, translate);
+                    SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, translate);
+                //    SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, scale_and_translate);
+                //SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, scale_and_translate);
+                    
+            } else {
+                // No changes - use original transform
+                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, original_transform);
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  original_transform);
+            }
+                //SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
+                //SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  final_transform);
+
                 SLSTransactionSetWindowSystemAlpha(transaction, wid,  final_window_alpha);
                 SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, final_proxy_alpha);
             break;
@@ -989,12 +1145,12 @@ static void do_window_scale_forced(char *message)
         
         case 2: // restore_pip - reset to original transform
         {
-            if (proxy_wid == 0) {
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_translate);
+            //if (proxy_wid == 0) {
+                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, final_transform);
                 SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
                 SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
-            }
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2,  is_tl ? curr_transform : end_translate);
+            //}
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
 
             SLSTransactionSetWindowSystemAlpha(transaction, wid, final_window_alpha);
             SLSTransactionSetWindowSystemAlpha(transaction, wid, window_alpha);
