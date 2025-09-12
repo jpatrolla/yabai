@@ -1550,7 +1550,15 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
     for (int frame = 0; frame <= total_frames && context->animation_running; ++frame) {
         double t = (double)frame / (double)total_frames;
         if (t > 1.0) t = 1.0;
+
+
+        // todo: migrate animation over to a scripting addition function for true transaction batching
+        // I realise it would much better if we animated the windows with
+        // scripting addition for true transaction batching
+        // Better animation control with the SLS APIs
+        
         CFTypeRef frame_transaction = SLSTransactionCreate(g_connection);
+        
         float mt;
         if (g_window_manager.window_animation_simplified_easing || g_window_manager.window_animation_fast_mode) {
             // Use linear interpolation for simplified/fast mode
@@ -1563,6 +1571,7 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
                 default: mt = t; // Linear fallback
             }
         }
+
 
         pip_calc_anchor_points(animation_count, anmxn, t, mt, easing, frame, total_frames, frame_transaction);
 
@@ -1603,8 +1612,6 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
                     }
                 }
                 
-
-
                 // mode 0: initial frame/setup pip
                 scripting_addition_anim_window_pip_mode( 
                     anmxn[i].capture.window->id, 0,
