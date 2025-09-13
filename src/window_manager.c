@@ -1568,7 +1568,7 @@ static void *window_manager_animate_window_list_pip_thread_proc(void *data)
         for (int i = 0; i < animation_count; ++i) {
             int ex, ey, ew, eh;
             ex = anmxn[i].end.x; ey = anmxn[i].end.y; ew = anmxn[i].end.w; eh = anmxn[i].end.h;
-            //window_manager_set_opacity(&g_window_manager, &anmxn[i].capture, 0.0);
+            window_manager_set_opacity(&g_window_manager, &anmxn[i].capture.window->id, 0.0);
             if(frame == 0){
                 struct view *view = window_manager_find_managed_window(&g_window_manager, anmxn[i].capture.window);
                 if (view) {

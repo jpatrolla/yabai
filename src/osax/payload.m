@@ -58,7 +58,7 @@ extern int SLSMainConnectionID(void);
 extern CGError SLSGetConnectionPSN(int cid, ProcessSerialNumber *psn);
 extern CGError SLSGetWindowAlpha(int cid, uint32_t wid, float *alpha);
 extern CGError SLSSetWindowAlpha(int cid, uint32_t wid, float alpha);
-
+extern CGError SLSTransactionSetWindowAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
 
 extern OSStatus SLSMoveWindowWithGroup(int cid, uint32_t wid, CGPoint *point);
 extern CGError SLSReassociateWindowsSpacesByGeometry(int cid, CFArrayRef window_list);
@@ -954,6 +954,7 @@ static void do_window_scale_forced_local(CFTypeRef transaction, uint32_t wid, in
             ay = -current_y;
             break;
     }
+    
     CGAffineTransform curr_scale = CGAffineTransformMakeScale(start_x_factor, start_y_factor);
 
     // Use our helper function with correct parameters:
@@ -1019,47 +1020,76 @@ static void do_window_scale_forced_local(CFTypeRef transaction, uint32_t wid, in
     float final_window_alpha = (mode == 2) ? opacity : window_alpha;
 
     switch (mode) {
-        case 0: // Initial setup - move window to start position
+        case 0: // Initial setup - create small fade-in effect
         {
+            // Order proxy above the real window
             SLSTransactionOrderWindowGroup(transaction, proxy_wid, 1, wid);
             
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, 1.0f);
-            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 1.0f);
+            // Start with both windows at small size (start position)
+            CGAffineTransform start_transform = create_anchor_transform(
+                end_x, end_y, end_w, end_h,  // Window is physically at end position
+                start_x, start_y, start_w, start_h,  // Make it appear at start position (small)
+                resize_anchor
+            );
+            
+            // Both windows start at the small transform
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, start_transform);
+            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, start_transform);
 
-            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, final_transform) ;
-            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
+            // Window starts invisible, proxy starts visible (acts as captured content)
+            SLSTransactionSetWindowAlpha(transaction, wid, 0.0f);
+            //SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, window_alpha);
+            
+            NSLog(@"🎬 fade_small_to_large: mode=0 start_transform applied to both windows");
             break;
         }
         
-        case 1: // move_pip - update position using current interpolated values
+        case 1: // Animation frame - scale up while cross-fading
         {
-            if (changes_size && !changes_position) {
-                // Pure scaling - use anchored scale transform
-                 SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  anchored_scale);
-            } else if (!changes_size && changes_position) {
-                // Pure translation - use translate transform
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, translate);
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2,  translate);
-            } else if (changes_size && changes_position && is_anchor_induced_position_change) {
-                  SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, anchored_scale);
-                     SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, anchored_scale);
-            } else {
-                // Combined or no changes
-                SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
-                SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, final_transform);
+            // Calculate current transform based on interpolated size
+            CGAffineTransform current_transform = create_anchor_transform(
+                end_x, end_y, end_w, end_h,  // Window is physically at end position  
+                current_x, current_y, current_w, current_h,  // Make it appear at current interpolated position
+                resize_anchor
+            );
+            
+            // Both windows scale up together
+            SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, current_transform);
+            SLSTransactionSetWindowTransform(transaction, proxy_wid, guess1, guess2, current_transform);
+            
+            // Calculate fade progress based on size progression
+            float progress = 0.0f;
+            if (fabs(end_w - start_w) > 1.0f) {
+                progress = (current_w - start_w) / (end_w - start_w);
+            } else if (fabs(end_h - start_h) > 1.0f) {
+                progress = (current_h - start_h) / (end_h - start_h);
             }
+            progress = fmax(0.0f, fmin(1.0f, progress)); // Clamp to [0,1]
+            
+            // Cross-fade: proxy fades out, real window fades in
+            float proxy_alpha = window_alpha * (1.0f - progress);
+            float window_alpha_current = window_alpha * progress;
+            
+            //SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, proxy_alpha);
+                SLSTransactionSetWindowAlpha(transaction, wid, 1.0f * duration);
+  
+            
+            NSLog(@"🎬 fade_small_to_large: mode=1 progress=%.3f proxy_alpha=%.3f window_alpha=%.3f", 
+                  progress, proxy_alpha, window_alpha_current);
             break;
         }
         
-        case 2: // Final position - end animation
+        case 2: // Final position - complete the transition
         {
-            SLSTransactionSetWindowSystemAlpha(transaction, proxy_wid, 0.0f);
+            // Hide proxy completely and order it behind
+            //SLSTransactionSetWindowAlpha(transaction, proxy_wid, 0.0f);
             SLSTransactionOrderWindowGroup(transaction, proxy_wid, 0, wid);
+            
+            // Set window to final transform and full opacity
             SLSTransactionSetWindowTransform(transaction, wid, guess1, guess2, final_transform);
-
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, final_window_alpha);
-            SLSTransactionSetWindowSystemAlpha(transaction, wid, window_alpha);
+            SLSTransactionSetWindowAlpha(transaction, wid, 0.0);
+            
+            NSLog(@"🎬 fade_small_to_large: mode=2 final transform applied, proxy hidden");
             break;
         }
         
