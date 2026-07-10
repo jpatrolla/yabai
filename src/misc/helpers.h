@@ -1,148 +1,7 @@
 #ifndef HELPERS_H
 #define HELPERS_H
 
-#define ANIMATION_EASING_TYPE_LIST \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_sine) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_sine) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_sine) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_quad) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_quad) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_quad) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_cubic) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_cubic) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_cubic) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_quart) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_quart) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_quart) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_quint) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_quint) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_quint) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_expo) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_expo) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_expo) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_circ) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_out_circ) \
-    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_circ)
-
-enum animation_easing_type
-{
-#define ANIMATION_EASING_TYPE_ENTRY(value) value##_type,
-    ANIMATION_EASING_TYPE_LIST
-#undef ANIMATION_EASING_TYPE_ENTRY
-    EASING_TYPE_COUNT
-};
-
-static char *animation_easing_type_str[] =
-{
-#define ANIMATION_EASING_TYPE_ENTRY(value) [value##_type] = #value,
-    ANIMATION_EASING_TYPE_LIST
-#undef ANIMATION_EASING_TYPE_ENTRY
-};
-
-static inline float ease_in_sine(float t)
-{
-    return 1.0f - cosf((t * M_PI) / 2.0f);
-}
-
-static inline float ease_out_sine(float t)
-{
-    return sinf((t * M_PI) / 2.0f);
-}
-
-static inline float ease_in_out_sine(float t)
-{
-    return -(cosf(M_PI * t) - 1.0f) / 2.0f;
-}
-
-static inline float ease_in_quad(float t)
-{
-    return t * t;
-}
-
-static inline float ease_out_quad(float t)
-{
-    return 1.0f - (1.0f - t) * (1.0f - t);
-}
-
-static inline float ease_in_out_quad(float t)
-{
-    return t < 0.5f ? 2.0f * t * t : 1.0f - powf(-2.0f * t + 2.0f, 2.0f) / 2.0f;
-}
-
-static inline float ease_in_cubic(float t)
-{
-    return t * t * t;
-}
-
-static inline float ease_out_cubic(float t)
-{
-    return 1.0f - powf(1.0f - t, 3);
-}
-
-static inline float ease_in_out_cubic(float t)
-{
-    return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
-}
-
-static inline float ease_in_quart(float t)
-{
-    return t * t * t * t;
-}
-
-static inline float ease_out_quart(float t)
-{
-    return 1.0f - powf(1.0f - t, 4);
-}
-
-static inline float ease_in_out_quart(float t)
-{
-    return t < 0.5f ? 8.0f * t * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 4.0f) / 2.0f;
-}
-
-static inline float ease_in_quint(float t)
-{
-    return t * t * t * t * t;
-}
-
-static inline float ease_out_quint(float t)
-{
-    return 1.0f - powf(1.0f - t, 5);
-}
-
-static inline float ease_in_out_quint(float t)
-{
-    return t < 0.5f ? 16.0f * t * t * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 5.0f) / 2.0f;
-}
-
-static inline float ease_in_expo(float t)
-{
-    return t == 0.0f ? 0.0f : powf(2.0f, 10.0f * t - 10.0f);
-}
-
-static inline float ease_out_expo(float t)
-{
-    return t == 1.0f ? 1.0f : 1.0f - powf(2.0f, -10.0f * t);
-}
-
-static inline float ease_in_out_expo(float t)
-{
-    return t == 0.0f ? 0.0f : t == 1.0f ? 1.0f : t < 0.5f ? powf(2.0f, 20.0f * t - 10.0f) / 2.0f : (2.0f - powf(2.0f, -20.0f * t + 10.0f)) / 2.0f;
-}
-
-static inline float ease_in_circ(float t)
-{
-    return 1.0f - sqrtf(1.0f - powf(t, 2.0f));
-}
-
-static inline float ease_out_circ(float t)
-{
-    return sqrtf(1.0f - powf(t - 1.0f, 2.0f));
-}
-
-static inline float ease_in_out_circ(float t)
-{
-    return t < 0.5f ? (1.0f - sqrtf(1.0f - powf(2.0f * t, 2.0f))) / 2.0f : (sqrtf(1.0f - powf(-2.0f * t + 2.0f, 2.0f)) + 1.0f) / 2.0f;
-}
+#include "easing.h"
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -527,6 +386,39 @@ static inline bool ax_enhanced_userinterface(AXUIElementRef ref)
     if (eui) AXUIElementSetAttributeValue(r, kAXEnhancedUserInterface, kCFBooleanFalse); \
     c \
     if (eui) AXUIElementSetAttributeValue(r, kAXEnhancedUserInterface, kCFBooleanTrue); \
+}
+
+// Tri-state EUI read: distinguishes a successful read (returns true, writes
+// *out) from an AX failure (returns false, leaves *out untouched). The plain
+// ax_enhanced_userinterface() above folds "read failed" into "false", so it
+// can't drive a cache that wants to update without a transient AX hiccup
+// clobbering a known-good value. The EUI-cache refresh (window.c) uses this.
+static inline bool ax_enhanced_userinterface_checked(AXUIElementRef ref, bool *out)
+{
+    CFTypeRef value;
+    if (AXUIElementCopyAttributeValue(ref, kAXEnhancedUserInterface, &value) != kAXErrorSuccess) {
+        return false;
+    }
+
+    *out = CFBooleanGetValue(value);
+    CFRelease(value);
+    return true;
+}
+
+// Same semantics as AX_ENHANCED_UI_WORKAROUND but reads the EUI flag from the
+// per-application cache (application->ax_eui_cached) instead of round-tripping
+// AX every call. The uncached macro pays one kAXEnhancedUserInterface READ per
+// invocation — ~0.5-1ms for responsive apps, 10-50ms for sluggish ones (iTerm2)
+// — which, on the hot move/resize commit path, stalls the single event loop.
+// The cache is populated at application_create and refreshed at window_create
+// (see window.c). Takes `struct application *` (not the AXUIElementRef).
+#define AX_ENHANCED_UI_WORKAROUND_CACHED(app, c) \
+{\
+    bool eui = (app)->ax_eui_cached; \
+    AXUIElementRef _ax_app_ref = (app)->ref; \
+    if (eui) AXUIElementSetAttributeValue(_ax_app_ref, kAXEnhancedUserInterface, kCFBooleanFalse); \
+    c \
+    if (eui) AXUIElementSetAttributeValue(_ax_app_ref, kAXEnhancedUserInterface, kCFBooleanTrue); \
 }
 
 #pragma clang diagnostic push
