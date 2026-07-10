@@ -23,7 +23,7 @@ yabai - window manager
 Synopsis
 --------
 
-*yabai* [*--load-sa*|*--uninstall-sa*|*--install-service*|*--uninstall-service*|*--start-service*|*--restart-service*|*--stop-service*|*--message*,*-m* 'msg'|*--config*,*-c* 'config_file'|*--verbose*,*-V*|*--version*,*-v*|*--help*,*-h*]
+*yabai* [*--load-sa*|*--reload-sa*|*--uninstall-sa*|*--install-service*|*--uninstall-service*|*--start-service*|*--restart-service*|*--stop-service*|*--message*,*-m* 'msg'|*--config*,*-c* 'config_file'|*--verbose*,*-V*|*--version*,*-v*|*--help*,*-h*]
 
 Description
 -----------
@@ -36,6 +36,11 @@ Options
     Load the scripting-addition into Dock.app. +
     Installs and updates the scripting-addition when necessary. +
     Path is /Library/ScriptingAdditions/yabai.osax. +
+    System Integrity Protection must be partially disabled.
+
+*--reload-sa*::
+    Force reinstall and re-inject the scripting-addition in a single pass. +
+    Unlike *--load-sa*, the reinstall is not skipped when the installed version matches — use after rebuilding yabai from source. +
     System Integrity Protection must be partially disabled.
 
 *--uninstall-sa*::
@@ -166,6 +171,11 @@ Global Settings
     'focused': The display that has focus when the window is created. +
     'cursor': The display that currently holds the mouse cursor.
 
+*window_focus_method* ['ax|sls']::
+    Specify the mechanism used to focus a window. +
+    'ax': Set the front process and raise the window through the Accessibility API (kAXRaiseAction). +
+    'sls': Hand focus to the WindowServer through the scripting-addition, bypassing the Accessibility API. Falls back to 'ax' if the scripting-addition is unavailable.
+
 *window_placement* ['first_child|second_child']::
     Specify whether managed windows should become the first or second leaf-node.
 
@@ -179,6 +189,18 @@ Global Settings
     Bypass macOS space animation when an application or window on an inactive space is focused. +
     You should only enable this if you do NOT use the scripting addition. +
     The scripting addition implements the same functionality in a more robust way.
+
+*mission_control_thumbnails_enabled* ['<BOOL_SEL>']::
+    When *space --toggle mission-control* opens Mission Control, reveal the spaces thumbnail strip at the top of the screen by briefly nudging the cursor to the top of the active display. +
+    Off by default. The *space --toggle mission-control-thumbnails* argument forces this on for a single invocation regardless of the config value.
+
+*window_focus_inter_display* ['<BOOL_SEL>']::
+    Extends *window --focus north|east|south|west* so that, when no target window is found on the current space, focus crosses to the closest window on the display in that direction. +
+    Off by default. Directional focus of floating windows on the current space works regardless of this setting.
+
+*window_focus_wrap* ['<BOOL_SEL>']::
+    When *window --focus north|east|south|west* finds no window in that direction, wrap around to the farthest window in the opposite direction. +
+    Off by default. Wrapping is confined to the current space unless *window_focus_inter_display* is also on, in which case it wraps across all displays.
 
 *window_shadow* ['<BOOL_SEL>|float']::
     Draw shadow for windows. +
@@ -209,6 +231,153 @@ Global Settings
 *window_animation_easing* ['<EASING>']::
     Easing function to use for window animations. +
     See https://easings.net for details.
+
+*window_animation_min_opacity* ['<FLOAT_SEL>']::
+    Opacity floor for the window animation fade (0.0 - 1.0). +
+    The window fades from this value up to 1.0 over the animation; 1.0 disables the fade. +
+    Requires Screen Recording permissions. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_ax_wake* ['<BOOL_SEL>']::
+    Wake an application's lazy accessibility tree at animation start so apps that defer it (e.g. Chromium / Electron) animate smoothly from the first frame. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_policy* ['true_resize|jello']::
+    Presentation recipe used while a window animation is in flight. +
+    'true_resize': the real window is resized every frame. +
+    'jello': windows whose size changes are presented as a stretched mesh warp with a single real resize at the end. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_warp_cover* ['off|proxy|lb_warp']::
+    Cover instant (non-animated) window placements to mask the flash of the application repainting at the new frame. +
+    'proxy': cover the placement with a snapshot of the window, then fade the snapshot out. +
+    'lb_warp': warp the real window onto the target frame with a mesh, released once the resize lands. +
+    Off by default. Requires Screen Recording permissions. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_cover_fade* ['<FLOAT_SEL>']::
+    Fade-out duration (in seconds) of the 'proxy' placement cover; 0.0 reveals instantly.
+
+*window_animation_warp_min_ms* ['<FLOAT_SEL>']::
+    Mesh tween length (in milliseconds) of the 'lb_warp' placement cover; 0 snaps instantly.
+
+*space_animation_duration* ['<FLOAT_SEL>']::
+    Duration of the animated slide when focusing an adjacent space on the same display. +
+    If 0.0, space focus switches instantly (stock behaviour). +
+    System Integrity Protection must be partially disabled.
+
+*space_animation_enter_delay* ['<FLOAT_SEL>']::
+    Delay (in seconds) before the incoming space starts sliding, staggering the two sides of the transition.
+
+*space_animation_exit_delay* ['<FLOAT_SEL>']::
+    Delay (in seconds) before the outgoing space starts sliding, staggering the two sides of the transition.
+
+*space_animation_fade* ['<BOOL_SEL>']::
+    Cross-fade windows during the animated space slide instead of a pure slide. +
+    Master gate for the per-side keys below. Off by default.
+
+*space_animation_fade_enter* ['<BOOL_SEL>']::
+    With *space_animation_fade* on, fade in the windows of the incoming space. On by default.
+
+*space_animation_fade_exit* ['<BOOL_SEL>']::
+    With *space_animation_fade* on, fade out the windows of the outgoing space. On by default.
+
+*space_animation_fade_enter_delay* ['auto|<FLOAT_SEL>']::
+    Seconds after the slide starts before the incoming fade begins. 'auto' tracks the slide.
+
+*space_animation_fade_exit_delay* ['auto|<FLOAT_SEL>']::
+    Seconds after the slide starts before the outgoing fade begins. 'auto' tracks the slide.
+
+*space_animation_fade_enter_dur* ['auto|<FLOAT_SEL>']::
+    Length (in seconds) of the incoming fade. 'auto' tracks the slide duration.
+
+*space_animation_fade_exit_dur* ['auto|<FLOAT_SEL>']::
+    Length (in seconds) of the outgoing fade. 'auto' tracks the slide duration.
+
+*multi_display_edge_guard* ['<BOOL_SEL>']::
+    Stop an animated space slide at a display edge (with a nudge) instead of walking across to the neighbouring display. +
+    Off by default (stock behaviour: focus continues onto the next display).
+
+*expose_animation_duration* ['<FLOAT_SEL>']::
+    Override the duration of the native Mission Control enter / exit animation. +
+    0.0 removes the tween entirely (Mission Control opens and closes instantly); a negative value restores the native duration. +
+    System Integrity Protection must be partially disabled.
+
+*mission_control_target_display* ['default|mouse|smart']::
+    Which display a *space --focus prev|next* without an explicit space acts on. +
+    'default': the currently active display. +
+    'mouse': the display under the cursor. +
+    'smart': the display under the cursor when the last focus change came from the mouse; the active display when it came from the keyboard.
+
+*focus_unify* ['<BOOL_SEL>']::
+    Keep yabai's tracked focus in sync with the WindowServer's key-window focus, adopting focus changes the Accessibility API does not report (e.g. native tab switches). +
+    Off by default.
+
+*focus_ring_enabled* ['<BOOL_SEL>']::
+    Draw a ring that follows the focused window (and rides animated space slides). +
+    On by default. +
+    System Integrity Protection must be partially disabled.
+
+*focus_ring_color* ['0xAARRGGBB|auto|system']::
+    Ring color. 'auto' and 'system' track the macOS accent color.
+
+*focus_ring_width* ['<FLOAT_SEL>']::
+    Band thickness in pixels.
+
+*focus_ring_alpha* ['<FLOAT_SEL>']::
+    Whole-ring translucency (0.0 - 1.0).
+
+*focus_ring_opacity* ['<FLOAT_SEL>']::
+    Alpha of the hard stroke / tint wash (0.0 - 1.0); 0.0 disables it.
+
+*focus_ring_animate* ['<BOOL_SEL>']::
+    Ease the band on focus change and space switch; live tracking during moves stays instant.
+
+*focus_ring_blur_radius* ['<FLOAT_SEL>']::
+    Frost blur radius in pixels; drives the ring style: 0 is a sharp solid stroke, greater than 0 is a frosted band.
+
+*focus_ring_blur_bleed* ['<FLOAT_SEL>']::
+    Pixels of the window's own edge sampled and frosted outward; 0 disables.
+
+*focus_ring_blur_feather* ['<FLOAT_SEL>']::
+    Pixels of softening applied to the band mask's edges; 0 disables.
+
+*focus_ring_blur_saturation* ['<FLOAT_SEL>']::
+    Frost saturation (0.0 - 4.0); 1.0 leaves the frost unchanged.
+
+*focus_ring_blur_brightness* ['<FLOAT_SEL>']::
+    Frost brightness (-1.0 - 1.0); 0.0 leaves the frost unchanged.
+
+*focus_ring_blur_contrast* ['<FLOAT_SEL>']::
+    Frost contrast (0.0 - 4.0); 1.0 leaves the frost unchanged.
+
+*focus_ring_blur_hue* ['<FLOAT_SEL>']::
+    Frost hue rotation in degrees (0 - 360); 0 leaves the frost unchanged.
+
+*focus_ring_blur_color* ['0xAARRGGBB|inherit']::
+    Frost tint color; 'inherit' follows *focus_ring_color*.
+
+*focus_ring_blur_opacity* ['<FLOAT_SEL>|inherit']::
+    Frost tint alpha (0.0 - 1.0); 'inherit' follows *focus_ring_opacity*.
+
+*focus_ring_blend_mode* ['<BLEND>']::
+    Blend mode of the tint over the frost. +
+    <BLEND> := normal | multiply | screen | overlay | darken | lighten | color-dodge | color-burn | soft-light | hard-light | difference | exclusion | hue | saturation | color | luminosity
+
+*focus_ring_blur_stroke* ['<BOOL_SEL>']::
+    Overlay a crisp stroke on the frosted band. On by default.
+
+*focus_ring_blur_stroke_position* ['above|below']::
+    Draw the stroke above or below the frosted band.
+
+*focus_ring_blur_stroke_width* ['<FLOAT_SEL>']::
+    Stroke thickness in pixels, independent of the band width.
+
+*focus_ring_blur_stroke_color* ['0xAARRGGBB|inherit']::
+    Stroke color; 'inherit' follows *focus_ring_color*.
+
+*focus_ring_blur_stroke_opacity* ['<FLOAT_SEL>|inherit']::
+    Stroke alpha (0.0 - 1.0); 'inherit' follows *focus_ring_opacity*.
 
 *insert_feedback_color* ['0xAARRGGBB']::
     Color of the *window --insert* message and mouse_drag selection. +
@@ -348,7 +517,7 @@ COMMAND
 *--gap* 'abs|rel:<gap>'::
     Size of the gap that separates windows on the selected space.
 
-*--toggle* 'padding|gap|mission-control|show-desktop'::
+*--toggle* 'padding|gap|mission-control|mission-control-thumbnails|show-desktop'::
     Toggle space setting on or off for the selected space.
 
 *--layout* 'bsp|stack|float'::
@@ -413,7 +582,8 @@ COMMAND
 
 *--move* 'abs|rel:<dx>:<dy>'::
     If type is 'rel' the selected window is moved by 'dx' pixels horizontally and 'dy' pixels vertically. +
-    If type is 'abs' 'dx' and 'dy' will become the new position.
+    If type is 'abs' 'dx' and 'dy' will become the new position. +
+    With type 'abs', either coordinate may be the literal 'center' to center the window on its display's usable area along that axis (e.g. 'abs:center:center').
 
 *--resize* 'top|left|bottom|right|top_left|top_right|bottom_right|bottom_left|abs:<dx>:<dy>'::
     Resize the selected window by moving the given handle 'dx' pixels horizontally and 'dy' pixels vertically. +
@@ -898,6 +1068,34 @@ DATAFORMAT
     "action": string
 }
 ----
+
+Capture
+~~~~~~~
+
+Screen-recording helper. Records a window, a display, or every display to HEVC video under ~/Movies, and can stitch per-display recordings into a single video afterwards.
+
+General Syntax
+^^^^^^^^^^^^^^
+
+yabai -m capture '<COMMAND>'
+
+COMMAND
+^^^^^^^
+
+*start* ['wid:<id>' 'display:<index|all>' 'padding:<pts>' 'duration:<secs>' 'fps:<n>' 'scale:<f>' 'bpp:<f>' 'cursor:<on|off>' 'name:<str>' 'format:<mp4|mov>' 'if-exists:<overwrite|fail|rename>']::
+    Begin a recording. With no arguments, records the active display until *capture stop*.
+
+*stop*::
+    Finalize the active capture session(s).
+
+*status*::
+    Output JSON status of the active capture.
+
+*stitch* ['group:<name>' '<file.mov>...' 'out:<path>' 'layout:<sidebyside|faithful>' 'border:<px>' 'gap:<px>' 'match:<height|none>' 'cleanup:<on|off>' 'format:<mp4|mov>' 'if-exists:<overwrite|fail|rename>']::
+    Combine per-display recordings into one video.
+
+*help*::
+    Output the full argument reference with examples.
 
 Exit Codes
 ----------
