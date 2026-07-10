@@ -1,6 +1,9 @@
 extern struct event_loop g_event_loop;
 extern enum mission_control_mode g_mission_control_mode;
 extern volatile uint64_t __last_cmd_tab_time;
+extern int g_connection;
+extern struct window_manager g_window_manager;
+extern uint32_t focus_ring_get_target_wid(void);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -20,9 +23,80 @@ static CONNECTION_CALLBACK(connection_handler)
     } else if (type == 804) {
         uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
         event_loop_post(&g_event_loop, SLS_WINDOW_DESTROYED, (void *) (intptr_t) wid, 0);
+    } else if (type == 1325) {
+        // kCGSWindowDidCreate. Confirmed layout (len=12): { uint64_t sid; uint32_t wid }.
+        // w0/w1 are the space id; the newly-materialized window's wid is at offset 8.
+        // A native tab switch fires ONLY this event for the incoming tab (no 808/815/816
+        // /WINDOW_FOCUSED), so it is the sole focus signal for a silent tab swap.
+        uint32_t wid = 0;
+        if (data && data_length >= 12) memcpy(&wid, (char *) data + 8, sizeof(uint32_t));
+        if (wid) event_loop_post(&g_event_loop, SLS_WINDOW_CREATED, (void *) (intptr_t) wid, 0);
     } else if (type == 1202) {
         __atomic_store_n(&__last_cmd_tab_time, read_os_timer(), __ATOMIC_RELEASE);
+    } else if (type == 1329) {
+        // kCGSSpaceChange: the SLS-level space commit. Native switches also fire
+        // NSWorkspace.activeSpaceDidChange (-> SPACE_CHANGED via workspace.m), but
+        // an SA-driven animated slide commits the active space inside a raw SLS
+        // transaction and does NOT fire that notification -- without this leg the
+        // daemon never hears its own slide commit and SPACE_CHANGED's
+        // reconcile/drain/focus-recall never run. kCGSSpaceChange fires twice per
+        // switch (leave+enter); post only when the active space actually changes.
+        // Runs on the g_connection notify runloop (single thread), so a plain
+        // static is safe.
+        static uint64_t s_last_space_change_sid;
+        uint64_t active = SLSGetActiveSpace(g_connection);
+        if (active && active != s_last_space_change_sid) {
+            s_last_space_change_sid = active;
+            event_loop_post(&g_event_loop, SPACE_CHANGED, NULL, 0);
+        }
     }
+}
+
+// Global SLS notify proc (SLSRegisterNotifyProc -- NOT per-connection) for window
+// geometry: kCGSWindowDidMove (806) / kCGSWindowDidResize (807). These window
+// events are delivered ONLY through the global notify mechanism; a per-connection
+// proc never receives them. Same signal JankyBorders rides for border-follow.
+// `data` points to the wid. Source-filter to the ring's committed target so we
+// only wake the event loop for the framed window; the main-thread
+// SLS_WINDOW_MOVED handler repositions.
+static void focus_ring_geometry_notify(uint32_t event, void *data, size_t data_length, void *context)
+{
+    if (!data) return;
+    uint32_t wid = *(uint32_t *)data;
+    if (wid && wid == focus_ring_get_target_wid())
+        event_loop_post(&g_event_loop, SLS_WINDOW_MOVED, (void *) (intptr_t) wid, 0);
+}
+
+// Global SLS notify proc for window VISIBILITY: kCGSWindowIsVisible (815) /
+// kCGSWindowIsInvisible (816). Like 806/807, these window events reach ONLY the
+// global notify proc (per-connection procs never see them). 815 fires AFTER a reorder
+// settles -- later than the 808 order-change burst -- so it is the post-settle signal
+// the ring needs for same-app focus: AX goes silent for multi-tab windows, and 808
+// alone re-resolves mid-burst and lands one focus behind. `data` points to the wid;
+// refocus_ring re-resolves the topmost itself, so this is only a wake hint. Unfiltered
+// (any wid) -- Dock-overlay / off-space noise is rejected by refocus_ring's
+// visible-space + topmost-normal-window resolve.
+static void focus_ring_visibility_notify(uint32_t event, void *data, size_t data_length, void *context)
+{
+    if (!data) return;
+    uint32_t wid = *(uint32_t *)data;
+    if (!wid) return;
+    event_loop_post(&g_event_loop, event == 816 ? SLS_WINDOW_INVISIBLE : SLS_WINDOW_VISIBLE,
+                    (void *) (intptr_t) wid, 0);
+}
+
+// kCGSWindowIsChangingScreens (805): the focused window crossing displays IS the
+// focus moving displays. Re-anchor focused_display_id immediately, or refocus_ring
+// keeps resolving the SOURCE display's space and the next 808/815 burst re-points
+// the ring at that display's next-top window (mid-drag steal). A single word
+// write off the notify runloop, same cross-thread contract as the other weak arms.
+static void focus_ring_crossing_notify(uint32_t event, void *data, size_t data_length, void *context)
+{
+    if (!data) return;
+    uint32_t wid = *(uint32_t *)data;
+    if (!wid || wid != g_window_manager.focused_window_id) return;
+    uint32_t did = window_display_id(wid);
+    if (did) g_window_manager.focused_display_id = did;
 }
 #pragma clang diagnostic pop
 
@@ -108,4 +182,116 @@ void mission_control_unobserve(void)
 static inline bool mission_control_is_active(void)
 {
     return g_mission_control_mode != MISSION_CONTROL_MODE_INACTIVE;
+}
+
+// ============================================================================
+// OSLog Mission-Control enter/exit observer
+// ----------------------------------------------------------------------------
+// Dock emits a unified-log line "Changing from mode <a> to <b>" the instant it
+// begins an MC transition: ".none -> .showAllWindows" on enter, ".show* -> .none"
+// on exit. A tight `log stream` predicate delivers those lines with ~0.2-4ms lag
+// -- earlier than the AX observer, early enough to drive the focus-ring
+// hide/restore. The in-process live-stream SPI (os_activity_stream_for_pid) is
+// entitlement-gated (com.apple.private.logging.stream, Apple-signed only), so we
+// shell out to the already-entitled /usr/bin/log and parse its stdout on a
+// dedicated reader thread. On a match we post MISSION_CONTROL_OSL_ENTER /
+// _OSL_EXIT; the event-loop handlers perform the ring hide / restore.
+extern char **environ;
+
+static struct {
+    pthread_t thread;
+    pid_t child;      // the /usr/bin/log subprocess
+    int read_fd;      // pipe read end (owned by the reader thread)
+    volatile bool running;
+} g_mc_osl_observer;
+
+static void *mission_control_osl_reader(void *unused)
+{
+    (void)unused;
+    FILE *stream = fdopen(g_mc_osl_observer.read_fd, "r");
+    if (!stream) return NULL;
+
+    // ndjson: one JSON object per line. The predicate matches every Dock MC mode
+    // transition; classify by the ".<from> to .<to>" endpoints into the three
+    // expose modes (posted as param1):
+    // 0=showAllWindows (Mission Control), 1=showFrontWindows (app-Exposé),
+    // 2=showDesktop. Endpoint matching naturally ignores the ".show* to .show* with
+    // fluid gesture" ticks and the ".none to .none" transient (they match no pattern).
+    static const struct { const char *pat; enum event_type ev; int mode; } MC_MODES[] = {
+        { ".none to .showAllWindows",   MISSION_CONTROL_OSL_ENTER, 0 },  // Mission Control
+        { ".none to .showFrontWindows", MISSION_CONTROL_OSL_ENTER, 1 },  // app-Exposé
+        { ".none to .showDesktop",      MISSION_CONTROL_OSL_ENTER, 2 },  // Show Desktop
+        { ".showAllWindows to .none",   MISSION_CONTROL_OSL_EXIT,  0 },
+        { ".showFrontWindows to .none", MISSION_CONTROL_OSL_EXIT,  1 },
+        { ".showDesktop to .none",      MISSION_CONTROL_OSL_EXIT,  2 },
+    };
+    char line[8192];
+    while (__atomic_load_n(&g_mc_osl_observer.running, __ATOMIC_ACQUIRE) &&
+           fgets(line, sizeof line, stream)) {
+        for (int i = 0; i < (int)(sizeof MC_MODES / sizeof MC_MODES[0]); i++) {
+            if (strstr(line, MC_MODES[i].pat)) {
+                event_loop_post(&g_event_loop, MC_MODES[i].ev, NULL, MC_MODES[i].mode);
+                break;
+            }
+        }
+    }
+
+    fclose(stream); // also closes read_fd
+    return NULL;
+}
+
+void mission_control_osl_observe(void)
+{
+    if (__atomic_load_n(&g_mc_osl_observer.running, __ATOMIC_ACQUIRE)) return;
+
+    uint32_t pid = workspace_get_dock_pid();
+    if (!pid) return;
+
+    int fds[2];
+    if (pipe(fds) != 0) return;
+
+    char pidbuf[16];
+    snprintf(pidbuf, sizeof pidbuf, "%u", pid);
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    posix_spawn_file_actions_adddup2(&fa, fds[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addclose(&fa, fds[0]);
+    posix_spawn_file_actions_addclose(&fa, fds[1]);
+
+    char *argv[] = {
+        "/usr/bin/log", "stream",
+        "--process",   pidbuf,
+        "--style",     "ndjson",
+        "--predicate", "eventMessage CONTAINS \"Changing from mode\"",
+        NULL
+    };
+
+    pid_t child;
+    int rc = posix_spawn(&child, "/usr/bin/log", &fa, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    close(fds[1]); // parent keeps only the read end
+
+    if (rc != 0) {
+        LOGFT("MC_OSL", "posix_spawn(/usr/bin/log) failed rc=%d -- MC-enter ring hide disabled\n", rc);
+        close(fds[0]);
+        return;
+    }
+
+    g_mc_osl_observer.child = child;
+    g_mc_osl_observer.read_fd = fds[0];
+    __atomic_store_n(&g_mc_osl_observer.running, true, __ATOMIC_RELEASE);
+    pthread_create(&g_mc_osl_observer.thread, NULL, mission_control_osl_reader, NULL);
+}
+
+void mission_control_osl_unobserve(void)
+{
+    if (!__atomic_load_n(&g_mc_osl_observer.running, __ATOMIC_ACQUIRE)) return;
+
+    __atomic_store_n(&g_mc_osl_observer.running, false, __ATOMIC_RELEASE);
+    if (g_mc_osl_observer.child) kill(g_mc_osl_observer.child, SIGTERM); // -> stdout EOF -> reader exits
+    pthread_join(g_mc_osl_observer.thread, NULL);
+    g_mc_osl_observer.child = 0;
+    g_mc_osl_observer.read_fd = -1;
 }

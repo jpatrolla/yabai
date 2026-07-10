@@ -9,6 +9,12 @@ extern int g_connection;
 extern void *g_workspace_context;
 extern int g_layer_below_window_level;
 volatile bool __pending_window_focus;
+
+// Focus ring: window focused DURING Mission Control. Painting the ring at a
+// scaled thumbnail-transform rect looks wrong, so the focus sink stashes the wid
+// here (last-write-wins) instead of showing; MISSION_CONTROL_EXIT reveals it at
+// the settled real rect. 0 = no focus changed during MC.
+static uint32_t g_focus_ring_mc_deferred_wid = 0;
 volatile bool __pending_gesture;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
@@ -30,7 +36,103 @@ static void update_window_notifications(void)
         })
     }
 
+    // Native-tab wids (AX-hidden, SLS-only) aren't in g_window_manager.window, so the
+    // loops above miss them. Re-include the tab set on every rebuild — a full-list
+    // re-declare (replace semantics) would otherwise drop their subscription and tab
+    // switches would go silent. Deduped vs tracked (belt-and-braces; the set is
+    // untracked-only by construction) and bounds-guarded against the fixed array.
+    table_for (void *tab_ptr, g_window_manager.tab_window, {
+        if (window_count >= 1024) break;
+        uint32_t tab_wid = (uint32_t)(uintptr_t) tab_ptr;
+        if (window_manager_find_window(&g_window_manager, tab_wid)) continue;
+        window_list[window_count++] = tab_wid;
+    })
+
     SLSRequestNotificationsForWindows(g_connection, window_list, window_count);
+}
+
+// Space-transition gate (FR-4). While a yabai-driven animated slide is in
+// flight, every wid-based ring show is suppressed at the single choke point in
+// focus_ring.m: the space COMMITS server-side while the payload slide is still
+// playing, so the recall's WINDOW_FOCUSED lands mid-slide — and a show there
+// resolves the window's untransformed final frame (SLSGetScreenRectForWindow
+// reads the frame, not the slide transform), painting a stationary ring while
+// everything else is still moving. begin() sets the flag synchronously on the
+// caller thread so the gate is live before the slide's first frame; finish()
+// (the slide's nominal end) re-shows the settled focus unless the deferred
+// space-switch fade owns the reveal. A gen-guarded fallback inside begin()
+// clears the gate even when the slide's own finish never lands.
+//
+// Threading: `active` is written on the event-loop/SA threads and read from the
+// focus-ring dispatch queue. A relaxed atomic bool is enough for a visual gate —
+// a one-frame stale read at most, self-healing on the next event.
+static struct {
+    uint32_t gen;
+    bool     active;
+    uint32_t did;        // display the in-flight slide is on (0 = unknown -> gate all)
+    uint64_t deadline;   // read_os_timer() tick past which active() self-expires
+} g_space_transition;
+
+bool space_transition_active(void)
+{
+    if (!__atomic_load_n(&g_space_transition.active, __ATOMIC_RELAXED)) return false;
+    // Self-expiry backstop. The normal clear is a main-queue timer
+    // (space_transition_finish from space_manager.c's teardown, or begin()'s
+    // fallback). A retarget bumps g_slide_animating_gen and can orphan that
+    // teardown; if the paired clear is ever missed, this cap stops the flag
+    // latching true for the whole session and suppressing the ring globally.
+    // The deadline is the slide's own visual end, so this never fires early.
+    uint64_t deadline = __atomic_load_n(&g_space_transition.deadline, __ATOMIC_RELAXED);
+    if (deadline && read_os_timer() > deadline) return false;
+    return true;
+}
+
+// True when the in-flight slide is on `did`. A slide runs on ONE display, so a
+// ring show for a window on a DIFFERENT display must not be gated by it. Pair
+// with space_transition_active(); fails closed (gates) both directions when a
+// display can't be resolved: sd==0 (stored slide display unknown) gates all
+// displays, and did==0 (target window's display unknown, e.g. window_display_id
+// resolved nothing mid-transition) is gated too rather than treated as "not on
+// this display".
+bool space_transition_on_display(uint32_t did)
+{
+    uint32_t sd = __atomic_load_n(&g_space_transition.did, __ATOMIC_RELAXED);
+    return sd == 0 || did == 0 || sd == did;
+}
+
+static void space_transition_reshow(const char *source)
+{
+    extern bool focus_ring_deferred_fade_pending(void);
+    if (focus_ring_deferred_fade_pending()) return;   // the deferred fade owns the reveal
+    uint32_t wid = g_window_manager.focused_window_id;
+    debug("space_transition %s: re-show wid=%u\n", source, wid);
+    if (wid) focus_ring_show_for_wid_settled(wid);
+}
+
+void space_transition_begin(int expected_ms, uint32_t did)
+{
+    uint32_t gen = __atomic_add_fetch(&g_space_transition.gen, 1, __ATOMIC_RELAXED);
+    int delay_ms = expected_ms > 0 ? expected_ms : 800;
+    __atomic_store_n(&g_space_transition.did, did, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_space_transition.deadline,
+                     read_os_timer() + (uint64_t)delay_ms * read_os_freq() / 1000,
+                     __ATOMIC_RELAXED);
+    // active last, so a concurrent active() reader that observes active=true
+    // reads a coherent deadline (relaxed is fine for a visual gate).
+    __atomic_store_n(&g_space_transition.active, true, __ATOMIC_RELAXED);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)delay_ms * NSEC_PER_MSEC),
+                   dispatch_get_main_queue(), ^{
+        if (gen != __atomic_load_n(&g_space_transition.gen, __ATOMIC_RELAXED)) return;
+        __atomic_store_n(&g_space_transition.active, false, __ATOMIC_RELAXED);
+        space_transition_reshow("fallback");
+    });
+}
+
+void space_transition_finish(void)
+{
+    __atomic_add_fetch(&g_space_transition.gen, 1, __ATOMIC_RELAXED);   // cancel the pending fallback
+    __atomic_store_n(&g_space_transition.active, false, __ATOMIC_RELAXED);
+    space_transition_reshow("finish");
 }
 
 static void window_did_receive_focus(struct window_manager *wm, struct mouse_state *ms, struct window *window)
@@ -42,17 +144,75 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
 
     window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
 
-    if (wm->focused_window_id != window->id) {
+    // mouse-follows-focus dedupe keyed on last_centered_wid, NOT focused_window_id: a
+    // settle stamp (window_manager_update_focused_window, focus_unify on) can move
+    // focused_window_id to this window BEFORE this funnel runs (deterministic on
+    // new-window / deminimize, where an 815 settle pre-stamps), which a
+    // focused_window_id-keyed gate would read as "no change" and skip the warp.
+    // last_centered_wid is written only here, so the settle path can't suppress mff.
+    if (wm->last_centered_wid != window->id) {
         if (ms->ffm_window_id != window->id) {
             window_manager_center_mouse(wm, window);
+            wm->last_centered_wid = window->id;
         }
+    }
 
+    if (wm->focused_window_id != window->id) {
         wm->last_window_id = wm->focused_window_id;
     }
 
     wm->focused_window_id = window->id;
     wm->focused_window_psn = window->application->psn;
+    // Authoritative focus-display anchor: refocus_ring resolves the ring on THIS
+    // display's space. This funnel is the only place a real focus change lands
+    // (click/AX/app-front-switch/ffm/space-recovery), so it is the right place
+    // to stamp it (plus the MOUSE_DOWN geometry pre-stamp and the 805 crossing
+    // re-anchor for the paths that reach here late or not at all).
+    wm->focused_display_id = window_display_id(window->id);
     ms->ffm_window_id = 0;
+
+    // Per-space focus recall: record this window as its space's last-focused so
+    // SPACE_CHANGED can restore it on re-entry. Lives here (the common focus sink)
+    // rather than only in EVENT_HANDLER(WINDOW_FOCUSED) so INTER-app focus — which
+    // arrives via APPLICATION_FRONT_SWITCHED, not the AX FocusedWindowChanged that
+    // only fires intra-app — records recall too (single-window apps never fire the
+    // AX event). Resolve the window's own space so the write lands for floats (never
+    // in the node tree) and single-window apps alike.
+    uint64_t focus_sid = window_space(window->id);
+    if (focus_sid) {
+        struct view *focus_view = space_manager_find_view(&g_space_manager, focus_sid);
+        if (focus_view) focus_view->last_focused_wid = window->id;
+    }
+
+    // Focus ring follows the focused window. Placed before the early returns
+    // below so floating + unmanaged windows are covered too. The call no-ops
+    // internally during a space switch so it doesn't fight a slide.
+    // Verbose-gated at the call site too: the sid/did arguments are SLS queries
+    // and must not run per focus event when nobody reads the log.
+    if (g_verbose) {
+        focus_ring_log("focus_event", "wid=%u app=%s frame=(%.0f,%.0f %.0fx%.0f) sid=%llu did=%u",
+                       window->id,
+                       window->application ? window->application->name : "?",
+                       window->frame.origin.x, window->frame.origin.y,
+                       window->frame.size.width, window->frame.size.height,
+                       (unsigned long long) window_space(window->id),
+                       window_display_id(window->id));
+    }
+    // During Mission Control the window is a scaled thumbnail transform; painting
+    // the ring now lands it at that rect. Stash the wid (MISSION_CONTROL_EXIT
+    // reveals it at the settled real rect) — the ring's alpha is already 0 from
+    // focus_ring_mc_hide(), so nothing shows meanwhile.
+    if (mission_control_is_active()) {
+        g_focus_ring_mc_deferred_wid = window->id;
+    } else {
+        focus_ring_show_for_wid(window->id);
+        // The payload's `visible` master-alpha slot defaults to 0 (hidden) on a fresh
+        // SA load and only flips to 1 on a SET_VISIBLE opcode — after a `--load-sa`
+        // every SHOW would stamp the ring transparent (drawn, ordered-in, but never
+        // composites). Re-assert the current enable state on each focus so a fresh
+        // payload self-heals.
+        focus_ring_set_visible_async(focus_ring_get_enabled());
+    }
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
     if (!view) return;
@@ -67,6 +227,68 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
         node->window_order[0] = window->id;
 
         break;
+    }
+}
+
+// Focus-ring reconcile off an SLS focus-change signal (808 order-change, 815/816
+// visibility settle).
+// macOS carries the key-window identity in NO dedicated SLS event, and event payload wids
+// are unreliable: a same-app multi-window / native-tab focus (e.g. a mouse click between two
+// multi-tab Ghostty windows, where AX kAXFocusedWindowChangedNotification goes silent) emits
+// a BURST of 808s — one per window whose z-index shifts — and most payloads are DEMOTED
+// siblings, not the newly-focused window. So the payload wid is only a wake hint; the identity
+// is re-resolved from the SLS KEY FOCUS (window_manager_space_key_focus_window: SLPS key PSN
+// -> owner cid -> that owner's topmost NORMAL window on the space). Key focus is correct by
+// construction where topmost-z is not: it returns 0 for the desktop / no-key case — the
+// genuine "nothing focused" signal (topmost-z always names some background window) — and an
+// overlay-panel steal (Raycast/Claude floating z-top while the app keeps key focus) resolves
+// the KEY holder's window, not the overlay. Anchoring on focused_display_id (not the event
+// window's own space) keeps the ring single-display: on a multi-display rig every display's
+// current space passes space_is_visible, so a per-event-space resolve would let background churn
+// on the OTHER display yank the ring off the focused window. Cross-display clicks stay covered by
+// the MOUSE_DOWN geometry pre-stamp. Fallback before the first stamp: the global active space.
+//
+// `settled` marks the POST-SETTLE sites (815/816) apart from the pre-settle burst
+// (808/created/deminimized): only settled sites act on a 0 resolve (hide the ring), because a
+// transient 0 mid-burst — key app's cid not yet resolvable (app mid-launch/untracked) — must
+// not blink the ring; the following 815 settles it. Ring-only: no focused_window_id / opacity
+// / signal side effects. Idempotent with the async focus sink —
+// focus_ring_show_for_wid's per-VBL coalesce + idempotent-rect skip dedupe the burst and any
+// overlap with window_did_receive_focus.
+static void refocus_ring(uint32_t wake_wid, bool settled)
+{
+    if (!wake_wid) return;
+    // Stock parity when idle: with the ring disabled AND focus_unify off,
+    // nothing consumes the resolve below (show/hide no-op when disabled; the
+    // stamping helper no-ops without focus_unify) — skip the per-event SLS
+    // key-focus query entirely.
+    if (!focus_ring_get_enabled() && !g_window_manager.focus_unify) return;
+    // During Mission Control the key-focus process is Dock (unresolvable cid -> 0) and the ring
+    // is owned by the MC hide/defer machinery (g_focus_ring_mc_deferred_wid); a resolve here
+    // would stamp/hide against thumbnails.
+    if (mission_control_is_active()) return;
+    uint32_t did = g_window_manager.focused_display_id;
+    // Mid-slide gate (mirrors the show-side gate in focus_ring.m): the outgoing space stays
+    // space_is_visible until commit, so a mid-slide 815 resolved against it returns 0 (the new
+    // key app's window is on the INCOMING space) and would hide the ring out from under the
+    // SPA-21 exit-ride / strand space_transition_reshow. Fails closed per-display.
+    if (space_transition_active() && space_transition_on_display(did)) return;
+    uint64_t sid = did ? display_space_id(did) : SLSGetActiveSpace(g_connection);
+    if (!sid || !space_is_visible(sid)) return;   // mid-transition/teardown -> skip
+    // Settled sites (815/816) resolve through the stamping helper so focused_window_id
+    // tracks real key focus through AX silence (gated on focus_unify inside the helper).
+    // Burst sites (808/created/deminimized) use the raw resolver — they must NOT move the
+    // tracked id (808 precedes AX; see window_manager_update_focused_window). Either way
+    // exactly ONE resolve per event, and the ring keys off the returned wid.
+    uint32_t wid = settled
+                 ? window_manager_update_focused_window(&g_window_manager, sid)
+                 : window_manager_space_key_focus_window(&g_window_manager, sid);
+    if (wid) {
+        focus_ring_show_for_wid(wid);
+    } else if (settled) {
+        // Pass the ring's committed target: focus_ring_hide_for_wid no-ops on 0 and only hides
+        // a matching target, so the hide is race-safe against an in-flight show.
+        focus_ring_hide_for_wid(focus_ring_get_target_wid(), "keyfocus-none");
     }
 }
 
@@ -598,8 +820,12 @@ static EVENT_HANDLER(WINDOW_CREATED)
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         update_window_notifications();
     }
-}
 
+    // A fresh window can take focus with no AX FocusedWindowChanged (e.g. same-app
+    // new window, iTerm cmd+N). Wake hint only: refocus_ring re-resolves the topmost
+    // window on the focused display's space, so an off-display create is a no-op show.
+    refocus_ring(window->id, false);
+}
 static EVENT_HANDLER(WINDOW_DESTROYED)
 {
     struct window *window = context;
@@ -611,6 +837,11 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     debug("%s: %s %d\n", __FUNCTION__, window->application ? window->application->name : "<unknown>", window->id);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    // Capture the window's space (view->sid for tiled; the current active space for
+    // float — valid here because we only advance focus when this window was focused,
+    // i.e. on the active display) before the untile/removal below mutates state.
+    uint64_t destroyed_sid = view ? view->sid : g_space_manager.current_space_id;
+    bool was_focused = g_window_manager.focused_window_id == window->id;
     if (view) {
         space_manager_untile_window(view, window);
         window_manager_remove_managed_window(&g_window_manager, window->id);
@@ -619,8 +850,34 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     if (g_mouse_state.window == window) g_mouse_state.window = NULL;
     if (g_mouse_state.ffm_window_id == window->id) g_mouse_state.ffm_window_id = 0;
 
+    // Focus ring: clear it if it was framing this window. Conditional (no-ops unless
+    // the ring's committed target is still this wid), mirroring the minimize path — a
+    // survivor's re-show drains ahead on the ring queue and supersedes.
+    focus_ring_hide_for_wid(window->id, "destroy");
+
     if (window->is_eligible) {
         event_signal_push(SIGNAL_WINDOW_DESTROYED, window);
+    }
+
+    // Focus advance: macOS keeps a windowless app front and won't move keyboard focus
+    // when the app's LAST window on a space closes, so focus (and the ring) would
+    // strand on the dead window. When the destroyed window was focused and its app has
+    // no surviving window on that same space, advance to the space's z-topmost window
+    // of any process — else the Finder desktop. Scoped to destroyed_sid (one space =
+    // one display), so a same-process window on another display never wins. If the app
+    // still has a window here, macOS focuses it and fires WINDOW_FOCUSED — leave it be.
+    if (was_focused && window->application) {
+        uint32_t survivor = window_manager_space_application_window(&g_window_manager, window->application, destroyed_sid);
+        if (!survivor || survivor == window->id) {
+            // Topmost tracked window on the space (rich query, dying wid filtered) —
+            // else the Finder desktop when the space has no other normal window.
+            struct window *next = window_manager_space_topmost_tracked_window(&g_window_manager, destroyed_sid, window->id);
+            if (next) {
+                window_manager_focus_window_with_raise(&next->application->psn, next->id, next->ref);
+            } else {
+                _SLPSSetFrontProcessWithOptions(&g_process_manager.finder_psn, 0, kCPSNoWindows);
+            }
+        }
     }
 
     window_manager_remove_scratchpad_for_window(&g_window_manager, window, false);
@@ -668,6 +925,8 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
         }
     }
 
+    // Per-space focus recall is stamped inside window_did_receive_focus (the common
+    // focus sink) so inter-app/front-switched focus records it too — see there.
     window_did_receive_focus(&g_window_manager, &g_mouse_state, window);
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 }
@@ -703,23 +962,40 @@ static EVENT_HANDLER(WINDOW_MOVED)
         window_clear_flag(window, WINDOW_WINDOWED);
 
         if (!g_mouse_state.window || g_mouse_state.window != window) {
-            struct view *view = window_manager_find_managed_window(&g_window_manager, window);
-            if (view) {
-                struct window_node *node = view_find_window_node(view, window->id);
-                if (node && (AX_DIFF(node->area.x, new_origin.x) ||
-                             AX_DIFF(node->area.y, new_origin.y))
-                         &&
-                   (!node->zoom || AX_DIFF(node->zoom->area.x, new_origin.x) ||
-                                   AX_DIFF(node->zoom->area.y, new_origin.y))) {
-                    if (space_is_visible(view->sid)) {
-                        window_node_flush(node);
-                    } else {
-                        view_set_flag(view, VIEW_IS_DIRTY);
+            // Suppress the AX-diff flush while this window is in an active
+            // animation context. The payload CA pump drives an AX setFrame every
+            // frame; each intermediate commit lands here as a MOVED event whose
+            // new_origin diverges from node->area (the FINAL target), and without
+            // this guard window_node_flush would re-seed a fresh animation every
+            // VBL — that is the BSP jank. The animation itself ends at node->area,
+            // so no catch-up flush is needed afterward.
+            if (!window_manager_is_animating(window->id)) {
+                struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+                if (view) {
+                    struct window_node *node = view_find_window_node(view, window->id);
+                    if (node && (AX_DIFF(node->area.x, new_origin.x) ||
+                                 AX_DIFF(node->area.y, new_origin.y))
+                             &&
+                       (!node->zoom || AX_DIFF(node->zoom->area.x, new_origin.x) ||
+                                       AX_DIFF(node->zoom->area.y, new_origin.y))) {
+                        if (space_is_visible(view->sid)) {
+                            window_node_flush(node);
+                        } else {
+                            view_set_flag(view, VIEW_IS_DIRTY);
+                        }
                     }
                 }
             }
         }
     }
+
+    // Focus ring live-follow: track the framed window to its new position. Gated
+    // on !is_animating for the same reason as the AX-diff flush above — the
+    // animation's geo-rider owns the ring mid-animation, so this must not chase
+    // per-frame AX rects. No-ops unless the ring's committed target IS this
+    // window (guard inside focus_ring_reposition_for_wid).
+    if (!window_manager_is_animating(window->id))
+        focus_ring_reposition_for_wid(window->id);
 }
 
 static EVENT_HANDLER(WINDOW_RESIZED)
@@ -802,28 +1078,38 @@ static EVENT_HANDLER(WINDOW_RESIZED)
             window_clear_flag(window, WINDOW_WINDOWED);
 
             if (!g_mouse_state.window || g_mouse_state.window != window) {
-                struct view *view = window_manager_find_managed_window(&g_window_manager, window);
-                if (view) {
-                    struct window_node *node = view_find_window_node(view, window->id);
-                    if (node && (AX_DIFF(node->area.x, new_frame.origin.x)   ||
-                                 AX_DIFF(node->area.y, new_frame.origin.y)   ||
-                                 AX_DIFF(node->area.w, new_frame.size.width) ||
-                                 AX_DIFF(node->area.h, new_frame.size.height))
-                             &&
-                       (!node->zoom || AX_DIFF(node->zoom->area.x, new_frame.origin.x)   ||
-                                       AX_DIFF(node->zoom->area.y, new_frame.origin.y)   ||
-                                       AX_DIFF(node->zoom->area.w, new_frame.size.width) ||
-                                       AX_DIFF(node->zoom->area.h, new_frame.size.height))) {
-                        if (space_is_visible(view->sid)) {
-                            window_node_flush(node);
-                        } else {
-                            view_set_flag(view, VIEW_IS_DIRTY);
+                // Suppress the AX-diff flush while this window is animating — same
+                // rationale as WINDOW_MOVED: per-frame pump commits diverge from
+                // node->area, and flushing would restart the animation every VBL.
+                if (!window_manager_is_animating(window->id)) {
+                    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+                    if (view) {
+                        struct window_node *node = view_find_window_node(view, window->id);
+                        if (node && (AX_DIFF(node->area.x, new_frame.origin.x)   ||
+                                     AX_DIFF(node->area.y, new_frame.origin.y)   ||
+                                     AX_DIFF(node->area.w, new_frame.size.width) ||
+                                     AX_DIFF(node->area.h, new_frame.size.height))
+                                 &&
+                           (!node->zoom || AX_DIFF(node->zoom->area.x, new_frame.origin.x)   ||
+                                           AX_DIFF(node->zoom->area.y, new_frame.origin.y)   ||
+                                           AX_DIFF(node->zoom->area.w, new_frame.size.width) ||
+                                           AX_DIFF(node->zoom->area.h, new_frame.size.height))) {
+                            if (space_is_visible(view->sid)) {
+                                window_node_flush(node);
+                            } else {
+                                view_set_flag(view, VIEW_IS_DIRTY);
+                            }
                         }
                     }
                 }
             }
         }
     }
+
+    // Focus ring live-follow: track the framed window to its new size. Same
+    // !is_animating gate + committed-target guard as WINDOW_MOVED.
+    if (!window_manager_is_animating(window->id))
+        focus_ring_reposition_for_wid(window->id);
 }
 
 static EVENT_HANDLER(WINDOW_MINIMIZED)
@@ -837,6 +1123,13 @@ static EVENT_HANDLER(WINDOW_MINIMIZED)
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
     window_set_flag(window, WINDOW_MINIMIZE);
+
+    // Focus ring: if the ring is framing this window, clear it now — the next
+    // WINDOW_FOCUSED re-shows it on whatever gains focus. Conditional (no-ops
+    // unless the ring's committed target is still this wid), so minimizing a
+    // background window can't wipe the ring off the still-focused one, and a
+    // same-app survivor's show drains ahead of this hide and supersedes it.
+    focus_ring_hide_for_wid(window->id, "minimize");
 
     if (window_ax_can_move(window)) {
         window_set_flag(window, WINDOW_MOVABLE);
@@ -919,6 +1212,12 @@ static EVENT_HANDLER(WINDOW_DEMINIMIZED)
     }
 
     event_signal_push(SIGNAL_WINDOW_DEMINIMIZED, window);
+
+    // A restored window may take focus; if the app stayed frontmost the AX focus
+    // event can be silent. Wake hint only — resolves on the focused display's space.
+    // (The lost-focused replay above covers the case where a WINDOW_FOCUSED was
+    // queued; this covers when it wasn't.)
+    refocus_ring(window->id, false);
 }
 
 static EVENT_HANDLER(WINDOW_TITLE_CHANGED)
@@ -947,12 +1246,129 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     debug("%s: %d\n", __FUNCTION__, wid);
     struct window_node *node = table_find(&g_window_manager.insert_feedback, &wid);
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
+
+    // The AX FocusedWindowChanged path goes silent for same-app clicks between
+    // multi-tab Ghostty windows; 808 still fires — reconcile the ring off it.
+    // refocus_ring re-resolves the key-focus window itself, so this (often
+    // demoted-sibling) payload wid is only a wake hint.
+    refocus_ring(wid, false);
+}
+
+// kCGSWindowIsVisible (815) — the POST-SETTLE focus signal. 815 fires once a window's
+// order/visibility has settled, LATER than the 808 order-change burst, so its
+// re-resolve lands on the newly-focused window rather than the pre-settle one. This is
+// what closes the "one focus behind" lag when AX is silent (multi-tab same-app clicks):
+// 808 alone re-resolves mid-burst; 815 re-resolves after. refocus_ring ignores this
+// payload wid (re-resolves the key-focus window itself); the per-VBL/idempotent-rect dedupe
+// in focus_ring_show_for_wid absorbs the 808+815 overlap and 815's per-window volume.
+static EVENT_HANDLER(SLS_WINDOW_VISIBLE)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, wid);
+    refocus_ring(wid, true);
+}
+
+// kCGSWindowIsInvisible (816) — a sibling going invisible (e.g. a deselected tab, or a
+// window ordered out) promotes another to topmost; re-resolve so the ring follows the
+// survivor.
+static EVENT_HANDLER(SLS_WINDOW_INVISIBLE)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, wid);
+    refocus_ring(wid, true);
+}
+
+// SLS-driven focus-ring live-follow. kCGSWindowDidMove (806) / kCGSWindowDidResize
+// (807) fire on the g_connection notify runloop at compositor frequency -- far
+// denser and lower-latency than the app-mediated AX kAXWindowMovedNotification that
+// EVENT_HANDLER(WINDOW_MOVED) rides. connection_handler already source-filters to
+// the ring's committed target, so this only fires for the framed window. Runs in
+// ADDITION to the AX path; the per-VBL throttle in focus_ring_show_for_wid dedupes
+// the overlap (latest rect wins).
+static EVENT_HANDLER(SLS_WINDOW_MOVED)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, wid);
+    focus_ring_reposition_for_wid(wid);
+}
+
+// kCGSWindowDidCreate (1325). A native-tab switch silently (to AX) materializes the
+// incoming tab as a NEW wid on the same space + owner as its siblings, at the
+// IDENTICAL frame — and fires ONLY this event (no 808/815/816/WINDOW_FOCUSED), so
+// 1325 is the sole signal for tracking native-tab wids and following keyboard tab
+// switches.
+static EVENT_HANDLER(SLS_WINDOW_CREATED)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+
+    // The tab-follow gate below needs only the two owners; the window's full
+    // geometry readout is diagnostic and runs under --verbose only, so a
+    // system-wide window create costs two SLS queries, not seven.
+    int owner = 0;  SLSGetWindowOwner(g_connection, wid, &owner);
+    uint32_t fwid = g_window_manager.focused_window_id;
+    int fowner = 0; if (fwid) SLSGetWindowOwner(g_connection, fwid, &fowner);
+    bool same_owner = owner && owner == fowner;
+
+    if (g_verbose) {
+        uint8_t ordered_in = 0;
+        SLSWindowIsOrderedIn(g_connection, wid, &ordered_in);
+        int level = 0;  SLSGetWindowLevel(g_connection, wid, &level);
+        CGRect r = {0}; SLSGetWindowBounds(g_connection, wid, &r);
+        CFArrayRef assoc = SLSCopyAssociatedWindows(g_connection, wid);
+        long assoc_n = assoc ? CFArrayGetCount(assoc) : 0;
+        if (assoc) CFRelease(assoc);
+        debug("%s: wid=%d owner=%d sid=%lld did=%d ordered_in=%d level=%d assoc=%ld "
+              "frame=(%.0f,%.0f %.0fx%.0f) | focus=%d fowner=%d same_owner=%d\n",
+              __FUNCTION__, wid, owner, (long long) window_space(wid), window_display_id(wid),
+              ordered_in, level, assoc_n, r.origin.x, r.origin.y, r.size.width, r.size.height,
+              fwid, fowner, same_owner);
+    }
+
+    // Catch SLS-only (untracked) creates here — a genuine new WINDOW is tracked via AX
+    // WINDOW_CREATED -> create_and_add_window and subscribed through
+    // update_window_notifications(); native-tab wids are AX-hidden, never tracked, so
+    // they'd otherwise go unsubscribed. Record the wid in the tab set (NEW vs
+    // re-materialize = whether it was already present) and, only for a genuinely new
+    // tab, re-declare the full subscription list. Never a single-wid request: under
+    // replace semantics that would wipe every other window's subscription; a
+    // re-materialize is already subscribed, so it needs no rebuild.
+    if (!window_manager_find_window(&g_window_manager, wid)) {
+        bool is_new = window_manager_add_tab_window(&g_window_manager, wid);
+        debug("%s: %s tab wid=%d owner=%d\n", __FUNCTION__, is_new ? "NEW" : "re-materialized", wid, owner);
+        if (is_new) update_window_notifications();
+    }
+
+    // Native-tab follow, KEYBOARD path. A tab switch re-materializes the incoming
+    // tab's STABLE wid via 1325 and fires NO 815/816, so this 1325 is the only trigger
+    // for keyboard switches (cmd+shift+[ / cmd+N — no mouse event); click-driven
+    // switches settle key focus through the normal mouse path.
+    // RE-RESOLVE key focus through refocus_ring's settled path rather than binding the
+    // raw 1325 wid: 1325 only TRIGGERS — a direct show/stamp on the raw payload wid
+    // no-ops. The resolve is space-scoped by owner cid (space_window_for_owner) — after
+    // the swap the newly-active tab is the owner's ONLY in-space window, so
+    // window_manager_update_focused_window returns it. refocus_ring(settled) carries the
+    // MC / space-transition guards, the focus_unify-gated stamp, and the ring show off
+    // the resolved wid.
+    // Gate = same_owner && wid != fwid: scope to creates by the currently-focused app,
+    // and debounce a same-tab re-materialize burst.
+    if (same_owner && wid != fwid) {
+        debug("%s: tab-follow wid=%d (focus was %d)\n", __FUNCTION__, wid, fwid);
+        refocus_ring(wid, true);
+    }
 }
 
 static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
 {
     uint32_t wid = (uint64_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, wid);
+
+    // Untracked tab wid going away: drop it from the tab set and re-declare the
+    // subscription list so the dead wid isn't carried on the next rebuild.
+    if (window_manager_remove_tab_window(&g_window_manager, wid)) {
+        debug("%s: removed tab wid=%d from tab set\n", __FUNCTION__, wid);
+        update_window_notifications();
+        return;
+    }
 
     struct window *window = window_manager_find_window(&g_window_manager, wid);
     if (!window) return;
@@ -1025,7 +1441,66 @@ static EVENT_HANDLER(SPACE_CHANGED)
         }
     }
 
+    // Focus recall at the committed space. An SA-driven animated slide commits
+    // the space without any app activating a window, so focus can stay on the
+    // outgoing space until the next click; re-assert it on the destination here.
+    // Prefer the space's last-focused window; fall back to its first window.
+    if (view && !mission_control_is_active()) {
+        struct window *target = NULL;
+        if (view->last_focused_wid) {
+            struct window *recall = window_manager_find_window(&g_window_manager, view->last_focused_wid);
+            // A minimized window still reports its original space, and the raise
+            // below (kAXRaiseAction + make-key) would restore it — entering a
+            // space must never deminimize its last-focused window. Same for a
+            // hidden app's window, which the raise would unhide.
+            if (recall && window_space(recall->id) == g_space_manager.current_space_id
+                && !window_check_flag(recall, WINDOW_MINIMIZE)
+                && !recall->application->is_hidden) {
+                target = recall;
+            }
+        }
+        if (!target) {
+            // Rich SLS query — normal windows only (sticky/hidden/minimized excluded),
+            // first tracked in z-order — so an overlay/sticky window can't win focus
+            // on the committed space.
+            target = window_manager_space_topmost_tracked_window(&g_window_manager, g_space_manager.current_space_id, 0);
+        }
+        if (target && target->id != g_window_manager.focused_window_id) {
+            window_manager_focus_window_with_raise(&target->application->psn, target->id, target->ref);
+        }
+    }
+
+    // Reconcile the tracked focus id to the committed space's REAL key focus — AFTER
+    // the recall raise above, never before. Recall's raise gate (target->id !=
+    // focused_window_id) must compare against the PRE-switch id: stamping first would
+    // suppress the raise — and its AX side effects (opacity swap, mff center, recall
+    // write) — whenever macOS already granted key to the recall target (the common
+    // case). Stamped after, this reads the pre-raise key focus (the raise is async
+    // through WindowServer + app); the raise's own AX event — or, when AX is silent
+    // (tabbed Ghostty), the switch-in 815 settle — brings the final truth. The
+    // resolve is space-scoped to current_space_id, so a
+    // lingering outgoing-app key PSN resolves to that app's window ON THIS space or 0,
+    // never an outgoing-space wid. Empty destination stamps 0, so space_transition_reshow
+    // correctly skips the finish re-show for a window on the departed space. MC-gated:
+    // during a Mission-Control space change the key-focus process is Dock (resolves 0)
+    // — don't wipe the id mid-MC. The stamp itself is gated on focus_unify inside the
+    // helper; off = a single cheap resolve, no state move. DISPLAY_CHANGED is
+    // deliberately NOT stamped here — its display anchor stamp + the switch-in 815s
+    // cover display hops.
+    if (!mission_control_is_active()) {
+        window_manager_update_focused_window(&g_window_manager, g_space_manager.current_space_id);
+    }
+
     event_signal_push(SIGNAL_SPACE_CHANGED, NULL);
+
+    // SPA-2: reconcile the optimistic logical target against the just-committed
+    // space, then drain any queued hop. current_space_id was set at the top of
+    // this handler to the committed space. Both run on the event-loop thread —
+    // the same thread as every FIFO push — so no lock is needed. The drain seeds
+    // the next queued hop the instant this slide commits, giving a continuous
+    // chain for rapid `space --focus next/prev`.
+    space_manager_reconcile_optimistic_target(g_space_manager.current_space_id);
+    space_manager_drain_pending_focus();
 }
 
 static EVENT_HANDLER(DISPLAY_CHANGED)
@@ -1038,6 +1513,11 @@ static EVENT_HANDLER(DISPLAY_CHANGED)
 
     g_display_manager.last_display_id = g_display_manager.current_display_id;
     g_display_manager.current_display_id = new_did;
+
+    // Focus-display anchor follows explicit display activation. Covers the
+    // empty-display case where no window focus lands afterwards to re-stamp it
+    // via window_did_receive_focus.
+    g_window_manager.focused_display_id = new_did;
 
     g_space_manager.last_space_id = g_space_manager.current_space_id;
     g_space_manager.current_space_id = display_space_id(g_display_manager.current_display_id);
@@ -1120,15 +1600,50 @@ static EVENT_HANDLER(MOUSE_DOWN)
     if (g_mouse_state.current_action != MOUSE_MODE_NONE) goto out;
 
     CGPoint point = CGEventGetLocation(context);
-    debug("%s: %.2f, %.2f\n", __FUNCTION__, point.x, point.y);
+    debug("%s: %.2f, %.2f focused_window_id: %d\n", __FUNCTION__, point.x, point.y, g_window_manager.focused_window_id);
+
+    // Resolver cross-display anchor (race-proof). Stamp the focus display from the
+    // click-point GEOMETRY now — before this click's focus events drain — so a
+    // stale background 808/815 from the display being left (its windows redraw as
+    // they deactivate) can't be resolved against a not-yet-updated anchor.
+    // window_did_receive_focus also stamps it, but only once its posted event
+    // drains, which can lose the race against the SLS notify thread. Geometry-
+    // based, so an empty-desktop click (no window hit below) re-anchors too.
+    // Keyboard focus paths keep the window-based stamp in window_did_receive_focus.
+    uint32_t click_did = display_manager_point_display_id(point);
+    if (click_did) g_window_manager.focused_display_id = click_did;
 
     struct window *window = window_manager_find_window_at_point(&g_window_manager, point);
     if (!window || window_check_flag(window, WINDOW_FULLSCREEN)) goto out;
+
+    // Mouse click → focus the GEOMETRICALLY clicked window.
+    // The hit-test is immune to the z-order confounds that corrupt the topmost
+    // query (-20 BSP sublevel, sticky at index 0) — and it is the ONLY click-
+    // synchronous signal that names the target at all: a same-app cross-display
+    // click onto a window already topmost on its own space emits NO 808/815
+    // (nothing reorders) and Ghostty's AX stays silent, so without this post
+    // nothing lands the focus and focused_window_id + the ring stay stranded on
+    // the previous display. Route through WINDOW_FOCUSED so the canonical
+    // cascade runs (window_did_receive_focus → focused_window_id, opacity,
+    // ring, signal) under the handler's own dedupe/validity/minimize/frontmost
+    // guards: same-app clicks pass the frontmost guard and land immediately;
+    // cross-app clicks drop there and land via APPLICATION_FRONT_SWITCHED as
+    // before. Gated on a real change to avoid redundant queue churn.
+    if (window->id != g_window_manager.focused_window_id) {
+        event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) window->id, 0);
+    }
 
     g_mouse_state.window = window;
     g_mouse_state.window_frame = g_mouse_state.window->frame;
     g_mouse_state.down_location = point;
     g_mouse_state.direction = 0;
+
+    // Focus-ring live-follow: a window was grabbed -> a drag may follow. Flip the
+    // ring into drag-follow so focus_ring_show_for_wid bypasses the 16ms focus-change
+    // coalesce and the SLS-806-driven reposition tracks the drag at VBL rate. (The
+    // coalesce only exists to absorb focus-CHANGE bounces -- during a same-wid drag
+    // it is pure lag.) Cleared on MOUSE_UP.
+    focus_ring_set_drag_follow(true);
 
     int64_t button = CGEventGetIntegerValueField(context, kCGMouseEventButtonNumber);
     uint8_t mod = (uint8_t) param1;
@@ -1153,7 +1668,11 @@ out:
 
 static EVENT_HANDLER(MOUSE_UP)
 {
+    // Drag over: drop the ring's drag-follow (re-arm the focus-change coalesce).
+    focus_ring_set_drag_follow(false);
+
     if (mission_control_is_active()) goto out;
+
     if (!g_mouse_state.window)       goto res;
 
     if (!__sync_bool_compare_and_swap(&g_mouse_state.window->id_ptr, &g_mouse_state.window->id, &g_mouse_state.window->id)) {
@@ -1344,6 +1863,13 @@ out:
 
 static EVENT_HANDLER(MOUSE_MOVED)
 {
+    // Mouse activity is the most recent focus modality — `smart`
+    // mission_control_target_display uses this to target the cursor's display on
+    // the next defaulted space --focus. Recorded for every move (cheap store),
+    // ahead of the ffm/mission-control early-outs which gate focus-follows-mouse
+    // only.
+    g_window_manager.last_focus_method = FOCUS_METHOD_MOUSE;
+
     if (g_window_manager.ffm_mode == FFM_DISABLED) goto out;
     if (mission_control_is_active())               goto out;
     if (g_mouse_state.ffm_window_id)               goto out;
@@ -1449,10 +1975,18 @@ out:
     CFRelease(context);
 }
 
+// Mission Control hides the focus ring's alpha on entry (a scaled thumbnail
+// transform would mis-place the stroke) and restores it on exit. Only the payload
+// SYSTEM-alpha slot moves — geometry and the daemon `enabled` config are untouched.
+// Async so the event thread never blocks on the SA round-trip.
+static inline void focus_ring_mc_hide(void)    { focus_ring_set_visible_async(false); }
+static inline void focus_ring_mc_restore(void) { focus_ring_set_visible_async(focus_ring_get_enabled()); }
+
 static EVENT_HANDLER(MISSION_CONTROL_SHOW_ALL_WINDOWS)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_ALL_WINDOWS;
+    LOGFT(__func__, "hide via OSL\n");   // the _OSL_ handler owns the hide
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
@@ -1460,6 +1994,7 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_FRONT_WINDOWS)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_FRONT_WINDOWS;
+    LOGFT(__func__, "hide via OSL\n");
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
@@ -1467,6 +2002,7 @@ static EVENT_HANDLER(MISSION_CONTROL_SHOW_DESKTOP)
 {
     debug("%s:\n", __FUNCTION__);
     g_mission_control_mode = MISSION_CONTROL_MODE_SHOW_DESKTOP;
+    LOGFT(__func__, "hide via OSL\n");
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
 }
 
@@ -1479,7 +2015,82 @@ static EVENT_HANDLER(MISSION_CONTROL_ENTER)
         event_loop_post(&g_event_loop, MISSION_CONTROL_CHECK_FOR_EXIT, NULL, 0);
     });
 
+    LOGFT(__func__, "hide via OSL\n");
     event_signal_push(SIGNAL_MISSION_CONTROL_ENTER, (void*)(uintptr_t)g_mission_control_mode);
+}
+
+// Dock expose-mode names for the OSL param1: 0=showAllWindows (Mission Control),
+// 1=showFrontWindows (app-Exposé), 2=showDesktop.
+static const char *osl_mc_mode_name(int mode)
+{
+    switch (mode) {
+        case 0: return "showAllWindows";
+        case 1: return "showFrontWindows";
+        case 2: return "showDesktop";
+        default: return "?";
+    }
+}
+
+// OSLog-driven MC-enter trigger: posted by the mission_control.c reader thread
+// when Dock logs "Changing from mode .none to .show*" (~0.2-4ms after emit).
+// param1 carries the expose mode (0/1/2). Sole ring-hide trigger for MC enter
+// across all three modes; the AX SHOW_* handlers above only track mode + push
+// signals, and their LOGFT markers record the OSL-vs-AX arrival delta.
+static EVENT_HANDLER(MISSION_CONTROL_OSL_ENTER)
+{
+    // Ride the focused window's live enter transform: fade the ring OUT while its band
+    // shrinks with the window into the thumbnail, then park it hidden — the mirror image
+    // of the exit ride. Falls back to a plain snap-hide when disabled, no focused window,
+    // or (payload-side) the enter transform isn't readable.
+    // The ride animates the RING's band, so it MUST target the window the band is on:
+    // focus_ring_get_target_wid() (the ring's last committed SHOW), NOT focused_window_id.
+    // After a space switch the 815/816 refocus updates the ring's target but can leave
+    // focused_window_id naming the OLD-space window; arming the ride off that stale id
+    // rides a window the band isn't on — the payload's stroke_track target-guard bails
+    // and the band freezes at full size. Use the ring's own target so ride == band.
+    uint32_t enter_wid = focus_ring_get_target_wid();
+    LOGFT(__func__, "mode=%d(%s) ride-out wid=%u\n", param1, osl_mc_mode_name(param1), enter_wid);
+    if (focus_ring_get_enabled() && enter_wid) focus_ring_mc_enter_ride_async(enter_wid);
+    else                                       focus_ring_mc_hide();
+}
+
+// OSLog-driven MC-exit trigger: posted by the reader thread when Dock logs
+// "Changing from mode .show* to .none" (~0.2-4ms after emit). Symmetric inverse
+// of MISSION_CONTROL_OSL_ENTER — owns the ring restore; the AX MISSION_CONTROL_EXIT
+// handler keeps menubar/mode reset + window correction. If a focus landed during
+// MC, reveal at that window's SETTLED real rect (reposition-then-reveal, so no
+// flash at the stale thumbnail rect); otherwise just restore visibility. NOTE:
+// fires at exit-START, concurrently with the AX MISSION_CONTROL_EXIT teardown —
+// ordering vs correct_for_mission_control_changes is not synchronized; the
+// settled/async machinery tolerates the early fire.
+static EVENT_HANDLER(MISSION_CONTROL_OSL_EXIT)
+{
+    // Ride the focused window's live exit transform back to full instead of popping
+    // the ring at the final rect. ride_wid = the focus that landed during MC
+    // (deferred), else the ring's committed target — same ride==band invariant as
+    // OSL_ENTER (never the space-switch-stale focused_window_id). The deferred wid,
+    // when set, is retargeted onto the band below (focus_ring_show_for_wid_settled),
+    // so both branches keep the ride and band on the same wid.
+    uint32_t ride_wid = g_focus_ring_mc_deferred_wid ? g_focus_ring_mc_deferred_wid
+                                                     : focus_ring_get_target_wid();
+
+    LOGFT(__func__, "mode=%d(%s) ride wid=%u\n", param1, osl_mc_mode_name(param1), ride_wid);
+
+    // A focus that landed during MC: re-target the ring's stroke to that window while
+    // it's still hidden (visible=false from the MC-enter hide), so the reveal rides the
+    // RIGHT window. Deliberately no visibility change here — the ride owns the reveal.
+    if (g_focus_ring_mc_deferred_wid) {
+        g_focus_ring_mc_deferred_wid = 0;
+        focus_ring_show_for_wid_settled(ride_wid);
+    }
+
+    // The MC ride owns the reveal: it positions the band at the window's thumbnail rect
+    // FIRST, then raises alpha in the same synchronous pass, so the ring is never shown
+    // at its stale full-size band. Do NOT pre-raise alpha here — reveal-then-reposition
+    // is the frame-0 flash. Gate on enabled so a disabled ring stays hidden (the ride,
+    // which reveals, is only armed when enabled).
+    if (focus_ring_get_enabled()) focus_ring_mc_ride_async(ride_wid);
+    else                          focus_ring_mc_restore();
 }
 
 static EVENT_HANDLER(MISSION_CONTROL_CHECK_FOR_EXIT)
@@ -1540,6 +2151,11 @@ static EVENT_HANDLER(MISSION_CONTROL_EXIT)
 
     event_signal_push(SIGNAL_MISSION_CONTROL_EXIT, (void*)(uintptr_t)g_mission_control_mode);
     g_mission_control_mode = MISSION_CONTROL_MODE_INACTIVE;
+
+    // Ring restore (incl. the deferred-focus reveal) is driven by the OSLog
+    // "... to .none" line (MISSION_CONTROL_OSL_EXIT); this handler keeps mode reset
+    // + window correction. The marker logs AX-exit arrival for the OSL-vs-AX delta.
+    LOGFT(__func__, "restore via OSL\n");   // the _OSL_ handler owns the restore
 }
 
 static EVENT_HANDLER(DOCK_DID_RESTART)
@@ -1553,6 +2169,8 @@ static EVENT_HANDLER(DOCK_DID_RESTART)
         workspace_is_macos_tahoe()) {
         mission_control_unobserve();
         mission_control_observe();
+        mission_control_osl_unobserve(); // re-target the `log` child at the new Dock pid
+        mission_control_osl_observe();
     }
 
     event_signal_push(SIGNAL_DOCK_DID_RESTART, NULL);

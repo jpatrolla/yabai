@@ -250,3 +250,75 @@ err:
 out:
     return space_list;
 }
+
+// Per-display refresh-timing cache. Reads the CG display mode (no SLS chain)
+// and defaults to 60Hz — all the animation engine needs to pace the payload
+// pump. Lazy-initialized on first get.
+static struct display_timing g_display_timing[DISPLAY_TIMING_MAX];
+static int g_display_timing_count = 0;
+static pthread_mutex_t g_display_timing_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void display_timing_populate_locked(void)
+{
+    g_display_timing_count = 0;
+    uint32_t display_count = 0;
+    CGDirectDisplayID display_list[DISPLAY_TIMING_MAX] = {0};
+    if (CGGetActiveDisplayList(DISPLAY_TIMING_MAX, display_list, &display_count) != kCGErrorSuccess) return;
+    if (display_count > DISPLAY_TIMING_MAX) display_count = DISPLAY_TIMING_MAX;
+    for (uint32_t i = 0; i < display_count; ++i) {
+        struct display_timing *e = &g_display_timing[g_display_timing_count++];
+        e->did = display_list[i];
+        double hz = 0.0;
+        CGDisplayModeRef mode = CGDisplayCopyDisplayMode(display_list[i]);
+        if (mode) { hz = CGDisplayModeGetRefreshRate(mode); CGDisplayModeRelease(mode); }
+        if (hz <= 0.0) hz = 60.0;   // built-in panels report 0 via CG -> engine-safe default
+        e->refresh_rate_hz     = hz;
+        e->refresh_interval_ns = (uint64_t)(1000000000.0 / hz);
+        e->is_promotion        = (hz > 60.0);
+        e->is_vrr              = false;
+        e->valid               = true;
+    }
+}
+
+void display_timing_table_init(void)
+{
+    pthread_mutex_lock(&g_display_timing_lock);
+    display_timing_populate_locked();
+    pthread_mutex_unlock(&g_display_timing_lock);
+}
+
+void display_timing_table_refresh_if_needed(void) { display_timing_table_init(); }
+void display_timing_table_refresh_force(void)     { display_timing_table_init(); }
+
+struct display_timing *display_timing_get(uint32_t did)
+{
+    pthread_mutex_lock(&g_display_timing_lock);
+    if (g_display_timing_count == 0) display_timing_populate_locked();   // lazy init
+    struct display_timing *result = NULL;
+    for (int i = 0; i < g_display_timing_count; ++i) {
+        if (g_display_timing[i].did == did) { result = &g_display_timing[i]; break; }
+    }
+    pthread_mutex_unlock(&g_display_timing_lock);
+    return result;
+}
+
+struct display_timing *display_timing_get_all(int *out_count)
+{
+    pthread_mutex_lock(&g_display_timing_lock);
+    if (g_display_timing_count == 0) display_timing_populate_locked();
+    if (out_count) *out_count = g_display_timing_count;
+    struct display_timing *result = g_display_timing;
+    pthread_mutex_unlock(&g_display_timing_lock);
+    return result;
+}
+
+bool display_is_animating(uint32_t did)
+{
+    CFStringRef uuid = display_uuid(did);
+    if (!uuid) return false;
+
+    bool animating = SLSManagedDisplayIsAnimating(g_connection, uuid);
+    CFRelease(uuid);
+
+    return animating;
+}

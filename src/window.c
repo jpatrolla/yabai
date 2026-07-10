@@ -1099,6 +1099,19 @@ struct window *window_create(struct application *application, AXUIElementRef win
     window->ref = window_ref;
     window->id = window_id;
     window->id_ptr = &window->id;
+
+    // EUI cache refresh. application_create reads kAXEnhancedUserInterface once at
+    // process-startup, which races against apps that set EUI lazily on first
+    // window (iTerm2-class) and the AX messaging timeout on cold launch — both
+    // leave a stuck `false` that disables AX_ENHANCED_UI_WORKAROUND_CACHED for the
+    // app's lifetime. By window_create AX is reliably responsive for this app, so
+    // re-read; the *checked* reader writes the cache only on a successful read, so
+    // a transient AX hiccup leaves the known-good value intact.
+    bool eui_now;
+    if (ax_enhanced_userinterface_checked(application->ref, &eui_now)) {
+        application->ax_eui_cached = eui_now;
+    }
+
     window->frame = window_ax_frame(window);
     window->role = window_ax_role(window);
     window->subrole = window_ax_subrole(window);

@@ -2,7 +2,8 @@
 #define VIEW_H
 
 #define AX_ABS(a, b) (((a) - (b) < 0) ? (((a) - (b)) * -1) : ((a) - (b)))
-#define AX_DIFF(a, b) (AX_ABS(a, b) >= 1.5f)
+#define AX_DIFF_THRESHOLD 1.5f
+#define AX_DIFF(a, b) (AX_ABS(a, b) >= AX_DIFF_THRESHOLD)
 
 #define SPACE_PROPERTY_LIST \
     SPACE_PROPERTY_ENTRY("id",                   SPACE_PROPERTY_ID,            0x001) \
@@ -52,7 +53,26 @@ struct window_capture
 {
     struct window *window;
     float x, y, w, h;
+    // Wid-only visual rider (window == NULL, wid != 0): a surface with no
+    // struct window and no AX presence — payload-owned overlays (focus ring)
+    // riding a batch. The packer routes riders into a companion visual-only
+    // T3D context on the same pump, never into the AX context (rationale at
+    // window_manager_animate_windows_lockedbounds_t3d_async). Field appended
+    // so positional initializers `{ w, x, y, w, h }` stay valid (wid = 0).
+    uint32_t wid;
 };
+
+// Classify which axes a window's SLS min/max constraints pin (min==max>0).
+// Used by the animation constraint resolver to keep LB/T3D from skewing
+// fixed-size windows.
+struct axis_lock { bool width_fixed; bool height_fixed; };
+static inline struct axis_lock window_classify_axis_lock(CGSize min_size, CGSize max_size)
+{
+    return (struct axis_lock){
+        .width_fixed  = (min_size.width  == max_size.width)  && (min_size.width  > 0),
+        .height_fixed = (min_size.height == max_size.height) && (min_size.height > 0),
+    };
+}
 
 struct window_proxy
 {
@@ -212,6 +232,7 @@ struct view
     int right_padding;
     int window_gap;
     uint32_t auto_balance;
+    uint32_t last_focused_wid;   // per-space focus recall: last window focused on this space; SPACE_CHANGED restores it (incl. SA-driven slides)
     uint64_t flags;
 };
 

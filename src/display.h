@@ -43,4 +43,26 @@ uint64_t display_space_id(uint32_t did);
 int display_space_count(uint32_t did);
 uint64_t *display_space_list(uint32_t did, int *count);
 
+// Per-display refresh-timing cache (CG-based). The animation engine reads
+// display_timing_get(did)->refresh_rate_hz to pace the payload CA pump; it
+// falls back to 60Hz when the lookup returns NULL.
+#define DISPLAY_TIMING_MAX 16
+struct display_timing {
+    uint32_t did;
+    uint64_t refresh_interval_ns;
+    double   refresh_rate_hz;
+    bool     is_promotion;
+    bool     is_vrr;
+    bool     valid;
+};
+void                   display_timing_table_init(void);
+void                   display_timing_table_refresh_if_needed(void);
+void                   display_timing_table_refresh_force(void);
+struct display_timing *display_timing_get(uint32_t did);
+struct display_timing *display_timing_get_all(int *out_count);
+
+// True while SkyLight reports `did` mid-animation (native space switch, Mission
+// Control, etc.). The focus ring reads it to defer painting until settle.
+bool display_is_animating(uint32_t did);
+
 #endif

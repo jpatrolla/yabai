@@ -454,7 +454,10 @@ out:
 void display_manager_set_active_display_id(uint32_t did)
 {
     CFStringRef uuid = display_uuid(did);
-    SLSSetActiveMenuBarDisplayIdentifier(g_connection, uuid, uuid);
+    // The 3rd arg is an event timestamp; ~0ULL makes the server clamp it to the
+    // current event time. Upstream passes the uuid pointer here, which can read
+    // as a stale stamp and be rejected — silently dropping the switch.
+    SLSSetActiveMenuBarDisplayIdentifier(g_connection, uuid, ~0ULL);
     CFRelease(uuid);
 }
 
@@ -468,13 +471,42 @@ void display_manager_focus_display(uint32_t did, uint64_t sid)
         window_manager_center_mouse(&g_window_manager, window);
         display_manager_set_active_display_id(did);
     } else {
-        CGPoint point = display_center(did);
-        CGWarpMouseCursorPosition(point);
-        display_manager_set_active_display_id(did);
+        // No app window on the target display (desktop only). Focus the
+        // per-display Finder DESKTOP window (PKGDisplay role-1) through the same
+        // full idiom as a real window (SLPS front + make_key_window + raise);
+        // yabai tracks these (window_manager_track_role_windows). A bare
+        // front-process call or cursor warp does NOT land focus on an empty
+        // display — focusing the role window + the active-display switch does.
+        uint32_t role_wid = 0;
+        CFStringRef uuid = display_uuid(did);
+        if (uuid) {
+            const void *uvals[1] = { uuid };
+            CFArrayRef uarr = CFArrayCreate(NULL, uvals, 1, &kCFTypeArrayCallBacks);
+            if (uarr) {
+                CFArrayRef rws = SLSManagedDisplaysCopyRoleWindows(g_connection, uarr, 1);
+                if (rws) {
+                    if (CFArrayGetCount(rws) > 0) {
+                        CFNumberRef n = CFArrayGetValueAtIndex(rws, 0);
+                        if (n && CFGetTypeID(n) == CFNumberGetTypeID()) {
+                            CFNumberGetValue(n, kCFNumberSInt32Type, &role_wid);
+                        }
+                    }
+                    CFRelease(rws);
+                }
+                CFRelease(uarr);
+            }
+            CFRelease(uuid);
+        }
 
-        if (space_manager_active_space() != display_space_id(did)) {
-            CGPostMouseEvent(point, false, 1, true);
-            CGPostMouseEvent(point, false, 1, false);
+        struct window *role_window = role_wid
+            ? window_manager_find_window(&g_window_manager, role_wid) : NULL;
+        if (role_window) {
+            window_manager_focus_window_with_raise(&role_window->application->psn,
+                                                   role_window->id, role_window->ref);
+            display_manager_set_active_display_id(did);
+        } else {
+            // No tracked role window — just move the active display / menu bar.
+            display_manager_set_active_display_id(did);
         }
     }
 }

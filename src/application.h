@@ -77,6 +77,11 @@ struct application
     bool is_observing;
     bool is_hidden;
     bool ax_retry;
+    // Cached kAXEnhancedUserInterface flag, read by AX_ENHANCED_UI_WORKAROUND_CACHED
+    // (helpers.h) to skip the per-call AX read on the move/resize commit path.
+    // Written at application_create (initial read) and refreshed at window_create
+    // (covers apps that set EUI lazily, or a 1.0s AX-timeout stale-false at launch).
+    bool ax_eui_cached;
 };
 
 bool application_is_frontmost(struct application *application);

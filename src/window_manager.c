@@ -1,3 +1,5 @@
+#include <math.h>
+
 extern mach_port_t g_bs_port;
 extern uint8_t *g_event_bytes;
 extern struct event_loop g_event_loop;
@@ -358,7 +360,7 @@ void window_manager_resize_window_relative_internal(struct window *window, CGRec
     if (animate) {
         window_manager_animate_window((struct window_capture) { .window = window, .x = fx, .y = fy, .w = fw, .h = fh });
     } else {
-        AX_ENHANCED_UI_WORKAROUND(window->application->ref, {
+        AX_ENHANCED_UI_WORKAROUND_CACHED(window->application,{
             window_manager_move_window(window, fx, fy);
             window_manager_resize_window(window, fw, fh);
         });
@@ -402,7 +404,7 @@ enum window_op_error window_manager_resize_window_relative(struct window_manager
             if (animate) {
                 window_manager_animate_window((struct window_capture) { .window = window, .x = window->frame.origin.x, .y = window->frame.origin.y, .w = dx, .h = dy });
             } else {
-                AX_ENHANCED_UI_WORKAROUND(window->application->ref, { window_manager_resize_window(window, dx, dy); });
+                AX_ENHANCED_UI_WORKAROUND_CACHED(window->application,{ window_manager_resize_window(window, dx, dy); });
             }
         } else {
             window_manager_resize_window_relative_internal(window, window_ax_frame(window), direction, dx, dy, animate);
@@ -432,298 +434,886 @@ void window_manager_resize_window(struct window *window, float width, float heig
     CFRelease(size_ref);
 }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wmissing-field-initializers"
-static inline void window_manager_notify_jankyborders(struct window_animation *animation_list, int animation_count, uint32_t event, bool skip, bool wait)
-{
-    mach_port_t port;
-    if (g_bs_port && bootstrap_look_up(g_bs_port, "git.felix.jbevent", &port) == KERN_SUCCESS) {
-        struct {
-            uint32_t event;
-            uint32_t count;
-            uint32_t proxy_wid[512];
-            uint32_t real_wid[512];
-        } data = { event, 0 };
+// ─────────────────────────────────────────────────────────────────────────
+// Window animation engine (LB+T3D async, payload CA pump). Replaces the
+// upstream CVDisplayLink proxy-swap animator.
+// ─────────────────────────────────────────────────────────────────────────
 
-        for (int i = 0; i < animation_count; ++i) {
-            if (skip && __atomic_load_n(&animation_list[i].skip, __ATOMIC_RELAXED)) continue;
+static void window_manager_cache_app_constraints(struct window_manager *wm,
+                                                  pid_t pid,
+                                                  CGSize min, CGSize max) {
+  if (min.width  <= 0 && min.height <= 0 &&
+      max.width  <= 0 && max.height <= 0) return;
+  uint32_t key = (uint32_t)pid;
+  struct app_size_constraints *existing = table_find(&wm->app_constraints, &key);
+  if (existing) {
+    existing->min = min;
+    existing->max = max;
+    return;
+  }
+  struct app_size_constraints *entry = malloc(sizeof(*entry));
+  entry->min = min;
+  entry->max = max;
+  table_add(&wm->app_constraints, &key, entry);
+}
 
-            data.proxy_wid[data.count] = animation_list[i].proxy.id;
-            data.real_wid[data.count]  = animation_list[i].wid;
+// Returns true and fills *min, *max when the cache has a hit for pid.
+static bool window_manager_get_cached_app_constraints(struct window_manager *wm,
+                                                       pid_t pid,
+                                                       CGSize *min, CGSize *max) {
+  uint32_t key = (uint32_t)pid;
+  struct app_size_constraints *entry = table_find(&wm->app_constraints, &key);
+  if (!entry) return false;
+  *min = entry->min;
+  *max = entry->max;
+  return true;
+}
 
-            ++data.count;
+// Settle/flush coupling: the payload declares a window "landed" when every edge
+// is within SA_ANIM_SETTLE_PX of end (anim.inc.m settle
+// probe); the daemon re-flushes a node when an edge differs by AX_DIFF_THRESHOLD
+// or more (view.h). A settled frame must never read as different to the flush
+// gate, or the tail re-animates.
+_Static_assert(SA_ANIM_SETTLE_PX < AX_DIFF_THRESHOLD,
+               "payload settle tolerance must stay strictly below the daemon AX_DIFF threshold");
+
+// Resolve the SLS size constraints to feed the per-frame animator clamp. Shipped
+// on the wire to the payload CA pump, which clamps each frame's lerp_w/lerp_h
+// before SLSTransactionSetWindowLockedBounds (a constrained window must not
+// transform past its min/max). Three-tier resolution:
+//   1. pad-swept iterator query (window_iterator_get_constraints),
+//   2. learned per-wid constraint-class property (below),
+//   3. wide-open defaults (no-op clamp).
+// A real iterator hit refreshes the per-pid cache. T3D_ONLY rows (stages
+// thumbnails) pass through wide-open by design. A zero/empty axis maps to the
+// no-op sentinel (min 0 / max 1e9). *from_cache (optional) reports a tier-2 hit.
+static void window_manager_resolve_anim_constraints(struct window_manager *wm,
+                                                    struct window *window,
+                                                    uint32_t row_mode,
+                                                    float *min_w, float *min_h,
+                                                    float *max_w, float *max_h,
+                                                    bool *from_cache) {
+  *min_w = 0.0f; *min_h = 0.0f; *max_w = 1.0e9f; *max_h = 1.0e9f;
+  if (from_cache) *from_cache = false;
+  if (row_mode == SA_T3D_ROW_MODE_T3D_ONLY || !window) return;
+
+  extern bool window_iterator_get_constraints(int cid, uint32_t wid,
+                                              CGSize *mn, CGSize *mx, CGSize *cur);
+  CGSize cmn = {0}, cmx = {0}, cur = {0};
+  bool ok = window_iterator_get_constraints(g_connection, window->id, &cmn, &cmx, &cur);
+  bool have_real = ok && (cmn.width > 0 || cmn.height > 0 ||
+                          cmx.width > 0 || cmx.height > 0);
+  pid_t pid = window->application->pid;
+  if (have_real) {
+    window_manager_cache_app_constraints(wm, pid, cmn, cmx);
+  } else {
+    // The SLS iterator reads lazy-zero for an un-grabbed window. Fall back to
+    // the single-axis class the payload learns and persists at settle
+    // (com.koekeishiya.yabai.constraint_class.v1): written from Dock's cid yet
+    // readable here from g_connection — the property bag is shared cross-
+    // connection. An un-grabbed window thus still preshapes on its 2nd+
+    // animation while the iterator stays zero. Blob, space-separated:
+    //   "<type> <minw> <minh> <maxw> <maxh> <aspect> <confirm>"
+    // Only type 1 (single-axis) min/max is consumed; the free axis carries 0 / 1e9.
+    CFTypeRef val = NULL;
+    if (SLSCopyWindowProperty(g_connection, window->id,
+                              CFSTR("com.koekeishiya.yabai.constraint_class.v1"),
+                              &val) == kCGErrorSuccess && val) {
+      if (CFGetTypeID(val) == CFStringGetTypeID()) {
+        char buf[96] = {0};
+        if (CFStringGetCString((CFStringRef)val, buf, sizeof(buf), kCFStringEncodingUTF8)) {
+          int type = 0, confirm = 0;
+          float pmnw = 0, pmnh = 0, pmxw = 0, pmxh = 0, pasp = 0;
+          if (sscanf(buf, "%d %f %f %f %f %f %d",
+                     &type, &pmnw, &pmnh, &pmxw, &pmxh, &pasp, &confirm) >= 5 &&
+              type == 1) {
+            cmn.width = pmnw; cmn.height = pmnh;
+            cmx.width = pmxw; cmx.height = pmxh;
+            have_real = true;
+            if (from_cache) *from_cache = true;
+            LOGFT(__func__, "wid=%d learned single-axis min=(%.0f,%.0f) max=(%.0f,%.0f) [property]\n",
+                  window->id, pmnw, pmnh, pmxw, pmxh);
+          }
         }
-
-        mach_send(port, &data, sizeof(data));
-        if (wait) usleep(20000);
+      }
+      CFRelease(val);
     }
-}
-#pragma clang diagnostic pop
+  }
+  // Per-pid cache: still written on a real iterator hit (above), but the read
+  // fallback is retired — the per-wid learned property replaces it. Getter
+  // parked; (void) silences the unused warning.
+  (void)window_manager_get_cached_app_constraints;
+  if (have_real) {
+    *min_w = (cmn.width  > 0) ? (float)cmn.width  : 0.0f;
+    *min_h = (cmn.height > 0) ? (float)cmn.height : 0.0f;
+    *max_w = (cmx.width  > 0) ? (float)cmx.width  : 1.0e9f;
+    *max_h = (cmx.height > 0) ? (float)cmx.height : 1.0e9f;
 
-static void window_manager_create_window_proxy(int animation_connection, float alpha, struct window_proxy *proxy)
-{
-    if (!proxy->image) return;
-
-    CFTypeRef frame_region;
-    CGSNewRegionWithRect(&proxy->frame, &frame_region);
-    CFTypeRef empty_region = CGRegionCreateEmptyRegion();
-
-    uint64_t tags = 1ULL << 46;
-    SLSNewWindowWithOpaqueShapeAndContext(animation_connection, 2, frame_region, empty_region, 13|(1 << 18), &tags, 0, 0, 64, &proxy->id, NULL);
-    sls_window_disable_shadow(proxy->id);
-    SLSSetWindowOpacity(animation_connection, proxy->id, 0);
-    SLSSetWindowResolution(animation_connection, proxy->id, 2.0f);
-    SLSSetWindowAlpha(animation_connection, proxy->id, alpha);
-    SLSSetWindowLevel(animation_connection, proxy->id, proxy->level);
-    SLSSetWindowSubLevel(animation_connection, proxy->id, proxy->sub_level);
-    proxy->context = SLWindowContextCreate(animation_connection, proxy->id, 0);
-
-    CGRect frame = { {0, 0}, proxy->frame.size };
-    CGContextClearRect(proxy->context, frame);
-    CGContextDrawImage(proxy->context, frame, proxy->image);
-    CGContextFlush(proxy->context);
-    CFRelease(frame_region);
-    CFRelease(empty_region);
+    // Single-axis fixed (min==max>0): hard-pin the axis on the wire so the
+    // payload clamp can never lerp it past the fixed extent (VLC control-bar
+    // height, System Settings width). Collapses sub-pixel float noise; applies
+    // whether cmn/cmx came from the live iterator or the learned type-1 property.
+    struct axis_lock lock = window_classify_axis_lock(cmn, cmx);
+    if (lock.width_fixed)  *min_w = *max_w = (float)cmn.width;
+    if (lock.height_fixed) *min_h = *max_h = (float)cmn.height;
+    if (lock.width_fixed || lock.height_fixed) {
+      LOGFT(__func__, "wid=%d single-axis fixed (w=%d h=%d) -> pinned min=(%.0f,%.0f) max=(%.0f,%.0f)\n",
+            window->id, lock.width_fixed, lock.height_fixed, *min_w, *min_h, *max_w, *max_h);
+    }
+  }
 }
 
-static void window_manager_destroy_window_proxy(int animation_connection, struct window_proxy *proxy)
-{
-    if (proxy->image) {
-        CFRelease(proxy->image);
-        proxy->image = NULL;
-    }
+// SLS property key the payload sets/clears to signal "this wid is animating"
+// — the daemon-observable completion signal for payload-owned animations.
+#define CA_ANIM_PROP CFSTR("com.koekeishiya.yabai.animating")
+struct ca_anim_entry { uint32_t wid; uint64_t expire_mach; };
+static struct ca_anim_entry g_ca_anim[256];
+static pthread_mutex_t g_ca_anim_lock = PTHREAD_MUTEX_INITIALIZER;
 
-    if (proxy->context) {
-        CGContextRelease(proxy->context);
-        proxy->context = NULL;
+// Register/refresh a wid's animation gate (called at ca dispatch).
+static void window_manager_ca_anim_register(uint32_t wid, uint64_t expire_mach) {
+    uint64_t now = mach_absolute_time();
+    pthread_mutex_lock(&g_ca_anim_lock);
+    int free_i = -1;
+    for (int i = 0; i < 256; ++i) {
+        if (g_ca_anim[i].wid == wid) { g_ca_anim[i].expire_mach = expire_mach; pthread_mutex_unlock(&g_ca_anim_lock); return; }
+        if (free_i < 0 && (g_ca_anim[i].wid == 0 || now >= g_ca_anim[i].expire_mach)) free_i = i;
     }
+    if (free_i >= 0) { g_ca_anim[free_i].wid = wid; g_ca_anim[free_i].expire_mach = expire_mach; }
+    pthread_mutex_unlock(&g_ca_anim_lock);
+}
 
-    if (proxy->id) {
-        SLSReleaseWindow(animation_connection, proxy->id);
-        proxy->id = 0;
+// Cheap gate: is wid within an unexpired ca animation window? Expired entries are
+// NOT reaped here — the watchdog sweep must still see them to recover a leaked LB
+// pin (it reads the entry to decide), so removal is the sweep's job.
+static bool ca_anim_gate_active(uint32_t wid) {
+    bool active = false;
+    uint64_t now = mach_absolute_time();
+    pthread_mutex_lock(&g_ca_anim_lock);
+    for (int i = 0; i < 256; ++i) {
+        if (g_ca_anim[i].wid != wid) continue;
+        active = (now < g_ca_anim[i].expire_mach);
+        break;
+    }
+    pthread_mutex_unlock(&g_ca_anim_lock);
+    return active;
+}
+
+// Ground truth: the payload's animating property on this window (open read).
+static bool ca_anim_prop_true(uint32_t wid) {
+    CFTypeRef v = NULL;
+    if (SLSCopyWindowProperty(g_connection, wid, CA_ANIM_PROP, &v) != kCGErrorSuccess || !v) return false;
+    bool yes = (CFGetTypeID(v) == CFBooleanGetTypeID()) && CFBooleanGetValue((CFBooleanRef)v);
+    CFRelease(v);
+    return yes;
+}
+
+bool window_manager_is_animating(uint32_t wid) {
+    if (!ca_anim_gate_active(wid)) return false; // idle/expired → cheap false
+    return ca_anim_prop_true(wid);               // payload ground truth (precise completion)
+}
+
+// True if `wid` is currently being visually transformed. The transform-follow
+// drag (drag_warp, an SA CVDisplayLink spring) drives SLSTransactionSetWindowTransform3D
+// every VBL but is OUTSIDE the CA animating-property protocol above, so
+// window_manager_is_animating cannot see it. Its matrix is pure 2D-affine (no
+// z / m34), so the exported 2D getter recovers it in full — no need for the
+// unexported, unlinkable _CGSGetWindowTransform3D. Transform reads are
+// unprivileged and reflect server-side window state regardless of which cid set
+// the transform, so the daemon's g_connection sees the Dock-cid drag transform.
+// A resting tiled window reads exact identity: only anim/stage/drag set
+// persistent transforms, and each clears to identity on settle. A failed read
+// conservatively reports false, so the flush proceeds as before.
+bool window_manager_window_is_transformed(uint32_t wid) {
+    CGAffineTransform t;
+    if (SLSGetWindowTransform(g_connection, wid, &t) != kCGErrorSuccess) return false;
+    return fabs(t.a - 1.0) > 1e-4 || fabs(t.d - 1.0) > 1e-4 ||
+           fabs(t.b)       > 1e-4 || fabs(t.c)       > 1e-4 ||
+           fabs(t.tx)      > 1e-4 || fabs(t.ty)      > 1e-4;
+}
+
+// Watchdog sweep: recover LB pins left by an AX ca-animation whose payload never
+// cleaned up (Dock crash / `--load-sa` reinject mid-animation). Piggybacked on
+// each ca dispatch — no perpetual timer. For entries past their deadline: if the
+// payload's animating property is STILL set, the payload didn't finish (died or
+// stuck) → clear the foreign LB via the now-live payload; drop the entry on
+// success, keep it to retry while the payload is still down. If the property is
+// already clear, the animation finished normally (LB released) → just drop it.
+static void window_manager_ca_anim_sweep(void) {
+    uint64_t now = mach_absolute_time();
+    for (int i = 0; i < 256; ++i) {
+        pthread_mutex_lock(&g_ca_anim_lock);
+        uint32_t wid = g_ca_anim[i].wid;
+        bool expired = wid && now >= g_ca_anim[i].expire_mach;
+        pthread_mutex_unlock(&g_ca_anim_lock);
+        if (!expired) continue;
+
+        bool drop = true;
+        if (ca_anim_prop_true(wid)) {                          // payload never released it
+            drop = scripting_addition_clear_lockedbounds(wid); // false → payload still down, retry later
+        }
+        if (drop) {
+            pthread_mutex_lock(&g_ca_anim_lock);
+            if (g_ca_anim[i].wid == wid) g_ca_anim[i].wid = 0; // recheck: slot not reused during unlock
+            pthread_mutex_unlock(&g_ca_anim_lock);
+        }
     }
 }
 
-static void *window_manager_build_window_proxy_thread_proc(void *data)
-{
-    struct window_animation *animation = data;
+// Pending ca finalize. A payload-owned animation can't push a completion message
+// back to the daemon — the SA channel is synchronous request/reply and the begin
+// returns long before the animation ends. So when a caller wires a
+// finalize_callback, the daemon records the batch's wid set here and a
+// spawn-on-demand poll thread fires the callback once the payload's animating
+// property (set/cleared via SA_T3D_FLAG_NOTIFY_DONE) has cleared for every wid,
+// or the death-safety expiry elapses (payload died mid-animation). The poller
+// exits when no entry remains; a fresh register respawns it.
+#define CA_FINALIZE_MAX 16
+struct ca_finalize_entry {
+    uint32_t              wids[SA_ANIM_AX_MAX];
+    int                   count;
+    uint64_t              expire_mach;
+    wm_finalize_callback  callback;
+    void                 *user_data;
+    bool                  active;
+};
+static struct ca_finalize_entry g_ca_finalize[CA_FINALIZE_MAX];
+static pthread_mutex_t g_ca_finalize_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool g_ca_finalize_poll_active;
 
-    float alpha = 1.0f;
-    SLSGetWindowAlpha(animation->cid, animation->wid, &alpha);
-    animation->proxy.level = window_level(animation->wid);
-    animation->proxy.sub_level = window_sub_level(animation->wid);
-    SLSGetWindowBounds(animation->cid, animation->wid, &animation->proxy.frame);
-    animation->proxy.tx = animation->proxy.frame.origin.x;
-    animation->proxy.ty = animation->proxy.frame.origin.y;
-    animation->proxy.tw = animation->proxy.frame.size.width;
-    animation->proxy.th = animation->proxy.frame.size.height;
+// Poll thread: every frame, fire the finalize for any batch whose every wid has
+// gone non-animating (property cleared) or whose expiry has elapsed. Callbacks
+// run OUTSIDE the lock — a stages finalize re-enters the animation machinery.
+static void *window_manager_ca_finalize_poll(void *unused) {
+    (void)unused;
+    for (;;) {
+        usleep(16000);   // ~one frame @60Hz; the property clears within a tick of completion
 
-    CFArrayRef image_array = SLSHWCaptureWindowList(animation->cid, &animation->wid, 1, (1 << 11) | (1 << 8));
-    if (image_array) {
-        animation->proxy.image = alpha == 1.0f
-                               ? (CGImageRef) CFRetain(CFArrayGetValueAtIndex(image_array, 0))
-                               : cgimage_restore_alpha((CGImageRef) CFArrayGetValueAtIndex(image_array, 0));
-        CFRelease(image_array);
-    } else {
-        animation->proxy.image = NULL;
+        struct { wm_finalize_callback cb; void *ud; uint32_t wids[SA_ANIM_AX_MAX]; int count; } fired[CA_FINALIZE_MAX];
+        int      nfired = 0;
+        bool     any_active = false;
+        uint64_t now = mach_absolute_time();
+
+        pthread_mutex_lock(&g_ca_finalize_lock);
+        for (int i = 0; i < CA_FINALIZE_MAX; ++i) {
+            struct ca_finalize_entry *e = &g_ca_finalize[i];
+            if (!e->active) continue;
+
+            bool done = true;
+            for (int j = 0; j < e->count; ++j) {
+                if (ca_anim_prop_true(e->wids[j])) { done = false; break; }   // still animating
+            }
+            bool expired = now >= e->expire_mach;
+            if (done || expired) {
+                fired[nfired].cb    = e->callback;
+                fired[nfired].ud    = e->user_data;
+                fired[nfired].count = e->count;
+                memcpy(fired[nfired].wids, e->wids, e->count * sizeof(uint32_t));
+                ++nfired;
+                e->active = false;
+            } else {
+                any_active = true;
+            }
+        }
+        bool keep_running = any_active;
+        if (!keep_running) g_ca_finalize_poll_active = false;   // no work left → this thread exits
+        pthread_mutex_unlock(&g_ca_finalize_lock);
+
+        for (int i = 0; i < nfired; ++i)
+            if (fired[i].cb) fired[i].cb(fired[i].wids, fired[i].count, fired[i].ud);
+
+        if (!keep_running) return NULL;
     }
-
-    window_manager_create_window_proxy(animation->cid, alpha, &animation->proxy);
-    return NULL;
 }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-static CVReturn window_manager_animate_window_list_thread_proc(CVDisplayLinkRef link, const CVTimeStamp *now, const CVTimeStamp *output_time, CVOptionFlags flags, CVOptionFlags *flags_out, void *data)
+// Record a batch's wid set + callback and ensure the poll thread is running.
+// Fires the callback synchronously (so the ud is freed, not leaked) on the
+// registry-full or thread-spawn-failure paths — both should-never-happen.
+static void window_manager_ca_finalize_register(uint32_t *wids, int count, uint64_t expire_mach,
+                                                wm_finalize_callback cb, void *ud) {
+    if (count > SA_ANIM_AX_MAX) count = SA_ANIM_AX_MAX;
+
+    pthread_mutex_lock(&g_ca_finalize_lock);
+    int slot = -1;
+    for (int i = 0; i < CA_FINALIZE_MAX; ++i) if (!g_ca_finalize[i].active) { slot = i; break; }
+    bool start_thread = false;
+    if (slot >= 0) {
+        struct ca_finalize_entry *e = &g_ca_finalize[slot];
+        memcpy(e->wids, wids, count * sizeof(uint32_t));
+        e->count       = count;
+        e->expire_mach = expire_mach;
+        e->callback    = cb;
+        e->user_data   = ud;
+        e->active      = true;
+        if (!g_ca_finalize_poll_active) { g_ca_finalize_poll_active = true; start_thread = true; }
+    }
+    pthread_mutex_unlock(&g_ca_finalize_lock);
+
+    if (slot < 0) {                              // registry saturated — don't leak the ud
+        if (cb) cb(NULL, 0, ud);
+        return;
+    }
+    if (start_thread) {
+        pthread_t t;
+        if (pthread_create(&t, NULL, window_manager_ca_finalize_poll, NULL) == 0) {
+            pthread_detach(t);
+        } else {                                 // couldn't start the poller — fire now so the ud frees
+            pthread_mutex_lock(&g_ca_finalize_lock);
+            g_ca_finalize[slot].active = false;
+            g_ca_finalize_poll_active  = false;
+            pthread_mutex_unlock(&g_ca_finalize_lock);
+            if (cb) cb(wids, count, ud);
+        }
+    }
+}
+
+bool window_manager_animate_windows_lockedbounds_t3d_async(
+    struct window_capture *window_list, int window_count,
+    uint32_t api_flags, float duration_override,
+    int ax_th_mode, float ax_th_val,
+    CGRect *start_override, uint32_t row_mode,
+    enum wm_finalize_mode finalize_mode,
+    wm_finalize_callback finalize_callback,
+    void *finalize_user_data)
 {
-    struct window_animation_context *context = data;
-    int animation_count = context->animation_count;
+    // Clamp threshold params. ax_th_val <= 0 makes the mode a no-op even if
+    // a mode bit was set — fall through to "fire at start only" semantics.
+    if (ax_th_mode != WM_AX_TH_PX && ax_th_mode != WM_AX_TH_PCT) {
+        ax_th_mode = WM_AX_TH_NONE;
+    }
+    if (ax_th_val <= 0.0f) ax_th_mode = WM_AX_TH_NONE;
 
-    uint64_t current_clock = output_time->hostTime;
-    if (!context->animation_clock) context->animation_clock = now->hostTime;
+    // Hand the whole animation to the payload CA pump: pack the per-window wire
+    // struct (flags, easing, duration, constraints, anchors), open the
+    // is_animating gate, register the pending finalize, and fire it off. The
+    // payload owns the per-frame LB+T3D+AX tick; the daemon never animates.
+    struct sa_anim_ax_begin b = {0};
+    // Companion begin for wid-only visual riders (capture.window == NULL,
+    // capture.wid != 0 — e.g. the focus ring surface on a --display glide).
+    // Riders must NOT ride the main (use_ax) context: the payload's AX fire
+    // decision is context-gated, so a rider row would eat AX round-trips on a
+    // wid with no AX presence, and the settle-judgment loop walks EVERY row of
+    // an AX context — a T3D-only surface's REAL frame never lands at end, so
+    // one rider would veto settle and stall the whole batch to the settle
+    // hard-stop. A separate !use_ax context is exempt from both by
+    // construction (anim.inc.m: visual-only contexts never probe, settle at
+    // t>=1), and both contexts tick on the SAME per-display pump, so rider
+    // motion stays tick-for-tick in phase with the main batch.
+    struct sa_anim_ax_begin v = {0};
+    int vpacked = 0;
+    int n = window_count > SA_ANIM_AX_MAX ? SA_ANIM_AX_MAX : window_count;
+    b.flags = 0;
+    if (api_flags & WM_T3D_USE_LB)  b.flags |= SA_T3D_FLAG_LB;
+    if (api_flags & WM_T3D_USE_T3)  b.flags |= SA_T3D_FLAG_T3;
+    if (api_flags & WM_T3D_LB_FULL) b.flags |= SA_T3D_FLAG_LB_FULL;
+    if (api_flags & WM_T3D_T3_FULL) b.flags |= SA_T3D_FLAG_T3_FULL;
+    if (api_flags & WM_T3D_USE_AX)    b.flags |= SA_T3D_FLAG_AX;    // real AX fires in the payload
+    if (api_flags & WM_T3D_USE_ALPHA) b.flags |= SA_T3D_FLAG_ALPHA;
+    if (api_flags & WM_T3D_ENDPIN)             b.flags |= SA_T3D_FLAG_ENDPIN;             // origin-fixed resize
+    if (api_flags & WM_T3D_ENDPIN_RESIZE_ONLY) b.flags |= SA_T3D_FLAG_ENDPIN_RESIZE_ONLY;
+    if (g_window_manager.window_animation_ax_wake)      b.flags |= SA_T3D_FLAG_AX_WAKE;       // wake Chromium/Electron lazy AX tree at begin (config-gated, default on)
+    if (g_window_manager.window_animation_policy == WM_ANIM_POLICY_JELLO)
+        b.flags |= SA_T3D_FLAG_WARP;   // jello: mesh alone on resize rows (payload splits per row); true_resize = LB+T3D, no warp
+    // Make the payload manage the daemon-observable animating property for
+    // this batch (even visual-only) so the pending-finalize poll below has a
+    // completion signal to watch.
+    if (finalize_callback) b.flags |= SA_T3D_FLAG_NOTIFY_DONE;
+    b.easing        = (uint32_t)g_window_manager.window_animation_easing;
+    b.duration      = duration_override > 0.0f ? duration_override
+                                               : (float)g_window_manager.window_animation_duration;
+    b.fade_duration = g_window_manager.window_opacity_duration;
+    b.ax_th_mode    = (uint32_t)ax_th_mode;
+    b.ax_th_val     = ax_th_val;
+    b.finalize_mode = (uint32_t)finalize_mode;
+    int packed = 0;
+    for (int i = 0; i < n; ++i) {
+        struct window *win = window_list[i].window;
+        if (!win) {
+            // Wid-only rider → companion visual-only row. T3D_ONLY: no LB pin,
+            // no constraints, and the mode documents "presentation only" to
+            // every per-row gate payload-side. Anchor/start = the surface's
+            // REAL frame (the rider never AX-moves, so SLS bounds are the
+            // natural rect the T3D matrix must translate from); end = the
+            // caller's target. An unreadable/zero-sized wid is dropped — a
+            // rider is decoration, never worth failing the batch over.
+            uint32_t rwid = window_list[i].wid;
+            if (!rwid || vpacked >= SA_ANIM_AX_MAX) continue;
+            CGRect rf;
+            if (SLSGetWindowBounds(g_connection, rwid, &rf) != kCGErrorSuccess ||
+                rf.size.width <= 0.0f || rf.size.height <= 0.0f) continue;
+            CGRect rs = (start_override != NULL) ? start_override[i] : rf;
+            v.windows[vpacked].wid  = rwid;
+            v.windows[vpacked].mode = SA_T3D_ROW_MODE_T3D_ONLY;
+            v.windows[vpacked].pid  = 0;
+            v.windows[vpacked].start_x = rs.origin.x;   v.windows[vpacked].start_y = rs.origin.y;
+            v.windows[vpacked].start_w = rs.size.width; v.windows[vpacked].start_h = rs.size.height;
+            v.windows[vpacked].anchor_x = rf.origin.x;   v.windows[vpacked].anchor_y = rf.origin.y;
+            v.windows[vpacked].anchor_w = rf.size.width; v.windows[vpacked].anchor_h = rf.size.height;
+            v.windows[vpacked].end_x = window_list[i].x; v.windows[vpacked].end_y = window_list[i].y;
+            v.windows[vpacked].end_w = window_list[i].w; v.windows[vpacked].end_h = window_list[i].h;
+            v.windows[vpacked].min_opacity = g_window_manager.window_animation_min_opacity;
+            v.windows[vpacked].min_w = 0.0f;   v.windows[vpacked].min_h = 0.0f;
+            v.windows[vpacked].max_w = 1.0e9f; v.windows[vpacked].max_h = 1.0e9f;
+            vpacked++;
+            continue;
+        }
+        CGRect f = window_ax_frame(win);
+        CGRect s = (start_override != NULL) ? start_override[i] : f;
+        b.windows[packed].wid  = win->id;
+        b.windows[packed].mode = row_mode;
+        b.windows[packed].pid  = win->application->pid;
+        b.windows[packed].start_x = s.origin.x;   b.windows[packed].start_y = s.origin.y;
+        b.windows[packed].start_w = s.size.width; b.windows[packed].start_h = s.size.height;
+        // Anchor = the window's REAL surface (natural AX frame, untouched for
+        // visual-only T3D). start_*/end_* are only the VISUAL lerp endpoints;
+        // for stages IN they begin at the thumb rect, which is NOT where the
+        // surface sits, so the payload must anchor its matrix here or the grow
+        // collapses to identity at t=0.
+        b.windows[packed].anchor_x = f.origin.x;   b.windows[packed].anchor_y = f.origin.y;
+        b.windows[packed].anchor_w = f.size.width; b.windows[packed].anchor_h = f.size.height;
+        b.windows[packed].end_x = window_list[i].x; b.windows[packed].end_y = window_list[i].y;
+        b.windows[packed].end_w = window_list[i].w; b.windows[packed].end_h = window_list[i].h;
+        b.windows[packed].min_opacity = g_window_manager.window_animation_min_opacity;
+        // Ship REAL SLS constraints so the payload CA pump clamps both the
+        // visual and its AX fire (anim.inc.m) — no daemon-side clamp ever runs
+        // in this branch (the payload owns the animation), so a wide-open wire
+        // value would let a constrained window transform past its min/max.
+        bool cm_cache = false;
+        window_manager_resolve_anim_constraints(&g_window_manager, win, row_mode,
+            &b.windows[packed].min_w, &b.windows[packed].min_h,
+            &b.windows[packed].max_w, &b.windows[packed].max_h, &cm_cache);
+        // (aspect wire field stays 0 — the aspect path is not built)
+        if (b.windows[packed].min_w > 0.0f || b.windows[packed].min_h > 0.0f ||
+            b.windows[packed].max_w < 1.0e9f || b.windows[packed].max_h < 1.0e9f) {
+            char *cm_title = window_title_ts(win);
+            LOGFT("T3D_CONSTRAIN",
+                "wid%-3u [%s] \"%s\" min=(%.0fx%.0f) max=(%.0fx%.0f) src=%s "
+                "end=(%.0fx%.0f) [branchB]",
+                win->id, win->application->name, cm_title ? cm_title : "",
+                b.windows[packed].min_w, b.windows[packed].min_h,
+                (b.windows[packed].max_w >= 1.0e9f) ? 0.0 : (double)b.windows[packed].max_w,
+                (b.windows[packed].max_h >= 1.0e9f) ? 0.0 : (double)b.windows[packed].max_h,
+                cm_cache ? "cache" : "query",
+                b.windows[packed].end_w, b.windows[packed].end_h);
+        }
+        packed++;
+    }
+    b.count = (uint32_t)packed;
+    v.count = (uint32_t)vpacked;
+    // No REAL windows survived packing → nothing for the AX context or the
+    // finalize watcher (the animating property is only maintained for use_ax /
+    // notify batches, so a rider-only call has no completion signal). The
+    // caller's finalize_callback owns its user_data, so fire it now (NULL/0
+    // batch) to free it. Riders (if any) still ship visually.
+    if (b.count == 0 && finalize_callback) {
+        finalize_callback(NULL, 0, finalize_user_data);
+    }
+    if (b.count == 0 && v.count == 0) return true;
+    // Per-display CA cadence: tell the payload which display these windows
+    // live on + its panel rate, so the payload paces the animation on THAT
+    // display's vblank (not the main display's) and opts ProMotion/VRR panels
+    // into their high rate. Windows in one animation share a display.
+    b.did = window_display_id(b.count ? b.windows[0].wid : v.windows[0].wid);
+    if (!b.did) b.did = CGMainDisplayID();   // fallback: never ship did=0 (inert link)
+    struct display_timing *dt = display_timing_get(b.did);
+    b.refresh_hz = (dt && dt->refresh_rate_hz > 1.0) ? (float)dt->refresh_rate_hz : 60.0f;
 
-    double t = (double)(current_clock - context->animation_clock) / (double)(context->animation_duration * g_cv_host_clock_frequency);
-    if (t <= 0.0) t = 0.0f;
-    if (t >= 1.0) t = 1.0f;
+    // Ship the rider context FIRST (a rider must never register later than the
+    // batch it shadows): same easing/duration/did → same pump, in-phase ticks.
+    // Mirror the caller's T3 bits with translate-only T3D as the floor — a
+    // rider has no AX/LB path, so T3D is its only presentation mechanism.
+    // LEAVE_TERMINAL: the terminal transform persists until the caller
+    // disposes of the rider surface — a CLEAR finalize would snap it back to
+    // its REAL (unmoved) frame at settle, before the caller's completion
+    // signal fires.
+    if (v.count) {
+        if (api_flags & WM_T3D_USE_T3)  v.flags |= SA_T3D_FLAG_T3;
+        if (api_flags & WM_T3D_T3_FULL) v.flags |= SA_T3D_FLAG_T3_FULL;
+        if (!(v.flags & SA_T3D_FLAG_T3)) v.flags = SA_T3D_FLAG_T3;
+        v.easing        = b.easing;
+        v.duration      = b.duration;
+        v.fade_duration = b.fade_duration;
+        v.ax_th_mode    = (uint32_t)WM_AX_TH_NONE;
+        v.ax_th_val     = 0.0f;
+        v.finalize_mode = SA_FINALIZE_LEAVE_TERMINAL;
+        v.did           = b.did;
+        v.refresh_hz    = b.refresh_hz;
+        scripting_addition_anim_ax_begin(&v);
+    }
+    if (b.count == 0) return true;
 
-    float mt;
-    switch (context->animation_easing) {
-#define ANIMATION_EASING_TYPE_ENTRY(value) case value##_type: mt = value(t); break;
+    if (!scripting_addition_anim_ax_begin(&b)) {
+        // SA unreachable (not loaded / Dock mid-restart): no animation is
+        // running, so skip the is_animating and finalize bookkeeping and
+        // report failure — the caller lands the frames itself.
+        return false;
+    }
+    // Open the is_animating begin-gate for these wids (only the AX path fires
+    // the WINDOW_MOVED/RESIZED events that trip the BSP feedback-flush). The
+    // payload's animating property is the precise signal within this window;
+    // the generous expiry is the death-safety bound. See window_manager_is_animating.
+    if (b.flags & SA_T3D_FLAG_AX) {
+        window_manager_ca_anim_sweep();   // recover any LB pins a dead/reinjected payload left
+        uint64_t expire = mach_absolute_time() +
+            (uint64_t)((b.duration + 1.0f) * g_cv_host_clock_frequency);
+        for (int i = 0; i < packed; ++i)
+            window_manager_ca_anim_register(b.windows[i].wid, expire);
+    }
+    // Pending finalize: fire the caller's finalize_callback when the batch's
+    // animating property clears for every wid, or the expiry hits (payload died
+    // mid-animation). SA_T3D_FLAG_NOTIFY_DONE (set above iff finalize_callback)
+    // maintains the property even for visual-only batches, so they signal
+    // completion too.
+    if (finalize_callback) {
+        uint32_t fwids[SA_ANIM_AX_MAX];
+        for (int i = 0; i < packed; ++i) fwids[i] = b.windows[i].wid;
+        uint64_t fexpire = mach_absolute_time() +
+            (uint64_t)((b.duration + 1.0f) * g_cv_host_clock_frequency);
+        window_manager_ca_finalize_register(fwids, packed, fexpire,
+                                            finalize_callback, finalize_user_data);
+    }
+
+    return true;
+}
+
+struct window_ax_only_ctx {
+    struct window *window;
+    CGRect start;
+    CGRect end;
+    double duration;
+    int easing;
+    uint64_t start_time;
+    int64_t interval_ns;
+};
+
+static void window_manager_animate_ax_only_tick(struct window_ax_only_ctx *ctx);
+
+static void window_manager_animate_ax_only_tick(struct window_ax_only_ctx *ctx)
+{
+    uint64_t now = mach_absolute_time();
+    double t = (double)(now - ctx->start_time) /
+               (double)(ctx->duration * g_cv_host_clock_frequency);
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+
+    float mt = (float)t;
+    switch (ctx->easing) {
+#define ANIMATION_EASING_TYPE_ENTRY(value) \
+  case value##_type:                       \
+    mt = value(t);                         \
+    break;
         ANIMATION_EASING_TYPE_LIST
 #undef ANIMATION_EASING_TYPE_ENTRY
     }
 
-    CFTypeRef transaction = SLSTransactionCreate(context->animation_connection);
-    for (int i = 0; i < animation_count; ++i) {
-        if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
+    float lerp_x = lerp(ctx->start.origin.x,    mt, ctx->end.origin.x);
+    float lerp_y = lerp(ctx->start.origin.y,    mt, ctx->end.origin.y);
+    float lerp_w = lerp(ctx->start.size.width,  mt, ctx->end.size.width);
+    float lerp_h = lerp(ctx->start.size.height, mt, ctx->end.size.height);
 
-        context->animation_list[i].proxy.tx = lerp(context->animation_list[i].proxy.frame.origin.x,    mt, context->animation_list[i].x);
-        context->animation_list[i].proxy.ty = lerp(context->animation_list[i].proxy.frame.origin.y,    mt, context->animation_list[i].y);
-        context->animation_list[i].proxy.tw = lerp(context->animation_list[i].proxy.frame.size.width,  mt, context->animation_list[i].w);
-        context->animation_list[i].proxy.th = lerp(context->animation_list[i].proxy.frame.size.height, mt, context->animation_list[i].h);
+    window_manager_set_window_frame(ctx->window, lerp_x, lerp_y, lerp_w, lerp_h);
 
-        CGAffineTransform transform = CGAffineTransformMakeTranslation(-context->animation_list[i].proxy.tx, -context->animation_list[i].proxy.ty);
-        CGAffineTransform scale = CGAffineTransformMakeScale(context->animation_list[i].proxy.frame.size.width / context->animation_list[i].proxy.tw, context->animation_list[i].proxy.frame.size.height / context->animation_list[i].proxy.th);
-        SLSTransactionSetWindowTransform(transaction, context->animation_list[i].proxy.id, 0, 0, CGAffineTransformConcat(transform, scale));
-
-        float alpha = 0.0f;
-        SLSGetWindowAlpha(context->animation_connection, context->animation_list[i].wid, &alpha);
-        if (alpha != 0.0f) SLSTransactionSetWindowAlpha(transaction, context->animation_list[i].proxy.id, alpha);
+    if (t >= 1.0) {
+        free(ctx);
+        return;
     }
-    SLSTransactionCommit(transaction, 0);
-    CFRelease(transaction);
-    if (t != 1.0f) goto out;
 
-    pthread_mutex_lock(&g_window_manager.window_animations_lock);
-    SLSDisableUpdate(context->animation_connection);
-    window_manager_notify_jankyborders(context->animation_list, context->animation_count, 1326, true, true);
-    scripting_addition_swap_window_proxy_out(context->animation_list, context->animation_count);
-    for (int i = 0; i < animation_count; ++i) {
-        if (__atomic_load_n(&context->animation_list[i].skip, __ATOMIC_RELAXED)) continue;
-
-        table_remove(&g_window_manager.window_animations_table, &context->animation_list[i].wid);
-        window_manager_destroy_window_proxy(context->animation_connection, &context->animation_list[i].proxy);
-
-    }
-    SLSReenableUpdate(context->animation_connection);
-    pthread_mutex_unlock(&g_window_manager.window_animations_lock);
-
-    SLSReleaseConnection(context->animation_connection);
-    free(context->animation_list);
-    free(context);
-
-    CVDisplayLinkStop(link);
-    CVDisplayLinkRelease(link);
-
-out:
-    return kCVReturnSuccess;
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, ctx->interval_ns),
+        dispatch_get_main_queue(),
+        ^{ window_manager_animate_ax_only_tick(ctx); });
 }
-#pragma clang diagnostic pop
 
-void window_manager_animate_window_list_async(struct window_capture *window_list, int window_count)
+void window_manager_animate_window_ax_only_async(
+    struct window *window, CGRect target, float ax_hz)
 {
-    struct window_animation_context *context = malloc(sizeof(struct window_animation_context));
+    if (!window) return;
+    if (ax_hz <= 0.0f) ax_hz = 60.0f;
 
-    SLSNewConnection(0, &context->animation_connection);
-    context->animation_count    = window_count;
-    context->animation_list     = malloc(window_count * sizeof(struct window_animation));
-    context->animation_duration = g_window_manager.window_animation_duration;
-    context->animation_easing   = g_window_manager.window_animation_easing;
-    context->animation_clock    = 0;
+    struct window_ax_only_ctx *ctx = malloc(sizeof(struct window_ax_only_ctx));
+    ctx->window      = window;
+    ctx->start       = window_ax_frame(window);
+    ctx->end         = target;
+    ctx->duration    = g_window_manager.window_animation_duration;
+    ctx->easing      = g_window_manager.window_animation_easing;
+    ctx->start_time  = mach_absolute_time();
+    ctx->interval_ns = (int64_t)(NSEC_PER_SEC / ax_hz);
 
-    int thread_count = 0;
-    pthread_t *threads = ts_alloc_list(pthread_t, window_count);
+    dispatch_async(dispatch_get_main_queue(),
+                   ^{ window_manager_animate_ax_only_tick(ctx); });
+}
 
-    TIME_BODY(window_manager_animate_window_list_async___prep_proxies, {
-    SLSDisableUpdate(context->animation_connection);
-    pthread_mutex_lock(&g_window_manager.window_animations_lock);
-    for (int i = 0; i < window_count; ++i) {
-        context->animation_list[i].window = window_list[i].window;
-        context->animation_list[i].wid    = window_list[i].window->id;
-        context->animation_list[i].x      = window_list[i].x;
-        context->animation_list[i].y      = window_list[i].y;
-        context->animation_list[i].w      = window_list[i].w;
-        context->animation_list[i].h      = window_list[i].h;
-        context->animation_list[i].cid    = context->animation_connection;
-        context->animation_list[i].skip   = false;
-        memset(&context->animation_list[i].proxy, 0, sizeof(struct window_proxy));
+// The production recipe: AX + full-XYWH LB + translate-only T3D, origin pinned
+// at end_xy so the app never reflows on an internal move.
+#define WM_T3D_AUTO_POLICY                                          \
+    (WM_T3D_ENDPIN | WM_T3D_ENDPIN_RESIZE_ONLY |                    \
+     WM_T3D_USE_AX | WM_T3D_USE_LB | WM_T3D_LB_FULL | WM_T3D_USE_T3)
 
-        struct window_animation *existing_animation = table_find(&g_window_manager.window_animations_table, &context->animation_list[i].wid);
-        if (existing_animation) {
-            __atomic_store_n(&existing_animation->skip, true, __ATOMIC_RELEASE);
+static inline uint32_t window_manager_auto_policy_flags(struct window_manager *wm) {
+  (void)wm;
+  return WM_T3D_AUTO_POLICY;
+}
 
-            context->animation_list[i].proxy.frame.origin.x    = (int)(existing_animation->proxy.tx);
-            context->animation_list[i].proxy.frame.origin.y    = (int)(existing_animation->proxy.ty);
-            context->animation_list[i].proxy.frame.size.width  = (int)(existing_animation->proxy.tw);
-            context->animation_list[i].proxy.frame.size.height = (int)(existing_animation->proxy.th);
-            context->animation_list[i].proxy.tx                = (int)(existing_animation->proxy.tx);
-            context->animation_list[i].proxy.ty                = (int)(existing_animation->proxy.ty);
-            context->animation_list[i].proxy.tw                = (int)(existing_animation->proxy.tw);
-            context->animation_list[i].proxy.th                = (int)(existing_animation->proxy.th);
-            context->animation_list[i].proxy.level             = existing_animation->proxy.level;
-            context->animation_list[i].proxy.sub_level         = existing_animation->proxy.sub_level;
-            context->animation_list[i].proxy.image             = existing_animation->proxy.image
-                                                               ? (CGImageRef) CFRetain(existing_animation->proxy.image)
-                                                               : NULL;
-            __asm__ __volatile__ ("" ::: "memory");
+void window_manager_animate_window_list(struct window_capture *window_list,
+                                        int window_count) {
+  TIME_FUNCTION;
 
-            float alpha = 1.0f;
-            SLSGetWindowAlpha(context->animation_connection, context->animation_list[i].wid, &alpha);
-            window_manager_create_window_proxy(context->animation_connection, alpha, &context->animation_list[i].proxy);
-            window_manager_notify_jankyborders(&context->animation_list[i], 1, 1325, true, false);
-            window_manager_notify_jankyborders(existing_animation, 1, 1326, false, false);
+  if (g_window_manager.window_animation_duration &&
+      window_manager_animate_windows_lockedbounds_t3d_async(
+          window_list, window_count,
+          window_manager_auto_policy_flags(&g_window_manager), 0.0f,
+          WM_AX_TH_PX,
+          1.0f,
+          NULL, SA_T3D_ROW_MODE_LB_T3D,
+          WM_FINALIZE_CLEAR, NULL, NULL)) {
+    return;
+  }
 
-            CFTypeRef transaction = SLSTransactionCreate(context->animation_connection);
-            SLSTransactionOrderWindowGroup(transaction, context->animation_list[i].proxy.id, 1, context->animation_list[i].wid);
-            SLSTransactionSetWindowSystemAlpha(transaction, existing_animation->proxy.id, 0);
-            SLSTransactionCommit(transaction, 0);
-            CFRelease(transaction);
+  // Instant placement: animations off, or the SA batch was refused (no
+  // scripting addition) — layout commands must always land the frames.
+  for (int i = 0; i < window_count; ++i) {
+    window_manager_set_window_frame(window_list[i].window, window_list[i].x,
+                                    window_list[i].y, window_list[i].w,
+                                    window_list[i].h);
+  }
+}
 
-            table_remove(&g_window_manager.window_animations_table, &context->animation_list[i].wid);
-            window_manager_destroy_window_proxy(existing_animation->cid, &existing_animation->proxy);
-        } else {
-            pthread_t thread;
-            if (pthread_create(&thread, NULL, &window_manager_build_window_proxy_thread_proc, &context->animation_list[i]) == 0) {
-                threads[thread_count++] = thread;
-            } else {
-                window_manager_build_window_proxy_thread_proc(&context->animation_list[i]);
-            }
+void window_manager_animate_window(struct window_capture capture) {
+  TIME_FUNCTION;
+
+  if (g_window_manager.window_animation_duration &&
+      window_manager_animate_windows_lockedbounds_t3d_async(
+          &capture, 1, window_manager_auto_policy_flags(&g_window_manager), 0.0f,
+          WM_AX_TH_PX,
+          1.0f,
+          NULL, SA_T3D_ROW_MODE_LB_T3D,
+          WM_FINALIZE_CLEAR, NULL, NULL)) {
+    return;
+  }
+
+  window_manager_set_window_frame(capture.window, capture.x, capture.y,
+                                  capture.w, capture.h);
+}
+
+void window_manager_animate_set_window_frame(struct window *window, float x, float y,
+                                             float width, float height) {
+  // Per-tick lerp fire: plain resize+move. No EUI bracketing (EUI is held false
+  // for the whole animation via the payload) and no stale-AX watch — terminal
+  // commits go through window_manager_set_window_frame.
+  window_manager_resize_window(window, width, height);
+  window_manager_move_window(window, x, y);
+}
+
+void window_manager_animate_window_resize(struct window *window,
+                                          CGRect start_frame, CGRect end_frame,
+                                          float duration) {
+  if (!window)
+    return;
+
+  // Blocking linear tween at a fixed 60fps.
+  int total_frames = (int)(duration * 60.0f);
+  if (total_frames < 2)
+    total_frames = 2;
+
+  for (int frame = 0; frame <= total_frames; frame++) {
+    float t = (float)frame / (float)total_frames;
+
+    float cx =
+        start_frame.origin.x + t * (end_frame.origin.x - start_frame.origin.x);
+    float cy =
+        start_frame.origin.y + t * (end_frame.origin.y - start_frame.origin.y);
+    float cw = start_frame.size.width +
+               t * (end_frame.size.width - start_frame.size.width);
+    float ch = start_frame.size.height +
+               t * (end_frame.size.height - start_frame.size.height);
+
+    scripting_addition_animate_window_lockedbounds(
+        window->id,
+        g_window_manager.window_opacity_duration, // fade_duration
+        cx, cy, cw, ch, g_window_manager.window_animation_min_opacity,
+        t // progress
+    );
+
+    if (frame < total_frames) {
+      usleep((int)(duration * 1000000.0f / total_frames));
+    }
+  }
+}
+
+
+#pragma mark - WM-9: proxy warp cover
+
+// Cover an instant placement with a daemon-owned PROXY window
+// showing a frozen snapshot of the old content, 9-slice-warped to the target
+// rect, while the real window (hidden at alpha 0) does the actual AX transform
+// underneath; then restore the real window and fade the proxy out. Kills the
+// content-commit dependency that made the 0x55 real-window warp cover flash at
+// clear time: the proxy never needs the app to re-render. Proxy create/draw
+// follows upstream yabai's proxy idiom. No supersede table — a wid with a
+// cover in flight (real window parked at alpha 0) falls back to bare AX.
+// Translucent windows are covered at their own alpha (capture un-premultiplied,
+// proxy carries it, reveal restores it).
+extern CGError SLSSetWindowWarp(int cid, uint32_t wid, int w, int h, float *mesh);
+// Disasm-verified signature: int radius, vibrancy effect.
+extern void SLSSetWindowBackgroundBlurRadius(int cid, uint32_t wid, int radius);
+
+#define WM_PROXY_COVER_SETTLE_CAP_S 0.400f  // reveal no later than this
+#define WM_PROXY_COVER_SETTLE_PX    1.0     // real frame within this of dst = landed
+#define WM_PROXY_COVER_TICK_US      8000    // settle poll cadence
+// fade-out: g_window_manager.window_animation_cover_fade (config knob)
+#define WM_PROXY_COVER_BLUR_R   30      // vibrancy behind the proxy: invisible on opaque
+                                        // snapshots, approximates iTerm-style frosted
+                                        // translucency (no SLS getter for the real radius)
+
+// Duplicated from payload_inc/warp_cover.inc.m — keep the two in sync.
+// 4x4 nine-slice: corner cells 1:1, bands pair-clamped per axis;
+// out = 4*4*4 floats {srcX,srcY,dstX,dstY}, src window-local, dst global.
+static void wm_warp_mesh_9slice(double w0, double h0, CGRect dst,
+                                double bl, double br, double bt, double bb,
+                                float *out)
+{
+    double lim_w = fmin(w0, dst.size.width)  - 2.0;
+    double lim_h = fmin(h0, dst.size.height) - 2.0;
+    if (lim_w < 0.0) lim_w = 0.0;
+    if (lim_h < 0.0) lim_h = 0.0;
+    if (bl + br > lim_w && bl + br > 0.0) {
+        double s = lim_w / (bl + br); bl *= s; br *= s;
+    }
+    if (bt + bb > lim_h && bt + bb > 0.0) {
+        double s = lim_h / (bt + bb); bt *= s; bb *= s;
+    }
+
+    double sxs[4] = { 0.0, bl, w0 - br, w0 };
+    double sys[4] = { 0.0, bt, h0 - bb, h0 };
+    double dxs[4] = { dst.origin.x, dst.origin.x + bl,
+                      dst.origin.x + dst.size.width - br,
+                      dst.origin.x + dst.size.width };
+    double dys[4] = { dst.origin.y, dst.origin.y + bt,
+                      dst.origin.y + dst.size.height - bb,
+                      dst.origin.y + dst.size.height };
+    int idx = 0;
+    for (int gy = 0; gy < 4; gy++) {
+        for (int gx = 0; gx < 4; gx++) {
+            out[idx++] = (float)sxs[gx];
+            out[idx++] = (float)sys[gy];
+            out[idx++] = (float)dxs[gx];
+            out[idx++] = (float)dys[gy];
         }
-
-        table_add(&g_window_manager.window_animations_table, &context->animation_list[i].wid, &context->animation_list[i]);
-    }
-    pthread_mutex_unlock(&g_window_manager.window_animations_lock);
-    });
-
-    TIME_BODY(window_manager_animate_window_list_async___wait_for_threads, {
-    for (int i = 0; i < thread_count; ++i) {
-        pthread_join(threads[i], NULL);
-    }
-    });
-
-    TIME_BODY(window_manager_animate_window_list_async___swap_proxy_in, {
-    scripting_addition_swap_window_proxy_in(context->animation_list, context->animation_count);
-    });
-
-    TIME_BODY(window_manager_animate_window_list_async___notify_jb, {
-    window_manager_notify_jankyborders(context->animation_list, context->animation_count, 1325, true, false);
-    });
-
-    TIME_BODY(window_manager_animate_window_list_async___set_frame, {
-    for (int i = 0; i < window_count; ++i) {
-        window_manager_set_window_frame(context->animation_list[i].window, context->animation_list[i].x, context->animation_list[i].y, context->animation_list[i].w, context->animation_list[i].h);
-    }
-    });
-
-    CVDisplayLinkRef link;
-    SLSReenableUpdate(context->animation_connection);
-    CVDisplayLinkCreateWithActiveCGDisplays(&link);
-    CVDisplayLinkSetOutputCallback(link, window_manager_animate_window_list_thread_proc, context);
-    CVDisplayLinkStart(link);
-}
-
-void window_manager_animate_window_list(struct window_capture *window_list, int window_count)
-{
-    TIME_FUNCTION;
-
-    if (g_window_manager.window_animation_duration) {
-        window_manager_animate_window_list_async(window_list, window_count);
-    } else {
-        for (int i = 0; i < window_count; ++i) {
-            window_manager_set_window_frame(window_list[i].window, window_list[i].x, window_list[i].y, window_list[i].w, window_list[i].h);
-        }
     }
 }
 
-void window_manager_animate_window(struct window_capture capture)
-{
-    TIME_FUNCTION;
+struct wm_proxy_cover_ctx {
+    uint32_t wid, pwid;
+    float alpha;                // the real window's original alpha (restored at reveal)
+    float fade_s;               // fade-out duration, sampled at cover start
+    CGRect dst;                 // target frame (settle poll compares against it)
+    CGImageRef image;
+    CGContextRef context;
+};
 
-    if (g_window_manager.window_animation_duration) {
-        window_manager_animate_window_list_async(&capture, 1);
-    } else {
-        window_manager_set_window_frame(capture.window, capture.x, capture.y, capture.w, capture.h);
+static void *wm_proxy_cover_thread(void *data)
+{
+    struct wm_proxy_cover_ctx *ctx = data;
+
+    // Reveal as soon as the real frame lands at dst (or at the cap) — no
+    // fixed curtain: fast apps start the fade within a few ticks. Then:
+    // real window back first (invisible — still under the proxy), proxy
+    // crossfades out via the SA's existing fade path.
+    uint64_t deadline = mach_absolute_time()
+                      + (uint64_t)(WM_PROXY_COVER_SETTLE_CAP_S * g_cv_host_clock_frequency);
+    for (;;) {
+        CGRect real = {0};
+        if (SLSGetWindowBounds(g_connection, ctx->wid, &real) == kCGErrorSuccess &&
+            fabs(real.origin.x - ctx->dst.origin.x) <= WM_PROXY_COVER_SETTLE_PX &&
+            fabs(real.origin.y - ctx->dst.origin.y) <= WM_PROXY_COVER_SETTLE_PX &&
+            fabs(real.size.width  - ctx->dst.size.width)  <= WM_PROXY_COVER_SETTLE_PX &&
+            fabs(real.size.height - ctx->dst.size.height) <= WM_PROXY_COVER_SETTLE_PX) break;
+        if (mach_absolute_time() >= deadline) break;
+        usleep(WM_PROXY_COVER_TICK_US);
     }
+    scripting_addition_set_opacity(ctx->wid, ctx->alpha, 0.0f);   // restore ORIGINAL alpha
+    scripting_addition_set_opacity(ctx->pwid, 0.0f, ctx->fade_s);
+
+    usleep((useconds_t)((ctx->fade_s + 0.05f) * 1000000.0f));
+    SLSReleaseWindow(g_connection, ctx->pwid);
+    CGContextRelease(ctx->context);
+    CFRelease(ctx->image);
+    free(ctx);
+    return NULL;
+}
+
+static void wm_proxy_cover_run(struct window *window, CGRect dst)
+{
+    uint32_t wid = window->id;
+
+    float alpha = 1.0f;
+    SLSGetWindowAlpha(g_connection, wid, &alpha);
+    if (alpha < 0.01f) return;                  // cover in flight (real parked at 0) / invisible -> bare AX
+
+    CGRect cur = {0};
+    if (SLSGetWindowBounds(g_connection, wid, &cur) != kCGErrorSuccess ||
+        cur.size.width <= 1.0 || cur.size.height <= 1.0) return;
+
+    // Capture bakes the window alpha into the image — un-premultiply for
+    // translucent windows and carry the alpha on the proxy window instead
+    // (upstream build_window_proxy_thread_proc idiom).
+    CFArrayRef image_array = SLSHWCaptureWindowList(g_connection, &wid, 1, (1 << 11) | (1 << 8));
+    if (!image_array) return;                   // no TCC / no backing -> bare AX
+    if (!CFArrayGetCount(image_array)) { CFRelease(image_array); return; }
+    CGImageRef image = alpha == 1.0f
+        ? (CGImageRef) CFRetain(CFArrayGetValueAtIndex(image_array, 0))
+        : cgimage_restore_alpha((CGImageRef) CFArrayGetValueAtIndex(image_array, 0));
+    CFRelease(image_array);
+    if (!image) return;
+
+    // Proxy at the CURRENT rect, snapshot drawn 1:1 (upstream create idiom).
+    CFTypeRef frame_region;
+    CGSNewRegionWithRect(&cur, &frame_region);
+    CFTypeRef empty_region = CGRegionCreateEmptyRegion();
+    uint64_t tags = 1ULL << 46;
+    uint32_t pwid = 0;
+    SLSNewWindowWithOpaqueShapeAndContext(g_connection, 2, frame_region, empty_region,
+                                          13 | (1 << 18), &tags, 0, 0, 64, &pwid, NULL);
+    CFRelease(frame_region);
+    CFRelease(empty_region);
+    if (!pwid) { CFRelease(image); return; }
+
+    sls_window_disable_shadow(pwid);
+    SLSSetWindowOpacity(g_connection, pwid, 0);
+    SLSSetWindowBackgroundBlurRadius(g_connection, pwid, WM_PROXY_COVER_BLUR_R);
+    SLSSetWindowResolution(g_connection, pwid, 2.0f);
+    SLSSetWindowAlpha(g_connection, pwid, alpha);   // proxy carries the original alpha
+    SLSSetWindowLevel(g_connection, pwid, window_level(wid));
+    SLSSetWindowSubLevel(g_connection, pwid, window_sub_level(wid));
+    CGContextRef context = SLWindowContextCreate(g_connection, pwid, 0);
+    CGRect local = {{0, 0}, cur.size};
+    CGContextClearRect(context, local);
+    CGContextDrawImage(context, local, image);
+    CGContextFlush(context);
+    SLSOrderWindow(g_connection, pwid, 1, wid);  // proxy just above the real window
+
+    // Hide the real window under the proxy, then warp the proxy to dst.
+    // The proxy is daemon-owned, so the immediate-path warp needs no SA.
+    scripting_addition_set_opacity(wid, 0.0f, 0.0f);
+    float mesh[4 * 4 * 4];
+    wm_warp_mesh_9slice(cur.size.width, cur.size.height, dst,
+                        120.0, 24.0, 52.0, 24.0, mesh);
+    SLSSetWindowWarp(g_connection, pwid, 4, 4, mesh);
+
+    float fade_s = g_window_manager.window_animation_cover_fade;
+    if (fade_s < 0.0f) fade_s = 0.0f;
+
+    struct wm_proxy_cover_ctx *ctx = malloc(sizeof(struct wm_proxy_cover_ctx));
+    ctx->wid = wid;
+    ctx->pwid = pwid;
+    ctx->alpha = alpha;
+    ctx->fade_s = fade_s;
+    ctx->dst = dst;
+    ctx->image = image;
+    ctx->context = context;
+    pthread_t thread;
+    pthread_create(&thread, NULL, wm_proxy_cover_thread, ctx);
+    pthread_detach(thread);
 }
 
 void window_manager_set_window_frame(struct window *window, float x, float y, float width, float height)
@@ -738,7 +1328,46 @@ void window_manager_set_window_frame(struct window *window, float x, float y, fl
     // track changes to the window frame in real-time without delay.
     //
 
-    AX_ENHANCED_UI_WORKAROUND(window->application->ref, {
+    if (g_window_manager.window_animation_warp_cover != WM_WARP_COVER_OFF &&
+        g_window_manager.window_animation_duration == 0.0f) {
+        CGRect dst = CGRectMake(x, y, width, height);
+        CGRect cur = {0};
+        if (SLSGetWindowBounds(g_connection, window->id, &cur) == kCGErrorSuccess &&
+            (fabs(cur.origin.x - x) > 2.0f || fabs(cur.origin.y - y) > 2.0f ||
+             fabs(cur.size.width - width) > 2.0f || fabs(cur.size.height - height) > 2.0f)) {
+            // Arm the local is_animating ring BEFORE the cover so the first
+            // app MOVED/RESIZED event can't re-flush BSP mid-cover;
+            // expiry ~600ms (reveal 250 + fade 250 + slack).
+            window_manager_ca_anim_register(window->id,
+                mach_absolute_time() + (uint64_t)(0.600f * g_cv_host_clock_frequency));
+            if (g_window_manager.window_animation_warp_cover == WM_WARP_COVER_LB_WARP) {
+                // SA 0x55 — real-window 9-slice warp onto dst, mesh tweened
+                // over warp_min_ms, cleared at settle (payload-side). No LB
+                // pin: the warp visually overpowers LockedBounds and warp-only
+                // reads cleaner (wire flag retained). The payload side does
+                // source-tracking + move-first (mesh source follows
+                // the real frame, origin server-seated at dst first); an
+                // armless SA is a silent no-op = bare AX. The send blocks
+                // until the cover is applied, so the AX fire can't race it.
+                scripting_addition_warp_snap(window->id, dst, 0, false,
+                    (uint32_t)fmaxf(0.0f, g_window_manager.window_animation_warp_min_ms));
+            } else {
+                wm_proxy_cover_run(window, dst);                 // PROTOTYPE: proxy cover
+            }
+
+            // Snap the focus ring to dst alongside the cover. A retile fires no
+            // WINDOW_FOCUSED, so the ring (driven only from the focus path) would
+            // otherwise lag at the old rect until the next focus change. This entry
+            // paints at the supplied rect even though the real window's SLS frame
+            // hasn't AX-committed yet — matching the proxy, which is already at dst.
+            // Only the focused window carries a ring.
+            if (window->id == g_window_manager.focused_window_id) {
+                focus_ring_show_for_wid_rect(window->id, dst);
+            }
+        }
+    }
+
+    AX_ENHANCED_UI_WORKAROUND_CACHED(window->application,{
         CGPoint position = CGPointMake(x, y);
         CFTypeRef position_ref = AXValueCreate(kAXValueTypeCGPoint, (void *) &position);
 
@@ -994,6 +1623,118 @@ struct window *window_manager_find_closest_managed_window_in_direction(struct wi
     if (!closest) return NULL;
 
     return window_manager_find_window(wm, closest->window_order[0]);
+}
+
+static inline int direction_opposite(int direction)
+{
+    switch (direction) {
+    case DIR_NORTH: return DIR_SOUTH;
+    case DIR_EAST:  return DIR_WEST;
+    case DIR_SOUTH: return DIR_NORTH;
+    case DIR_WEST:  return DIR_EAST;
+    }
+
+    return direction;
+}
+
+// Geometry fallback for directional focus: the closest (or, for wrap-around,
+// farthest) eligible window on `sid` that lies in `direction` from `window`.
+// Unlike the BSP walk above this ranks by frame position rather than tree
+// topology, so it works for FLOATING windows and float/stack spaces too.
+static struct window *window_manager_find_window_in_direction_on_space(struct window_manager *wm, struct window *window, uint64_t sid, int direction, bool farthest, int *best_distance_out)
+{
+    int window_count;
+    uint32_t *window_list = space_window_list(sid, &window_count, false);
+    if (!window_list) return NULL;
+
+    struct area source_area = area_from_cgrect(window->frame);
+    CGPoint source_area_max = area_max_point(source_area);
+
+    int best_distance = farthest ? INT_MIN : INT_MAX;
+    int best_rank = INT_MAX;
+    struct window *best_window = NULL;
+
+    for (int i = 0; i < window_count; ++i) {
+        if (window_list[i] == window->id) continue;
+
+        struct window *target = window_manager_find_window(wm, window_list[i]);
+        if (!target || !target->is_eligible) continue;
+
+        struct area target_area = area_from_cgrect(target->frame);
+        CGPoint target_area_max = area_max_point(target_area);
+        if (area_is_in_direction(&source_area, source_area_max, &target_area, target_area_max, direction)) {
+            int distance = area_distance_in_direction(&source_area, source_area_max, &target_area, target_area_max, direction);
+            bool better = farthest ? distance > best_distance : distance < best_distance;
+            if (better || (distance == best_distance && i < best_rank)) {
+                best_window = target;
+                best_distance = distance;
+                best_rank = i;
+            }
+        }
+    }
+
+    if (best_window && best_distance_out) *best_distance_out = best_distance;
+
+    return best_window;
+}
+
+// Directional `window --focus DIR` resolution, in fallback tiers:
+//   1. the neighbouring BSP node (managed windows only) — stock behavior;
+//   2. the closest eligible window on the current space by geometry — this is
+//      what makes DIR selection work for FLOATING windows / float+stack spaces;
+//   3. (window_focus_inter_display) the closest window on the display in
+//      that direction;
+//   4. (window_focus_wrap) wrap to the farthest window in the opposite
+//      direction — within the current space, or across all displays when
+//      cross-display focus is also enabled.
+struct window *window_manager_find_closest_window_in_direction(struct window_manager *wm, struct window *window, int direction)
+{
+    struct window *closest = window_manager_find_closest_managed_window_in_direction(wm, window, direction);
+    if (closest) return closest;
+
+    closest = window_manager_find_window_in_direction_on_space(wm, window, window_space(window->id), direction, false, NULL);
+    if (closest) return closest;
+
+    if (wm->window_focus_inter_display) {
+        uint32_t source_did = window_display_id(window->id);
+        uint32_t target_did = source_did ? display_manager_find_closest_display_in_direction(source_did, direction) : 0;
+        if (target_did) {
+            closest = window_manager_find_window_in_direction_on_space(wm, window, display_space_id(target_did), direction, false, NULL);
+            if (closest) return closest;
+        }
+    }
+
+    if (wm->window_focus_wrap) {
+        int opposite = direction_opposite(direction);
+
+        //
+        // Wrap stays on the current space unless cross-display focus is also
+        // enabled, in which case we wrap to the globally-farthest window.
+        //
+        if (!wm->window_focus_inter_display) {
+            return window_manager_find_window_in_direction_on_space(wm, window, window_space(window->id), opposite, true, NULL);
+        }
+
+        int display_count;
+        uint32_t *display_list = display_manager_active_display_list(&display_count);
+        if (!display_list) return NULL;
+
+        int best_distance = INT_MIN;
+        struct window *best_window = NULL;
+
+        for (int i = 0; i < display_count; ++i) {
+            int distance;
+            struct window *candidate = window_manager_find_window_in_direction_on_space(wm, window, display_space_id(display_list[i]), opposite, true, &distance);
+            if (candidate && distance > best_distance) {
+                best_window = candidate;
+                best_distance = distance;
+            }
+        }
+
+        return best_window;
+    }
+
+    return NULL;
 }
 
 struct window *window_manager_find_prev_managed_window(struct space_manager *sm, struct window_manager *wm, struct window *window)
@@ -1325,13 +2066,20 @@ void window_manager_focus_window_with_raise(ProcessSerialNumber *window_psn, uin
 {
     TIME_FUNCTION;
 
-#if 1
+    //
+    // The sls path hands focus to Dock's own set_front_window routine (via the
+    // scripting-addition), sidestepping the kAXRaiseAction round-trip that some
+    // applications service poorly. Falls through to the ax path if the
+    // scripting-addition is unavailable, so focus never silently no-ops.
+    //
+
+    if (g_window_manager.focus_method == WINDOW_FOCUS_METHOD_SLS && scripting_addition_focus_window(window_id)) {
+        return;
+    }
+
     _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
     window_manager_make_key_window(window_psn, window_id);
     AXUIElementPerformAction(window_ref, kAXRaiseAction);
-#else
-    scripting_addition_focus_window(window_id);
-#endif
 }
 
 #pragma clang diagnostic push
@@ -1356,8 +2104,272 @@ struct window *window_manager_focused_window(struct window_manager *wm)
     struct application *application = window_manager_focused_application(wm);
     if (!application) return NULL;
 
-    uint32_t window_id = application_focused_window(application);
+    // Resolve the front app's focused window from the window server: its topmost
+    // normal window on the active space (rich SLS query, z-order row[0]), scoped
+    // to the app's connection so an unrelated sticky/floating overlay can't win.
+    // Sticky, hidden and minimized windows are excluded server-side — a
+    // minimized window still enumerates on its original space, so without the
+    // exclusion it becomes the "focused" candidate on an otherwise empty space.
+    // The AX read (kAXFocusedWindowAttribute) lags under rapid focus churn and
+    // can answer with a window on another space; it remains the fallback for
+    // when the query resolves nothing (no normal window on the active space,
+    // missing connection, or unresolved query keys).
+    // The sid must come straight from SLS: space_manager_active_space() resolves
+    // the focused window's display via this very function, so calling it here
+    // recurses without bound.
+    uint32_t window_id = 0;
+    if (application->connection) {
+        window_id = space_query_focused_wid(SLSGetActiveSpace(g_connection), application->connection,
+                                            WQ_TAG_NORMAL,
+                                            WQ_TAG_STICKY | WQ_TAG_HIDDEN | WQ_TAG_MINIMIZED);
+    }
+    if (!window_id) window_id = application_focused_window(application);
     return window_manager_find_window(wm, window_id);
+}
+
+// Topmost focus-candidate window on `sid` — that one space, hence that one display
+// — scoped to the SLS connection `owner`. owner==0 is a wildcard (any process): the
+// z-topmost normal window on the space, i.e. the window macOS reveals. Sticky,
+// hidden and minimized are excluded server-side (a minimized window still
+// enumerates on its origin space). 0 when the space holds no eligible window.
+static uint32_t space_window_for_owner(uint64_t sid, int owner)
+{
+    if (!sid) return 0;
+    return space_query_focused_wid(sid, owner, WQ_TAG_NORMAL,
+                                   WQ_TAG_STICKY | WQ_TAG_HIDDEN | WQ_TAG_MINIMIZED);
+}
+
+// PSN -> the app's SLS connection (0 when the app is untracked / has no connection).
+static int window_manager_connection_for_psn(struct window_manager *wm, ProcessSerialNumber *psn)
+{
+    pid_t pid = 0;
+    GetProcessPID(psn, &pid);
+    struct application *application = window_manager_find_application(wm, pid);
+    return (application && application->connection) ? application->connection : 0;
+}
+
+// Per-process-producer resolvers for "the focused window on this space". Each picks
+// a producer SPI, resolves it to a connection, and asks the space query for that
+// owner's topmost window.
+uint32_t window_manager_space_front_window(struct window_manager *wm, uint64_t sid)
+{
+    ProcessSerialNumber psn = {0};
+    _SLPSGetFrontProcess(&psn);
+    int cid = window_manager_connection_for_psn(wm, &psn);
+    return cid ? space_window_for_owner(sid, cid) : 0;
+}
+
+uint32_t window_manager_space_key_focus_window(struct window_manager *wm, uint64_t sid)
+{
+    ProcessSerialNumber psn = {0};
+    uint8_t fallback = 0;
+    SLPSGetKeyFocusProcess(&psn, &fallback);
+    // fallback==1 => no app explicitly holds key focus; PSN is the front fallback, so
+    // this degrades to the front-window answer. Only fallback==0 (a real overlay-panel
+    // steal, e.g. Raycast) makes it differ from window_manager_space_front_window.
+    // Not branched on yet.
+    (void) fallback;
+    int cid = window_manager_connection_for_psn(wm, &psn);
+    return cid ? space_window_for_owner(sid, cid) : 0;
+}
+
+// Pure state stamp of a GIVEN wid into the tracked focus state (focus_unify-gated):
+// no side effects — no center-mouse, no opacity swap, no per-space recall write, no
+// signal push, no ring call. Factored out of the resolver below so the native-tab
+// follow (SLS_WINDOW_CREATED, event_loop.c) can stamp the re-materialized tab wid
+// DIRECTLY — key focus can't be re-resolved for an AX-silent tab switch (it fires
+// no 815), so the 1325 wid is the only truth.
+//
+// 0 IS the defocus signal (desktop / no key holder) — stamped, not skipped. Key
+// focus can express "nothing focused"; topmost-z never could.
+//
+// Why 808 must NOT reach here (load-bearing): 808 precedes the AX WINDOW_FOCUSED on
+// every daemon-directed raise (`window --focus east`). Pre-stamping focused_window_id
+// there makes window_did_receive_focus's change gate (event_loop.c) see "no change"
+// and skip window_manager_center_mouse — a deterministic mff regression. Only the
+// 815/816 visibility-TRANSITION settle sites (and SPACE_CHANGED commit / front-switch
+// defocus) call this; plain raises of already-visible windows emit no 815, so the AX
+// edge stays intact. The residual race is covered by last_centered_wid in the funnel.
+//
+// Thread contract: event-loop thread ONLY — same thread as every other
+// focused_window_id write (window_did_receive_focus, SPACE_CHANGED, front-switch).
+//
+// PSN stamped only for tracked wids (raw SLS tab wids carry none; keeping the
+// old PSN beats inventing one — the consumer compares PSNs, never dereferences).
+void window_manager_stamp_focused_window(struct window_manager *wm, uint32_t wid)
+{
+    if (!wm->focus_unify) return;   // lever off: leave tracked state alone
+
+    if (wid != wm->focused_window_id) {
+        wm->last_window_id = wm->focused_window_id;
+        wm->focused_window_id = wid;
+    }
+
+    if (wid) {
+        // Never zero the display anchor on a 0 resolve — DISPLAY_CHANGED and the
+        // MOUSE_DOWN geometry pre-stamp own the no-window case.
+        wm->focused_display_id = window_display_id(wid);
+        struct window *window = window_manager_find_window(wm, wid);
+        if (window) wm->focused_window_psn = window->application->psn;
+    }
+}
+
+// Resolve the REAL key-focus window on `sid` and stamp it. The resolve always
+// runs and the resolved wid is always returned — focus_unify gates only whether
+// the tracked id moves, never the caller's one-resolve-per-event flow (the ring
+// keys off the return value either way).
+uint32_t window_manager_update_focused_window(struct window_manager *wm, uint64_t sid)
+{
+    uint32_t wid = window_manager_space_key_focus_window(wm, sid);
+    // Log only on a real move, before the stamp changes the tracked id.
+    if (wm->focus_unify && wid != wm->focused_window_id)
+        debug("%s: sid=%lld wid=%d (was %d)\n", __FUNCTION__, (long long) sid, wid, wm->focused_window_id);
+    window_manager_stamp_focused_window(wm, wid);
+    return wid;
+}
+
+// ---- Native-tab window set --------------------------------------------------
+// Untracked (AX-hidden, SLS-only) tab wids we hold a per-window notification
+// subscription for. yabai tracks windows via AX; native tabs never appear there,
+// so without this set they're invisible to the subscription rebuild.
+
+bool window_manager_is_tab_window(struct window_manager *wm, uint32_t wid)
+{
+    return wid && table_find(&wm->tab_window, &wid) != NULL;
+}
+
+// Insert `wid`. Returns true if it was NEWLY added (a genuine new tab), false if it
+// was already present (a tab re-materialize / switch) or invalid.
+bool window_manager_add_tab_window(struct window_manager *wm, uint32_t wid)
+{
+    if (!wid || table_find(&wm->tab_window, &wid)) return false;
+    table_add(&wm->tab_window, &wid, (void *)(uintptr_t) wid);
+    return true;
+}
+
+// Remove `wid`. Returns true if it was present.
+bool window_manager_remove_tab_window(struct window_manager *wm, uint32_t wid)
+{
+    if (!wid || !table_find(&wm->tab_window, &wid)) return false;
+    table_remove(&wm->tab_window, &wid);
+    return true;
+}
+
+// Startup seed: enumerate ALL of `application`'s SLS windows — including ordered-out,
+// no-space native tabs that neither AX (kAXWindowsAttribute) nor the space-scoped
+// window list can see — and add the untracked ones to the tab set. The reach comes
+// from space_list_options = 0x0 ("every wid SLS tracks", space membership irrelevant)
+// with no explicit space list; owner-scoped so it isn't a system-wide firehose.
+// The next update_window_notifications() subscribes what we add.
+void window_manager_seed_tab_windows(struct window_manager *wm, struct application *application)
+{
+    if (!application || !application->connection) return;
+
+    struct window_query_filter filter = {
+        .owner = application->connection,   // scope to this app (not the owner:0 firehose)
+        .spaces = NULL,
+        .space_count = 0,                   // -> space_list_options branch
+        .space_list_options = 0x0,          // every wid SLS tracks (off-space tabs incl.)
+        .window_list_options = 0x7,         // incl. minimized/extended
+        .query_flags = 0x5,                 // validated live for this reach
+        .include_tags = 0,                  // any tag
+        .exclude_tags = 0,
+    };
+
+    CFTypeRef iterator = window_query_run(g_connection, &filter);
+    if (!iterator) return;
+
+    int added = 0;
+    while (SLSWindowIteratorAdvance(iterator)) {
+        uint32_t wid = SLSWindowIteratorGetWindowID(iterator);
+        if (!wid) continue;
+        if (window_manager_find_window(wm, wid)) continue;      // already AX-tracked
+        if (SLSWindowIteratorGetLevel(iterator) != 0) continue; // normal windows only
+
+        // Filter to real app CONTENT windows (native tabs + untracked normals).
+        // The "every wid" query also hands back each app's per-display menubar
+        // strips and a small off-screen aux window. Empirically, content windows
+        // carry tag bits 56+57 (0x0300000000000000) and the menubar/aux windows
+        // never do; the exact semantic of the bits is unverified — the clean
+        // separation is the load-bearing fact. NOT frame-matching: real tabs
+        // frequently share no frame with any tracked window (their group's front
+        // tab isn't AX-tracked either).
+        uint64_t tags = SLSWindowIteratorGetTags(iterator);
+        if ((tags & 0x0300000000000000ULL) != 0x0300000000000000ULL) continue;
+
+        if (window_manager_add_tab_window(wm, wid)) {
+            ++added;
+            CFStringRef t = SLSWindowIteratorCopyTitle(iterator);
+            char title[128] = {0};
+            if (t) { CFStringGetCString(t, title, sizeof(title), kCFStringEncodingUTF8); CFRelease(t); }
+            debug("%s: %s +tab wid=%d title=\"%s\"\n", __FUNCTION__, application->name, wid, title);
+        }
+    }
+    CFRelease(iterator);
+
+    if (added) debug("%s: %s seeded %d tab window(s)\n", __FUNCTION__, application->name, added);
+}
+
+// Topmost focus-candidate window on `sid`, ANY owner (owner=0 wildcard) — the
+// z-topmost NORMAL window macOS reveals. The SLS-808 ring reconcile uses this to
+// re-resolve focus WITHOUT trusting the 808 payload wid, which during a same-app
+// multi-window / native-tab reorder storm is usually a demoted sibling. 0 when
+// none. (Raw SLS wid — distinct from the tracked-window _topmost_tracked_window.)
+uint32_t window_manager_space_topmost_window(struct window_manager *wm, uint64_t sid)
+{
+    (void) wm;
+    return space_window_for_owner(sid, 0);
+}
+
+uint32_t window_manager_space_next_to_front_window(struct window_manager *wm, uint64_t sid)
+{
+    ProcessSerialNumber psn = {0};
+    SLPSGetNextToFrontProcess(&psn);
+    int cid = window_manager_connection_for_psn(wm, &psn);
+    return cid ? space_window_for_owner(sid, cid) : 0;
+}
+
+// Does `application` still hold a window on `sid`? Scoped to the app's own
+// connection, so it answers "the app's last window on this space is going away"
+// (the gate the destroy-time focus advance keys on). 0 when none.
+uint32_t window_manager_space_application_window(struct window_manager *wm, struct application *application, uint64_t sid)
+{
+    (void) wm;
+    if (!application || !application->connection) return 0;
+    return space_window_for_owner(sid, application->connection);
+}
+
+// First yabai-tracked window in the space's rich-query z-order — normal windows
+// only (sticky/hidden/minimized excluded server-side, matching
+// window_manager_focused_window's mask), any process, `filter_wid` skipped.
+// Iterates rather than taking row[0] so an untracked topmost window can't
+// shadow a tracked one beneath it.
+struct window *window_manager_space_topmost_tracked_window(struct window_manager *wm, uint64_t sid, uint32_t filter_wid)
+{
+    if (!sid) return NULL;
+
+    struct window_query_filter filter = {
+        .owner = 0,                     // wildcard: any process
+        .spaces = &sid,
+        .space_count = 1,
+        .window_list_options = 0x2,     // visible/standard (the focus path)
+        .query_flags = 0x2,
+        .include_tags = WQ_TAG_NORMAL,
+        .exclude_tags = WQ_TAG_STICKY | WQ_TAG_HIDDEN | WQ_TAG_MINIMIZED,
+    };
+
+    CFTypeRef iterator = window_query_run(g_connection, &filter);
+    if (!iterator) return NULL;
+
+    struct window *result = NULL;
+    while (SLSWindowIteratorAdvance(iterator)) {
+        uint32_t wid = SLSWindowIteratorGetWindowID(iterator);
+        if (wid == filter_wid) continue;
+        struct window *window = window_manager_find_window(wm, wid);
+        if (window) { result = window; break; }
+    }
+    CFRelease(iterator);
+    return result;
 }
 #pragma clang diagnostic pop
 
@@ -1825,7 +2837,7 @@ enum window_op_error window_manager_stack_window(struct space_manager *sm, struc
     scripting_addition_order_window(b->id, 1, a_node->window_order[1]);
 
     struct area area = a_node->zoom ? a_node->zoom->area : a_node->area;
-    window_manager_animate_window((struct window_capture) { b, area.x, area.y, area.w, area.h });
+    window_manager_animate_window((struct window_capture) { .window = b, .x = area.x, .y = area.y, .w = area.w, .h = area.h });
     return WINDOW_OP_ERROR_SUCCESS;
 }
 
@@ -2089,6 +3101,63 @@ bool window_manager_close_window(struct window *window)
     return true;
 }
 
+// --display fly-in: gap between the window and the destination edge it enters from.
+#define WM_DISPLAY_LANDING_MARGIN 20
+
+enum wm_entry_edge { WM_EDGE_LEFT, WM_EDGE_RIGHT, WM_EDGE_TOP, WM_EDGE_BOTTOM };
+
+// The side of the destination display facing the source display — i.e. the edge
+// the window should enter from. Derived from display geometry (not the parsed
+// keyword) so --display <index>/next/prev/mouse/label get a sensible edge too.
+// macOS coords: +y is down, so dst-south-of-src => dst center y is greater.
+static enum wm_entry_edge window_manager_entry_edge(uint32_t src_did, uint32_t dst_did)
+{
+    CGRect s = CGDisplayBounds(src_did);
+    CGRect d = CGDisplayBounds(dst_did);
+    float dx = (d.origin.x + d.size.width  * 0.5f) - (s.origin.x + s.size.width  * 0.5f);
+    float dy = (d.origin.y + d.size.height * 0.5f) - (s.origin.y + s.size.height * 0.5f);
+    if (fabsf(dx) >= fabsf(dy)) {
+        return (dx >= 0.0f) ? WM_EDGE_LEFT   // dst is east of src  -> enter on dst's left
+                            : WM_EDGE_RIGHT;  // dst is west of src  -> enter on dst's right
+    }
+    return (dy >= 0.0f) ? WM_EDGE_TOP         // dst is south of src -> enter on dst's top
+                        : WM_EDGE_BOTTOM;      // dst is north of src -> enter on dst's bottom
+}
+
+// Rest position on the destination display: flush against the entry edge + margin
+// on the entry axis, the window's CURRENT position PRESERVED on the cross axis
+// (clamped into the usable band), size preserved and clamped to fit. So an E/W
+// move only shifts x and leaves y where it was — the window slides straight across
+// rather than re-centering vertically.
+static CGRect window_manager_edge_landing_frame(uint32_t dst_did, enum wm_entry_edge edge, CGRect cur)
+{
+    CGRect u = display_bounds_constrained(dst_did, false);
+    float m = (float)WM_DISPLAY_LANDING_MARGIN;
+    float w = cur.size.width, h = cur.size.height;
+    if (w > u.size.width  - 2.0f * m) w = u.size.width  - 2.0f * m;
+    if (h > u.size.height - 2.0f * m) h = u.size.height - 2.0f * m;
+
+    // Cross axis starts from the window's current origin; the entry axis is pinned
+    // to the edge below.
+    float x = cur.origin.x;
+    float y = cur.origin.y;
+    switch (edge) {
+    case WM_EDGE_LEFT:   x = u.origin.x + m;                       break;
+    case WM_EDGE_RIGHT:  x = u.origin.x + u.size.width  - w - m;   break;
+    case WM_EDGE_TOP:    y = u.origin.y + m;                       break;
+    case WM_EDGE_BOTTOM: y = u.origin.y + u.size.height - h - m;   break;
+    }
+
+    // Clamp the preserved cross-axis so the window lands fully on the destination.
+    float xmin = u.origin.x + m, xmax = u.origin.x + u.size.width  - w - m;
+    float ymin = u.origin.y + m, ymax = u.origin.y + u.size.height - h - m;
+    if (x < xmin) x = xmin;
+    if (x > xmax) x = xmax;
+    if (y < ymin) y = ymin;
+    if (y > ymax) y = ymax;
+    return (CGRect){ { x, y }, { w, h } };
+}
+
 void window_manager_send_window_to_space(struct space_manager *sm, struct window_manager *wm, struct window *window, uint64_t dst_sid, bool moved_by_rule)
 {
     TIME_FUNCTION;
@@ -2118,6 +3187,54 @@ void window_manager_send_window_to_space(struct space_manager *sm, struct window
     if (window_manager_should_manage_window(window)) {
         struct view *view = space_manager_tile_window_on_space(sm, window, dst_sid);
         window_manager_add_managed_window(wm, window, view);
+    }
+}
+
+void window_manager_send_window_to_display(struct space_manager *sm, struct window_manager *wm, struct window *window, uint32_t dst_did, uint64_t dst_sid)
+{
+    TIME_FUNCTION;
+
+    uint64_t src_sid = window_space(window->id);
+    if (src_sid == dst_sid) return;
+
+    uint32_t src_did = window_display_id(window->id);
+    enum wm_entry_edge edge = window_manager_entry_edge(src_did, dst_did);
+
+    // Focus is deliberately NOT handed off to a source-space sibling here (unlike
+    // send_window_to_space, whose target space is hidden): the window stays visible
+    // on another display and remains focused, so the focus ring rides its glide to
+    // the destination and stays on it.
+
+    // Untile from the source space if it was managed there (source siblings re-tile).
+    struct view *sview = window_manager_find_managed_window(wm, window);
+    if (sview) {
+        space_manager_untile_window(sview, window);
+        window_manager_remove_managed_window(wm, window->id);
+        window_manager_purify_window(wm, window);
+    }
+
+    // Does the destination actually tile this window? (Managed window AND a
+    // BSP/stack destination space — stock yabai defaults spaces to float.)
+    struct view *dview = space_manager_find_view(sm, dst_sid);
+    bool dst_tiles = window_manager_should_manage_window(window) && dview && dview->layout != VIEW_FLOAT;
+
+    if (dst_tiles) {
+        // BSP/stack destination: hard-reassociate and tile into the computed slot.
+        // window_node_flush animates from the window's current frame into the slot.
+        space_manager_move_window_to_space(dst_sid, window);
+        SLSSpaceSetFrontPSN(g_connection, dst_sid, window->application->psn);
+        struct view *v = space_manager_tile_window_on_space(sm, window, dst_sid);
+        window_manager_add_managed_window(wm, window, v);
+    } else {
+        // Float destination (or a floating window): mirror `window --move` — animate
+        // the window from its CURRENT frame straight to the landing, with no off-edge
+        // seed and no pre-reassociation, so it slides across flash-free (macOS
+        // reassociates it to the destination space by geometry as it crosses). The
+        // landing keeps the cross-axis, so an E/W move slides horizontally with y
+        // untouched. Snaps instantly when window_animation_duration is 0.
+        CGRect land = window_manager_edge_landing_frame(dst_did, edge, window->frame);
+        window_manager_animate_window((struct window_capture){ .window = window,
+            .x = land.origin.x, .y = land.origin.y, .w = land.size.width, .h = land.size.height });
     }
 }
 
@@ -2714,6 +3831,10 @@ void window_manager_init(struct window_manager *wm)
     wm->ffm_mode = FFM_DISABLED;
     wm->purify_mode = PURIFY_DISABLED;
     wm->window_origin_mode = WINDOW_ORIGIN_DEFAULT;
+    wm->focus_method = WINDOW_FOCUS_METHOD_AX;
+    wm->focus_unify = false;   // key-focus stamp kill-switch; config "focus_unify"
+    wm->focused_display_id = 0;
+    wm->last_centered_wid = 0;
     wm->enable_mff = false;
     wm->enable_window_opacity = false;
     wm->menubar_opacity = 1.0f;
@@ -2721,7 +3842,36 @@ void window_manager_init(struct window_manager *wm)
     wm->normal_window_opacity = 1.0f;
     wm->window_opacity_duration = 0.0f;
     wm->window_animation_duration = 0.0f;
+    wm->expose_animation_duration = -1.0f;   // MC-5b: < 0 = native WVExpose.animationDuration passthrough
     wm->window_animation_easing = ease_out_circ_type;
+    wm->window_animation_ax_wake = true;
+    wm->window_animation_min_opacity = 1.0f;
+    // WM-9 instant-placement cover: off | proxy | lb_warp; knob wired in
+    // message.c ("window_animation_warp_cover"). Default off = stock instant
+    // placement. The cover paths need the SA: without it they degrade to bare
+    // AX (the sender's recv unblocks on connection-close), but proxy would
+    // still pay an SLSHWCaptureWindowList per retile and can strand a ghost
+    // snapshot when the SA opacity calls fail — so the cover is opt-in.
+    // window_animation_duration > 0 bypasses the gate.
+    wm->window_animation_warp_cover = WM_WARP_COVER_OFF;
+    wm->window_animation_cover_fade = 0.25f;   // proxy fade-out (s); knob: window_animation_cover_fade
+    wm->window_animation_warp_min_ms = 100.0f; // lb_warp mesh tween (ms); 0 = instant snap. Knob: window_animation_warp_min_ms
+    wm->window_animation_policy = WM_ANIM_POLICY_TRUE_RESIZE; // duration>0 recipe; jello = 9-slice warp + one-shot AX on resize rows. Knob: window_animation_policy
+    wm->space_animation_duration = 0.0f;   // 0 = off (instant switch); >0 = animated adjacent same-display slide
+    wm->space_animation_fade       = false; // default off = pure slide
+    wm->space_animation_fade_enter = true;  // both sides fade when the master is enabled...
+    wm->space_animation_fade_exit  = true;  // ...turn one off for a one-sided fade (e.g. exit-only)
+    wm->space_animation_enter_delay = 0.0f;  // slide stagger (s); 0 = no delay
+    wm->space_animation_exit_delay  = 0.0f;
+    wm->space_animation_fade_enter_delay = -1.0f;  // fade sub-timeline (s); auto = track the slide
+    wm->space_animation_fade_exit_delay  = -1.0f;
+    wm->space_animation_fade_enter_dur   = -1.0f;
+    wm->space_animation_fade_exit_dur    = -1.0f;
+    wm->multi_display_edge_guard = false;  // off = stock cross-display walk; on = nudge + stop at a display edge
+    wm->window_focus_inter_display = false;  // window --focus DIR stays on the current display by default
+    wm->window_focus_wrap          = false;  // window --focus DIR stops at the edge (no wrap) by default
+    wm->mission_control_target_display = MISSION_CONTROL_TARGET_DISPLAY_DEFAULT;
+    wm->last_focus_method = FOCUS_METHOD_KEYBOARD;
     wm->insert_feedback_color = rgba_color_from_hex(0xffd75f5f);
 
     table_init(&wm->application, 150, hash_wm, compare_wm);
@@ -2729,9 +3879,61 @@ void window_manager_init(struct window_manager *wm)
     table_init(&wm->managed_window, 150, hash_wm, compare_wm);
     table_init(&wm->window_lost_focused_event, 150, hash_wm, compare_wm);
     table_init(&wm->application_lost_front_switched_event, 150, hash_wm, compare_wm);
-    table_init(&wm->window_animations_table, 150, hash_wm, compare_wm);
     table_init(&wm->insert_feedback, 150, hash_wm, compare_wm);
-    pthread_mutex_init(&wm->window_animations_lock, NULL);
+    table_init(&wm->app_constraints, 150, hash_wm, compare_wm);
+    table_init(&wm->tab_window, 150, hash_wm, compare_wm);
+}
+
+// Track the per-display Finder desktop windows (PKGDisplay role-1) so they can
+// be targeted by `window --focus <wid>` and by display_manager_focus_display on
+// an empty display. These are WindowServer-managed desktop chrome, not AX
+// windows, so AX discovery never sees them. Register a lightweight entry per
+// display: owned by Finder, NULL AX ref (AX ops no-op), is_eligible=false so it
+// is never tiled/managed; window_manager_add_window is a plain table-add.
+static void window_manager_track_role_windows(struct window_manager *wm)
+{
+    pid_t finder_pid = 0;
+    GetProcessPID(&g_process_manager.finder_psn, &finder_pid);
+    if (!finder_pid) return;
+
+    struct application *finder = window_manager_find_application(wm, finder_pid);
+    if (!finder) return;
+
+    int display_count = 0;
+    uint32_t *display_list = display_manager_active_display_list(&display_count);
+    if (!display_list) return;
+
+    for (int i = 0; i < display_count; ++i) {
+        CFStringRef uuid = display_uuid(display_list[i]);
+        if (!uuid) continue;
+
+        const void *uvals[1] = { uuid };
+        CFArrayRef uarr = CFArrayCreate(NULL, uvals, 1, &kCFTypeArrayCallBacks);
+        if (uarr) {
+            CFArrayRef rws = SLSManagedDisplaysCopyRoleWindows(g_connection, uarr, 1);
+            if (rws) {
+                int n = CFArrayGetCount(rws);
+                for (int j = 0; j < n; ++j) {
+                    CFNumberRef num = CFArrayGetValueAtIndex(rws, j);
+                    uint32_t role_wid = 0;
+                    if (num && CFGetTypeID(num) == CFNumberGetTypeID()) {
+                        CFNumberGetValue(num, kCFNumberSInt32Type, &role_wid);
+                    }
+                    if (!role_wid) continue;
+                    if (window_manager_find_window(wm, role_wid)) continue;
+
+                    struct window *window = window_create(finder, NULL, role_wid);
+                    window->is_eligible = false;   // never tiled/managed
+                    window_manager_add_window(wm, window);
+                    debug("%s: tracked role-1 desktop window %u (did=%u)\n",
+                          __FUNCTION__, role_wid, display_list[i]);
+                }
+                CFRelease(rws);
+            }
+            CFRelease(uarr);
+        }
+        CFRelease(uuid);
+    }
 }
 
 void window_manager_begin(struct space_manager *sm, struct window_manager *wm)
@@ -2744,6 +3946,7 @@ void window_manager_begin(struct space_manager *sm, struct window_manager *wm)
             if (application_observe(application)) {
                 window_manager_add_application(wm, application);
                 window_manager_add_existing_application_windows(sm, wm, application, -1);
+                window_manager_seed_tab_windows(wm, application);
             } else {
                 application_unobserve(application);
                 application_destroy(application);
@@ -2762,4 +3965,8 @@ void window_manager_begin(struct space_manager *sm, struct window_manager *wm)
         wm->focused_window_psn = window->application->psn;
         window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
     }
+
+    // Register per-display Finder desktop windows so `display --focus` /
+    // `window --focus <wid>` can target them (not AX-discoverable).
+    window_manager_track_role_windows(wm);
 }
