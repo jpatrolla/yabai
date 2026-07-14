@@ -92,6 +92,11 @@ first-class concern:
 #### Space-slide edge guard
 A space slide nudges and stops at a display edge instead of walking across to the next display. See `multi_display_edge_guard` below.
 
+Example &mdash; spaces 1&ndash;3 on the left display, 4&ndash;6 on the right, focused on space 3:
+
+- **stock yabai:** `space --focus next` walks to space 4 on the *right* display &mdash; keyboard focus and the active display silently switch monitors.
+- **guard on:** space 3 nudges against the edge and springs back &mdash; a visible "end of this display's spaces" cue; focus stays where you were working.
+
 #### Empty-display focus
 `display --focus` on an empty display lands via its tracked desktop window, so focus resolves correctly on spaces with no windows &mdash; the no-window corner of the window-server focus resolution above.
 
