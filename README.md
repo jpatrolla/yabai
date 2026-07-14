@@ -1,12 +1,14 @@
 ## About
 
-This is a fork of [yabai](https://github.com/koekeishiya/yabai) that swaps the built-in window-frame animator for a custom Core Animation&ndash;driven engine, and adds animated space transitions and a focus ring.
+This is a fork of [yabai](https://github.com/asmvik/yabai), showcasing a refactored window animation engine and a few other features/fixes that I thought were improvements.
 
 It is my first C project &mdash; a learning exercise built on top of
-koekeishiya's work. For installation, configuration, and full usage, refer to the
-[upstream yabai repository](https://github.com/koekeishiya/yabai) and its
-[wiki](https://github.com/koekeishiya/yabai/wiki). **This README documents only
-what is different here.**
+asmvik's work. While I've done my best to minimise the slop, my real-world
+C / low-level programming experience &mdash; and the best-practice set that
+comes with it &mdash; is practically zero. Pair that with undocumented APIs and
+even Claude is going to make mistakes. If you're reading or judging this code,
+your safest bet is to take it as a prototype. Suggestions and feedback are very
+welcome &mdash; feel free to open an issue.
 
 ## Requirements and Caveats
 
@@ -16,38 +18,33 @@ what is different here.**
 > - **Mac mini (2023), Apple M2 Pro**
 > - **Dual-display setup** &mdash; panels at 60 Hz and 144 Hz; ProMotion / variable-refresh displays untested
 > - **macOS Tahoe 26.5**
+> - **SIP disabling required**
 >
 > It has not been tested on any other hardware, display configuration, or macOS
 > version. Expect rough edges &mdash; or outright breakage &mdash; anywhere else.
 
-In addition to yabai's normal setup, the animation features require **System
-Integrity Protection partially disabled** &mdash; so the scripting addition can
-be injected into `Dock.app`. Without it, the animations will not run. See the
-[upstream wiki](https://github.com/koekeishiya/yabai/wiki) for SIP setup.
+## Installation
 
-While running, the daemon keeps a `/usr/bin/log stream` child process alive to
-observe Dock's Mission Control / Exposé transitions &mdash; this is what lets the
-focus ring animate correctly across those transitions. Seeing it in the process
-list is expected; it is currently the only unentitled way to observe that event,
-and may be simplified or made optional later.
-
-## Install
+For installation, configuration, and full usage, refer to the
+[upstream yabai repository](https://github.com/asmvik/yabai) and its
+[wiki](https://github.com/asmvik/yabai/wiki). **This README documents only
+what is different here.**
 
 <details>
-<summary>Build from source</summary>
+<summary>Installation instructions</summary>
 
 There are no packaged releases &mdash; build from source:
 
 ```bash
-git clone https://github.com/jpatrolla/yabai-staging.git
-cd yabai-staging
+git clone https://github.com/jpatrolla/yabai.git
+cd yabai
 make install                          # release build -> ./bin/yabai
 sudo cp ./bin/yabai /usr/local/bin/   # or anywhere on your PATH
 ```
 
 Then load the scripting addition and start the service, exactly like stock
 yabai (SIP setup and the sudoers entry are covered by the
-[upstream wiki](https://github.com/koekeishiya/yabai/wiki/Disabling-System-Integrity-Protection)):
+[upstream wiki](https://github.com/asmvik/yabai/wiki/Disabling-System-Integrity-Protection)):
 
 ```bash
 sudo yabai --load-sa
@@ -61,95 +58,40 @@ pass (`--load-sa` alone would need two passes).
 
 </details>
 
-## Main Features
-
-#### Window-frame animation engine
-Replaces yabai's proxy-swap animator (CVDisplayLink) with a Core Animation&ndash;driven engine (CADisplayLink) that simulates a true resize, so windows glide when retiled or resized instead of snapping. See the `window_animation_*` levers below.
-
-#### Animated space transitions
-Space animations built from the ground up to be fully customisable: the adjacent-space slide, the direction-aware fullscreen "abyss" transition, and the menubar cross-fade are all driven by the `space_animation_*` levers below.
-
 <details>
-<summary>Three starting points</summary>
+<summary>Minimal config example</summary>
+
+A few lines in your `yabairc` switch the animations on &mdash; the focus ring
+is already on out of the box. This is the minimal config the fork is tested
+and demoed with:
 
 ```bash
-# 1 — stock yabai: the default instant switch (animations off)
-yabai -m config space_animation_duration   0.0
+# Load the scripting addition (stock yabai preamble; use the full path to the
+# binary if it is not on root's PATH)
+yabai -m signal --add event=dock_did_restart action="sudo yabai --load-sa"
+sudo yabai --load-sa
 
-# 2 — closest to the native macOS slide
-yabai -m config space_animation_duration   0.8
-yabai -m config space_animation_background on              # wallpaper slides along with the space
-yabai -m config window_animation_easing    ease_out_expo   # one easing lever drives windows + spaces
+yabai -m config window_animation_duration      0.6             # windows glide on retile/resize
+yabai -m config window_animation_easing        ease_out_expo
+yabai -m config space_animation_duration       0.6             # animated space switches
+yabai -m config space_animation_background     off
+yabai -m config space_focus_target_display     smart
 
-# 3 — a modern cross-fade
-yabai -m config space_animation_duration   0.6
-yabai -m config space_animation_background off             # wallpaper holds still
-yabai -m config space_animation_fade       on              # windows cross-fade over the slide
-yabai -m config window_animation_easing    ease_out_expo
+# margins (stock yabai levers; shape managed bsp/stack layouts)
+yabai -m config top_padding                    10
+yabai -m config bottom_padding                 15
+yabai -m config left_padding                   15
+yabai -m config right_padding                  15
+yabai -m config window_gap                     15
 ```
 
 </details>
 
-#### Focus ring
-A built-in replacement for yabai's borders that follows the focused window and rides alongside the window and space animations. On by default; a frosted band with an overlaid stroke. See the `focus_ring_*` levers below.
-
-## Smaller features/fixes
-
-#### Window-server focus resolution
-The "which window is focused?" logic is refactored onto the window server's `SLSWindowQuery*` + `SLPSGetKeyFocusProcess` SPIs instead of Accessibility &mdash; a richer, faster, z-ordered query scoped to the process that actually holds key focus, and it drives yabai's tracked focus state. It stays reliable under fast focus churn and when native tabs switch, where the Accessibility read lags or goes silent. The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on.
-
-#### Mission Control spaces strip
-`space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_always_show_spaces_strip_enabled` config (or forced for one invocation with `space --toggle mission-control-show-strip`).
-
-#### Directional focus for floating windows
-`window --focus north|east|south|west` resolves by window geometry when the BSP walk comes up empty, so it works for floating windows (and float/stack spaces), not just managed ones &mdash; on by default; set `window_focus_for_floating_enabled` off for the stock managed-only walk. Two further opt-in extensions (both default off): `window_focus_inter_display` hops to the closest window on the display in that direction, and `window_focus_wrap` wraps to the farthest window in the opposite direction when nothing lies that way.
-
-## Multi-display
-
-Developed and daily-driven on a dual-display rig, so multi-display behavior is a
-first-class concern:
-
-#### Space-slide edge guard
-On multi-display setups a defaulted `space --focus next|prev` walks spaces by global index &mdash; so at the edge of one display's spaces it crosses to a space on *another* display, silently moving keyboard focus and the active monitor. This guard &mdash; on by default &mdash; keeps a defaulted `space --focus` on the current display: at any edge of its spaces, a display seam or the globally first/last space, it animates a gentle nudge instead of crossing over or failing. Set `contain_space_focus_per_display` off for the stock walk; see below.
-
 <details>
-<summary>Example</summary>
-
-Spaces 1&ndash;3 on the left display, 4&ndash;6 on the right, focused on space 3:
-
-- **stock yabai:** `space --focus next` walks to space 4 on the *right* display &mdash; keyboard focus and the active display silently switch monitors.
-- **guard on:** space 3 nudges against the edge and springs back &mdash; a visible "end of this display's spaces" cue; focus stays where you were working.
-
-</details>
-
-#### Empty-display focus
-`display --focus` on an empty display lands via its tracked desktop window, so focus resolves correctly on spaces with no windows &mdash; the no-window corner of the window-server focus resolution above.
-
-#### Display targeting for bare space switches
-Which display a bare `space --focus prev|next` acts on is configurable: `mouse` targets the display under the cursor; `smart` does so only when the last focus change came from the mouse, so keyboard-driven focus keeps the active display. See `space_focus_target_display` below.
-
-#### Per-display animation timing
-Each display's refresh timing is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate. Developed on 60 Hz and 144 Hz panels; ProMotion / variable-refresh displays read the same timing path but are untested.
-
-## Configuration
+<summary>Full/extensive config levers</summary>
 
 Every lever below is an addition on top of stock yabai. Animations are **off by
 default** &mdash; set a duration to enable them.
-
-### Minimal config
-
-Two lines in your `yabairc` switch the animations on &mdash; the focus ring is
-already on out of the box:
-
-```bash
-yabai -m config window_animation_duration      0.25            # windows glide on retile/resize
-yabai -m config space_animation_duration       0.25            # animated space switches
-```
-
-### Extended config
-
-<details>
-<summary>Every added lever, with defaults</summary>
 
 ```bash
 # Window-frame animation (engine is off until duration > 0)
@@ -223,14 +165,74 @@ yabai -m config window_focus_inter_display     off             # cross to the di
 yabai -m config window_focus_wrap              off             # wrap to the opposite edge when nothing is in that direction (default off)
 ```
 
-</details>
-
 Every key above (and everything inherited from stock yabai) is documented in
 this repo's [configuration reference](doc/yabai.asciidoc).
 
+</details>
+
+## Main Features
+
+#### Window-frame animation engine
+Replaces yabai's proxy-swap animator (CVDisplayLink) with a Core Animation&ndash;driven engine (CADisplayLink) that simulates a true resize, so windows glide when retiled or resized instead of snapping. Refer to the `window_animation_*` config levers.
+
+#### Animated space transitions
+Space animations built from the ground up to be fully customisable: the adjacent-space slide, the direction-aware fullscreen "abyss" transition, and the menubar cross-fade are all driven by the `space_animation_*` config levers.
+
+<details>
+<summary>Three starting points</summary>
+
+```bash
+# 1 — stock yabai: the default instant switch (animations off)
+yabai -m config space_animation_duration   0.0
+
+# 2 — closest to the native macOS slide
+yabai -m config space_animation_duration   0.8
+yabai -m config space_animation_background on              # wallpaper slides along with the space
+yabai -m config window_animation_easing    ease_out_expo   # one easing lever drives windows + spaces
+
+# 3 — a modern cross-fade
+yabai -m config space_animation_duration   0.6
+yabai -m config space_animation_background off             # wallpaper holds still
+yabai -m config space_animation_fade       on              # windows cross-fade over the slide
+yabai -m config window_animation_easing    ease_out_expo
+```
+
+</details>
+
+#### Focus ring
+A built-in borders replacement, fully integrated with the window animations &mdash; the ring rides alongside them. On by default; refer to the `focus_ring_*` config levers.
+
+## Smaller features/fixes
+
+#### Window-server focus resolution
+The "which window is focused?" logic is refactored onto the window server's `SLSWindowQuery*` + `SLPSGetKeyFocusProcess` SPIs instead of Accessibility &mdash; a richer, faster, z-ordered query scoped to the process that actually holds key focus, and it drives yabai's tracked focus state. It stays reliable under fast focus churn and when native tabs switch, where the Accessibility read lags or goes silent. The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on.
+
+#### Mission Control spaces strip
+`space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_always_show_spaces_strip_enabled` config (or forced for one invocation with `space --toggle mission-control-show-strip`).
+
+#### Directional focus for floating windows
+`window --focus north|east|south|west` resolves by window geometry when the BSP walk comes up empty, so it works for floating windows (and float/stack spaces), not just managed ones &mdash; on by default; set `window_focus_for_floating_enabled` off for the stock managed-only walk. Two further opt-in extensions (both default off): `window_focus_inter_display` hops to the closest window on the display in that direction, and `window_focus_wrap` wraps to the farthest window in the opposite direction when nothing lies that way.
+
+#### Space operations on macOS Tahoe
+Space creation, destruction, and moves run through SkyLight SPIs (`SLSSpaceCreate`, `SLSSpaceDestroy`, and a managed-space move transaction) instead of the version-pinned byte-pattern scans and handrolled assembly the stock scripting addition relies on &mdash; so `space --create|--destroy|--move|--display` keep working across macOS updates, Tahoe included, without per-release offset patches.
+
+## Multi-display enhancements/fixes
+
+#### Contained space switching
+`contain_space_focus_per_display` fixes an issue where `space --focus next|prev` unexpectedly focuses spaces on other displays. Enabled (the default), it contains space switches to the active display: at the edge of its spaces the current space animates a gentle nudge instead of crossing over. Set it off for the stock global walk.
+
+#### Empty-display focus
+`display --focus` now works on empty displays / spaces with no windows. As a byproduct, switching between spaces with no windows is fixed too.
+
+#### Display targeting for bare space switches
+Which display a bare `space --focus prev|next` acts on is configurable: `mouse` targets the display under the cursor; `smart` does so only when the last focus change came from the mouse, so keyboard-driven focus keeps the active display. Refer to the `space_focus_target_display` config lever.
+
+#### Per-display animation timing
+Each display's refresh timing is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate. Developed on 60 Hz and 144 Hz panels; ProMotion / variable-refresh displays read the same timing path but are untested.
+
 ## Attribution and License
 
-Built on [yabai](https://github.com/koekeishiya/yabai) by
-[@koekeishiya](https://github.com/koekeishiya), licensed under the
+Built on [yabai](https://github.com/asmvik/yabai) by
+[@asmvik](https://github.com/asmvik), licensed under the
 [MIT License](LICENSE.txt). All upstream copyright and license notices are
 preserved.
