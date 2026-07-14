@@ -119,6 +119,21 @@ The directional-focus extension above can hop to the closest window on the displ
 Every lever below is an addition on top of stock yabai. Animations are **off by
 default** &mdash; set a duration to enable them.
 
+### Minimal config
+
+Two lines in your `yabairc` switch the animations on &mdash; the focus ring is
+already on out of the box:
+
+```bash
+yabai -m config window_animation_duration      0.25            # windows glide on retile/resize
+yabai -m config space_animation_duration       0.25            # animated space switches
+```
+
+### Extended config
+
+<details>
+<summary>Every added lever, with defaults</summary>
+
 ```bash
 # Window-frame animation (engine is off until duration > 0)
 yabai -m config window_animation_duration      0.25            # seconds; 0.0 = instant (default)
@@ -192,6 +207,8 @@ yabai -m space --toggle mission-control-thumbnails             # force the strip
 yabai -m config window_focus_inter_display     off             # cross to the display in that direction (default off)
 yabai -m config window_focus_wrap              off             # wrap to the opposite edge when nothing is in that direction (default off)
 ```
+
+</details>
 
 Every key above (and everything inherited from stock yabai) is documented in
 this repo's [configuration reference](doc/yabai.asciidoc).
