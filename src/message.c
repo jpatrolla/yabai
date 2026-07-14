@@ -32,7 +32,6 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_FFM                   "focus_follows_mouse"
 #define COMMAND_CONFIG_DISPLAY_ORDER         "display_arrangement_order"
 #define COMMAND_CONFIG_WINDOW_ORIGIN         "window_origin_display"
-#define COMMAND_CONFIG_WINDOW_FOCUS_METHOD   "window_focus_method"
 #define COMMAND_CONFIG_WINDOW_PLACEMENT      "window_placement"
 #define COMMAND_CONFIG_WINDOW_INSERT_POINT   "window_insertion_point"
 #define COMMAND_CONFIG_WINDOW_ZOOM_PERSIST   "window_zoom_persist"
@@ -116,8 +115,6 @@ extern bool g_verbose;
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_DEFAULT "default"
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_FOCUSED "focused"
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_CURSOR  "cursor"
-#define ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_AX  "ax"
-#define ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_SLS "sls"
 #define ARGUMENT_CONFIG_SFTD_DEFAULT          "default"
 #define ARGUMENT_CONFIG_SFTD_MOUSE            "mouse"
 #define ARGUMENT_CONFIG_SFTD_SMART            "smart"
@@ -1440,17 +1437,6 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 g_window_manager.window_origin_mode = WINDOW_ORIGIN_FOCUSED;
             } else if (token_equals(value, ARGUMENT_CONFIG_WINDOW_ORIGIN_CURSOR)) {
                 g_window_manager.window_origin_mode = WINDOW_ORIGIN_CURSOR;
-            } else {
-                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
-            }
-        } else if (token_equals(command, COMMAND_CONFIG_WINDOW_FOCUS_METHOD)) {
-            struct token value = get_token(&message);
-            if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", window_focus_method_str[g_window_manager.focus_method]);
-            } else if (token_equals(value, ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_AX)) {
-                g_window_manager.focus_method = WINDOW_FOCUS_METHOD_AX;
-            } else if (token_equals(value, ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_SLS)) {
-                g_window_manager.focus_method = WINDOW_FOCUS_METHOD_SLS;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }

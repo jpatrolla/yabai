@@ -2165,17 +2165,6 @@ void window_manager_focus_window_with_raise(ProcessSerialNumber *window_psn, uin
 {
     TIME_FUNCTION;
 
-    //
-    // The sls path hands focus to Dock's own set_front_window routine (via the
-    // scripting-addition), sidestepping the kAXRaiseAction round-trip that some
-    // applications service poorly. Falls through to the ax path if the
-    // scripting-addition is unavailable, so focus never silently no-ops.
-    //
-
-    if (g_window_manager.focus_method == WINDOW_FOCUS_METHOD_SLS && scripting_addition_focus_window(window_id)) {
-        return;
-    }
-
     _SLPSSetFrontProcessWithOptions(window_psn, window_id, kCPSUserGenerated);
     window_manager_make_key_window(window_psn, window_id);
     AXUIElementPerformAction(window_ref, kAXRaiseAction);
@@ -3927,7 +3916,6 @@ void window_manager_init(struct window_manager *wm)
     wm->ffm_mode = FFM_DISABLED;
     wm->purify_mode = PURIFY_DISABLED;
     wm->window_origin_mode = WINDOW_ORIGIN_DEFAULT;
-    wm->focus_method = WINDOW_FOCUS_METHOD_AX;
     wm->focused_display_id = 0;
     wm->last_centered_wid = 0;
     wm->enable_mff = false;

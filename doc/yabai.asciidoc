@@ -171,11 +171,6 @@ Global Settings
     'focused': The display that has focus when the window is created. +
     'cursor': The display that currently holds the mouse cursor.
 
-*window_focus_method* ['ax|sls']::
-    Specify the mechanism used to focus a window. +
-    'ax': Set the front process and raise the window through the Accessibility API (kAXRaiseAction). +
-    'sls': Hand focus to the WindowServer through the scripting-addition, bypassing the Accessibility API. Falls back to 'ax' if the scripting-addition is unavailable.
-
 *window_placement* ['first_child|second_child']::
     Specify whether managed windows should become the first or second leaf-node.
 

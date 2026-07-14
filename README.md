@@ -183,7 +183,6 @@ yabai -m config expose_animation_duration      -1              # MC enter/exit t
 yabai -m config space_focus_target_display default             # default | mouse | smart — display a bare `space --focus prev|next` acts on
 
 # Focus plumbing
-yabai -m config window_focus_method            ax              # ax | sls (raise via WindowServer; falls back to ax)
 
 # Focus ring (unlike the animations, this is ON by default)
 yabai -m config focus_ring_enabled             on              # master on/off (default on)

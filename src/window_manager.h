@@ -65,18 +65,6 @@ static const char *window_origin_mode_str[] =
     "cursor"
 };
 
-enum window_focus_method
-{
-    WINDOW_FOCUS_METHOD_AX,
-    WINDOW_FOCUS_METHOD_SLS
-};
-
-static const char *window_focus_method_str[] =
-{
-    "ax",
-    "sls"
-};
-
 struct scratchpad
 {
     char *label;
@@ -180,7 +168,6 @@ struct window_manager
     enum ffm_mode ffm_mode;
     enum purify_mode purify_mode;
     enum window_origin_mode window_origin_mode;
-    enum window_focus_method focus_method;
     bool enable_window_opacity;
     float menubar_opacity;
     float active_window_opacity;
