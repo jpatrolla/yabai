@@ -145,7 +145,7 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     window_manager_set_window_opacity(wm, window, wm->active_window_opacity);
 
     // mouse-follows-focus dedupe keyed on last_centered_wid, NOT focused_window_id: a
-    // settle stamp (window_manager_update_focused_window, focus_unify on) can move
+    // settle stamp (window_manager_update_focused_window) can move
     // focused_window_id to this window BEFORE this funnel runs (deterministic on
     // new-window / deminimize, where an 815 settle pre-stamps), which a
     // focused_window_id-keyed gate would read as "no change" and skip the warp.
@@ -258,11 +258,6 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
 static void refocus_ring(uint32_t wake_wid, bool settled)
 {
     if (!wake_wid) return;
-    // Stock parity when idle: with the ring disabled AND focus_unify off,
-    // nothing consumes the resolve below (show/hide no-op when disabled; the
-    // stamping helper no-ops without focus_unify) — skip the per-event SLS
-    // key-focus query entirely.
-    if (!focus_ring_get_enabled() && !g_window_manager.focus_unify) return;
     // During Mission Control the key-focus process is Dock (unresolvable cid -> 0) and the ring
     // is owned by the MC hide/defer machinery (g_focus_ring_mc_deferred_wid); a resolve here
     // would stamp/hide against thumbnails.
@@ -276,7 +271,7 @@ static void refocus_ring(uint32_t wake_wid, bool settled)
     uint64_t sid = did ? display_space_id(did) : SLSGetActiveSpace(g_connection);
     if (!sid || !space_is_visible(sid)) return;   // mid-transition/teardown -> skip
     // Settled sites (815/816) resolve through the stamping helper so focused_window_id
-    // tracks real key focus through AX silence (gated on focus_unify inside the helper).
+    // tracks real key focus through AX silence.
     // Burst sites (808/created/deminimized) use the raw resolver — they must NOT move the
     // tracked id (808 precedes AX; see window_manager_update_focused_window). Either way
     // exactly ONE resolve per event, and the ring keys off the returned wid.
@@ -1347,7 +1342,7 @@ static EVENT_HANDLER(SLS_WINDOW_CREATED)
     // no-ops. The resolve is space-scoped by owner cid (space_window_for_owner) — after
     // the swap the newly-active tab is the owner's ONLY in-space window, so
     // window_manager_update_focused_window returns it. refocus_ring(settled) carries the
-    // MC / space-transition guards, the focus_unify-gated stamp, and the ring show off
+    // MC / space-transition guards, the key-focus stamp, and the ring show off
     // the resolved wid.
     // Gate = same_owner && wid != fwid: scope to creates by the currently-focused app,
     // and debounce a same-tab re-materialize burst.
@@ -1483,10 +1478,8 @@ static EVENT_HANDLER(SPACE_CHANGED)
     // never an outgoing-space wid. Empty destination stamps 0, so space_transition_reshow
     // correctly skips the finish re-show for a window on the departed space. MC-gated:
     // during a Mission-Control space change the key-focus process is Dock (resolves 0)
-    // — don't wipe the id mid-MC. The stamp itself is gated on focus_unify inside the
-    // helper; off = a single cheap resolve, no state move. DISPLAY_CHANGED is
-    // deliberately NOT stamped here — its display anchor stamp + the switch-in 815s
-    // cover display hops.
+    // — don't wipe the id mid-MC. DISPLAY_CHANGED is deliberately NOT stamped here —
+    // its display anchor stamp + the switch-in 815s cover display hops.
     if (!mission_control_is_active()) {
         window_manager_update_focused_window(&g_window_manager, g_space_manager.current_space_id);
     }

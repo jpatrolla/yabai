@@ -309,10 +309,6 @@ Global Settings
     'mouse': the display under the cursor. +
     'smart': the display under the cursor when the last focus change came from the mouse; the active display when it came from the keyboard.
 
-*focus_unify* ['<BOOL_SEL>']::
-    Keep yabai's tracked focus in sync with the WindowServer's key-window focus, adopting focus changes the Accessibility API does not report (e.g. native tab switches). +
-    Off by default.
-
 *focus_ring_enabled* ['<BOOL_SEL>']::
     Draw a ring that follows the focused window (and rides animated space slides). +
     On by default. +

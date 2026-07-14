@@ -96,7 +96,7 @@ A built-in replacement for yabai's borders that follows the focused window and r
 ## Smaller features/fixes
 
 #### Window-server focus resolution
-"Which window is focused?" is resolved from the window server rather than Accessibility &mdash; a richer, faster, z-ordered query scoped to the process that actually holds key focus. It stays reliable under fast focus churn and when native tabs switch, where the Accessibility read lags or goes silent. The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on; `focus_unify` below additionally lets it drive yabai's tracked focus state.
+The "which window is focused?" logic is refactored onto the window server's `SLSWindowQuery*` + `SLPSGetKeyFocusProcess` SPIs instead of Accessibility &mdash; a richer, faster, z-ordered query scoped to the process that actually holds key focus, and it drives yabai's tracked focus state. It stays reliable under fast focus churn and when native tabs switch, where the Accessibility read lags or goes silent. The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on.
 
 #### Mission Control spaces strip
 `space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_always_show_spaces_strip_enabled` config (or forced for one invocation with `space --toggle mission-control-show-strip`).
@@ -187,7 +187,6 @@ yabai -m config space_focus_target_display default             # default | mouse
 
 # Focus plumbing
 yabai -m config window_focus_method            ax              # ax | sls (raise via WindowServer; falls back to ax)
-yabai -m config focus_unify                    off             # adopt WindowServer key-focus changes AX misses, e.g. native tabs (default off)
 
 # Focus ring (unlike the animations, this is ON by default)
 yabai -m config focus_ring_enabled             on              # master on/off (default on)

@@ -2269,7 +2269,7 @@ uint32_t window_manager_space_key_focus_window(struct window_manager *wm, uint64
     return cid ? space_window_for_owner(sid, cid) : 0;
 }
 
-// Pure state stamp of a GIVEN wid into the tracked focus state (focus_unify-gated):
+// Pure state stamp of a GIVEN wid into the tracked focus state:
 // no side effects — no center-mouse, no opacity swap, no per-space recall write, no
 // signal push, no ring call. Factored out of the resolver below so the native-tab
 // follow (SLS_WINDOW_CREATED, event_loop.c) can stamp the re-materialized tab wid
@@ -2294,8 +2294,6 @@ uint32_t window_manager_space_key_focus_window(struct window_manager *wm, uint64
 // old PSN beats inventing one — the consumer compares PSNs, never dereferences).
 void window_manager_stamp_focused_window(struct window_manager *wm, uint32_t wid)
 {
-    if (!wm->focus_unify) return;   // lever off: leave tracked state alone
-
     if (wid != wm->focused_window_id) {
         wm->last_window_id = wm->focused_window_id;
         wm->focused_window_id = wid;
@@ -2310,15 +2308,14 @@ void window_manager_stamp_focused_window(struct window_manager *wm, uint32_t wid
     }
 }
 
-// Resolve the REAL key-focus window on `sid` and stamp it. The resolve always
-// runs and the resolved wid is always returned — focus_unify gates only whether
-// the tracked id moves, never the caller's one-resolve-per-event flow (the ring
-// keys off the return value either way).
+// Resolve the REAL key-focus window on `sid` and stamp it. The resolved wid is
+// always returned, preserving the caller's one-resolve-per-event flow (the ring
+// keys off the return value).
 uint32_t window_manager_update_focused_window(struct window_manager *wm, uint64_t sid)
 {
     uint32_t wid = window_manager_space_key_focus_window(wm, sid);
     // Log only on a real move, before the stamp changes the tracked id.
-    if (wm->focus_unify && wid != wm->focused_window_id)
+    if (wid != wm->focused_window_id)
         debug("%s: sid=%lld wid=%d (was %d)\n", __FUNCTION__, (long long) sid, wid, wm->focused_window_id);
     window_manager_stamp_focused_window(wm, wid);
     return wid;
@@ -3928,7 +3925,6 @@ void window_manager_init(struct window_manager *wm)
     wm->purify_mode = PURIFY_DISABLED;
     wm->window_origin_mode = WINDOW_ORIGIN_DEFAULT;
     wm->focus_method = WINDOW_FOCUS_METHOD_AX;
-    wm->focus_unify = false;   // key-focus stamp kill-switch; config "focus_unify"
     wm->focused_display_id = 0;
     wm->last_centered_wid = 0;
     wm->enable_mff = false;

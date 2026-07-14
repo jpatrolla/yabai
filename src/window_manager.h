@@ -172,7 +172,7 @@ struct window_manager
     uint32_t last_window_id;
     // mff dedupe anchor: the last window window_did_receive_focus actually warped
     // the pointer to. Distinct from focused_window_id so a settle stamp
-    // (window_manager_update_focused_window, focus_unify on) that moves
+    // (window_manager_update_focused_window) that moves
     // focused_window_id ahead of the AX funnel can't suppress mouse-follows-focus.
     // Written only by the funnel.
     uint32_t last_centered_wid;
@@ -181,12 +181,6 @@ struct window_manager
     enum purify_mode purify_mode;
     enum window_origin_mode window_origin_mode;
     enum window_focus_method focus_method;
-    // Kill-switch (config "focus_unify", default off) for keying focused_window_id
-    // off the SLS key-focus resolver on 815/816 settle + SPACE_CHANGED commit +
-    // key-focus-confirmed defocus. Off = today's AX-only tracking. Gates the STATE
-    // writes inside window_manager_update_focused_window only — the resolve always
-    // runs, so ring behavior is identical either way.
-    bool focus_unify;
     bool enable_window_opacity;
     float menubar_opacity;
     float active_window_opacity;

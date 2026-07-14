@@ -33,7 +33,6 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_DISPLAY_ORDER         "display_arrangement_order"
 #define COMMAND_CONFIG_WINDOW_ORIGIN         "window_origin_display"
 #define COMMAND_CONFIG_WINDOW_FOCUS_METHOD   "window_focus_method"
-#define COMMAND_CONFIG_FOCUS_UNIFY           "focus_unify"
 #define COMMAND_CONFIG_WINDOW_PLACEMENT      "window_placement"
 #define COMMAND_CONFIG_WINDOW_INSERT_POINT   "window_insertion_point"
 #define COMMAND_CONFIG_WINDOW_ZOOM_PERSIST   "window_zoom_persist"
@@ -1451,17 +1450,6 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 g_window_manager.focus_method = WINDOW_FOCUS_METHOD_AX;
             } else if (token_equals(value, ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_SLS)) {
                 g_window_manager.focus_method = WINDOW_FOCUS_METHOD_SLS;
-            } else {
-                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
-            }
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_UNIFY)) {
-            struct token value = get_token(&message);
-            if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", bool_str[g_window_manager.focus_unify]);
-            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
-                g_window_manager.focus_unify = false;
-            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
-                g_window_manager.focus_unify = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
