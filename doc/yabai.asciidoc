@@ -303,7 +303,7 @@ Global Settings
     0.0 removes the tween entirely (Mission Control opens and closes instantly); a negative value restores the native duration. +
     System Integrity Protection must be partially disabled.
 
-*mission_control_target_display* ['default|mouse|smart']::
+*space_focus_target_display* ['default|mouse|smart']::
     Which display a *space --focus prev|next* without an explicit space acts on. +
     'default': the currently active display. +
     'mouse': the display under the cursor. +

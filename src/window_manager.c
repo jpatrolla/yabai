@@ -3878,7 +3878,7 @@ void window_manager_init(struct window_manager *wm)
     wm->multi_display_edge_guard = false;  // off = stock cross-display walk; on = nudge + stop at a display edge
     wm->window_focus_inter_display = false;  // window --focus DIR stays on the current display by default
     wm->window_focus_wrap          = false;  // window --focus DIR stops at the edge (no wrap) by default
-    wm->mission_control_target_display = MISSION_CONTROL_TARGET_DISPLAY_DEFAULT;
+    wm->space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_DEFAULT;
     wm->last_focus_method = FOCUS_METHOD_KEYBOARD;
     wm->insert_feedback_color = rgba_color_from_hex(0xffd75f5f);
 

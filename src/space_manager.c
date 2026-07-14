@@ -1258,7 +1258,7 @@ bool space_manager_multi_display_edge_guard(int dx, int dy)
 }
 
 // Resolves which space a *defaulted* `space --focus` (prev/next) should act on,
-// per the mission_control_target_display config gate. `default` (and any
+// per the space_focus_target_display config gate. `default` (and any
 // cursor-resolution failure) returns space_manager_active_space(). `mouse`
 // always targets the display under the live cursor. `smart` targets the
 // cursor's display only when the last focus change came from the mouse; a
@@ -1266,8 +1266,8 @@ bool space_manager_multi_display_edge_guard(int dx, int dy)
 uint64_t space_manager_focus_target_space(void)
 {
     bool want_mouse =
-        (g_window_manager.mission_control_target_display == MISSION_CONTROL_TARGET_DISPLAY_MOUSE) ||
-        (g_window_manager.mission_control_target_display == MISSION_CONTROL_TARGET_DISPLAY_SMART &&
+        (g_window_manager.space_focus_target_display == SPACE_FOCUS_TARGET_DISPLAY_MOUSE) ||
+        (g_window_manager.space_focus_target_display == SPACE_FOCUS_TARGET_DISPLAY_SMART &&
          g_window_manager.last_focus_method == FOCUS_METHOD_MOUSE);
 
     if (want_mouse) {

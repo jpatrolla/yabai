@@ -126,7 +126,7 @@ Spaces 1&ndash;3 on the left display, 4&ndash;6 on the right, focused on space 3
 `display --focus` on an empty display lands via its tracked desktop window, so focus resolves correctly on spaces with no windows &mdash; the no-window corner of the window-server focus resolution above.
 
 #### Display targeting for bare space switches
-Which display a bare `space --focus prev|next` acts on is configurable: `mouse` targets the display under the cursor; `smart` does so only when the last focus change came from the mouse, so keyboard-driven focus keeps the active display. See `mission_control_target_display` below.
+Which display a bare `space --focus prev|next` acts on is configurable: `mouse` targets the display under the cursor; `smart` does so only when the last focus change came from the mouse, so keyboard-driven focus keeps the active display. See `space_focus_target_display` below.
 
 #### Per-display animation timing
 Each display's refresh timing is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate. Developed on 60 Hz and 144 Hz panels; ProMotion / variable-refresh displays read the same timing path but are untested.
@@ -183,7 +183,7 @@ yabai -m config space_animation_fade_exit_dur    auto          # auto | seconds 
 
 # Mission Control
 yabai -m config expose_animation_duration      -1              # MC enter/exit tween (s); 0 = instant, < 0 = native (default)
-yabai -m config mission_control_target_display default         # default | mouse | smart — display a bare `space --focus prev|next` acts on
+yabai -m config space_focus_target_display default             # default | mouse | smart — display a bare `space --focus prev|next` acts on
 
 # Focus plumbing
 yabai -m config window_focus_method            ax              # ax | sls (raise via WindowServer; falls back to ax)

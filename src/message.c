@@ -62,7 +62,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MULTI_DISPLAY_EDGE_GUARD "multi_display_edge_guard"
 #define COMMAND_CONFIG_WINDOW_FOCUS_INTER_DISPLAY "window_focus_inter_display"
 #define COMMAND_CONFIG_WINDOW_FOCUS_WRAP     "window_focus_wrap"
-#define COMMAND_CONFIG_MISSION_CONTROL_TARGET_DISPLAY "mission_control_target_display"
+#define COMMAND_CONFIG_SPACE_FOCUS_TARGET_DISPLAY "space_focus_target_display"
 #define COMMAND_CONFIG_SHADOW                "window_shadow"
 #define COMMAND_CONFIG_MENUBAR_OPACITY       "menubar_opacity"
 #define COMMAND_CONFIG_ACTIVE_WINDOW_OPACITY "active_window_opacity"
@@ -118,9 +118,9 @@ extern bool g_verbose;
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_CURSOR  "cursor"
 #define ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_AX  "ax"
 #define ARGUMENT_CONFIG_WINDOW_FOCUS_METHOD_SLS "sls"
-#define ARGUMENT_CONFIG_MCTD_DEFAULT          "default"
-#define ARGUMENT_CONFIG_MCTD_MOUSE            "mouse"
-#define ARGUMENT_CONFIG_MCTD_SMART            "smart"
+#define ARGUMENT_CONFIG_SFTD_DEFAULT          "default"
+#define ARGUMENT_CONFIG_SFTD_MOUSE            "mouse"
+#define ARGUMENT_CONFIG_SFTD_SMART            "smart"
 #define ARGUMENT_CONFIG_WINDOW_PLACEMENT_FST  "first_child"
 #define ARGUMENT_CONFIG_WINDOW_PLACEMENT_SND  "second_child"
 #define ARGUMENT_CONFIG_WINDOW_INSERT_FOCUSED "focused"
@@ -1826,16 +1826,16 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
-        } else if (token_equals(command, COMMAND_CONFIG_MISSION_CONTROL_TARGET_DISPLAY)) {
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_FOCUS_TARGET_DISPLAY)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", mission_control_target_display_mode_str[g_window_manager.mission_control_target_display]);
-            } else if (token_equals(value, ARGUMENT_CONFIG_MCTD_DEFAULT)) {
-                g_window_manager.mission_control_target_display = MISSION_CONTROL_TARGET_DISPLAY_DEFAULT;
-            } else if (token_equals(value, ARGUMENT_CONFIG_MCTD_MOUSE)) {
-                g_window_manager.mission_control_target_display = MISSION_CONTROL_TARGET_DISPLAY_MOUSE;
-            } else if (token_equals(value, ARGUMENT_CONFIG_MCTD_SMART)) {
-                g_window_manager.mission_control_target_display = MISSION_CONTROL_TARGET_DISPLAY_SMART;
+                fprintf(rsp, "%s\n", space_focus_target_display_mode_str[g_window_manager.space_focus_target_display]);
+            } else if (token_equals(value, ARGUMENT_CONFIG_SFTD_DEFAULT)) {
+                g_window_manager.space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_DEFAULT;
+            } else if (token_equals(value, ARGUMENT_CONFIG_SFTD_MOUSE)) {
+                g_window_manager.space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_MOUSE;
+            } else if (token_equals(value, ARGUMENT_CONFIG_SFTD_SMART)) {
+                g_window_manager.space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_SMART;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
@@ -2269,7 +2269,7 @@ static void handle_domain_display(FILE *rsp, struct token domain, char *message)
         if (selector.did_parse && selector.did) {
             if (acting_did != selector.did) {
                 // Keyboard-driven display focus: `smart`
-                // mission_control_target_display should follow this display on
+                // space_focus_target_display should follow this display on
                 // the next defaulted space --focus.
                 g_window_manager.last_focus_method = FOCUS_METHOD_KEYBOARD;
                 display_manager_focus_display(selector.did, display_space_id(selector.did));
@@ -2316,7 +2316,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
     struct selector selector = parse_space_selector(NULL, &message, acting_sid, true);
     // Whether the acting space was given as an explicit selector (e.g.
     // `space 3 --focus next`). When it wasn't, a defaulted prev/next routes
-    // through the mission_control_target_display gate.
+    // through the space_focus_target_display gate.
     bool acting_explicit = selector.did_parse;
 
     if (selector.did_parse) {
@@ -2658,7 +2658,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             }
 
             if (acting_window) {
-                // Keyboard-driven focus: `smart` mission_control_target_display
+                // Keyboard-driven focus: `smart` space_focus_target_display
                 // should follow the active window's display on the next defaulted
                 // space --focus.
                 g_window_manager.last_focus_method = FOCUS_METHOD_KEYBOARD;

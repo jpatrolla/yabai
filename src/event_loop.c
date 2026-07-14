@@ -1864,7 +1864,7 @@ out:
 static EVENT_HANDLER(MOUSE_MOVED)
 {
     // Mouse activity is the most recent focus modality — `smart`
-    // mission_control_target_display uses this to target the cursor's display on
+    // space_focus_target_display uses this to target the cursor's display on
     // the next defaulted space --focus. Recorded for every move (cheap store),
     // ahead of the ffm/mission-control early-outs which gate focus-follows-mouse
     // only.

@@ -118,14 +118,14 @@ static char *anim_policy_str[] = {
 };
 
 // Which display's space a *defaulted* `space --focus` (prev/next) walks.
-enum mission_control_target_display_mode
+enum space_focus_target_display_mode
 {
-    MISSION_CONTROL_TARGET_DISPLAY_DEFAULT,   // active/menubar display (stock behavior)
-    MISSION_CONTROL_TARGET_DISPLAY_MOUSE,     // display under the live cursor
-    MISSION_CONTROL_TARGET_DISPLAY_SMART,     // cursor display iff last focus was mouse-driven
+    SPACE_FOCUS_TARGET_DISPLAY_DEFAULT,   // active/menubar display (stock behavior)
+    SPACE_FOCUS_TARGET_DISPLAY_MOUSE,     // display under the live cursor
+    SPACE_FOCUS_TARGET_DISPLAY_SMART,     // cursor display iff last focus was mouse-driven
 };
 
-static const char *mission_control_target_display_mode_str[] =
+static const char *space_focus_target_display_mode_str[] =
 {
     "default",
     "mouse",
@@ -133,7 +133,7 @@ static const char *mission_control_target_display_mode_str[] =
 };
 
 // Most recent input modality that drove a focus change. Used by the `smart`
-// mission_control_target_display mode to arbitrate between the active display
+// space_focus_target_display mode to arbitrate between the active display
 // (keyboard) and the cursor's display (mouse). Defaults to keyboard.
 enum focus_method
 {
@@ -245,7 +245,7 @@ struct window_manager
     bool window_focus_inter_display;   // hop to a window on the display in that direction
     bool window_focus_wrap;            // no target in direction: wrap to the farthest opposite
     // Which display's space stack a *defaulted* `space --focus` prev/next walks.
-    enum mission_control_target_display_mode mission_control_target_display;
+    enum space_focus_target_display_mode space_focus_target_display;
     // Last focus modality (keyboard/mouse); feeds the `smart` gate above.
     enum focus_method last_focus_method;
     struct rgba_color insert_feedback_color;
