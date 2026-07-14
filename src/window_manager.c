@@ -812,8 +812,15 @@ bool window_manager_animate_windows_lockedbounds_t3d_async(
     if (api_flags & WM_T3D_ENDPIN)             b.flags |= SA_T3D_FLAG_ENDPIN;             // origin-fixed resize
     if (api_flags & WM_T3D_ENDPIN_RESIZE_ONLY) b.flags |= SA_T3D_FLAG_ENDPIN_RESIZE_ONLY;
     if (g_window_manager.window_animation_ax_wake)      b.flags |= SA_T3D_FLAG_AX_WAKE;       // wake Chromium/Electron lazy AX tree at begin (config-gated, default on)
-    if (g_window_manager.window_animation_policy == WM_ANIM_POLICY_JELLO)
-        b.flags |= SA_T3D_FLAG_WARP;   // jello: mesh alone on resize rows (payload splits per row); true_resize = LB+T3D, no warp
+    if (g_window_manager.window_animation_policy == WM_ANIM_POLICY_LB_ONLY)
+        b.flags |= SA_T3D_FLAG_LB | SA_T3D_FLAG_LB_FULL;   // lb_only: LockedBounds full-XYWH lerp carries motion; real rows skip T3D via the per-row LB_ONLY mode below; riders keep T3D
+    // lb_only downgrades real (LB_T3D) rows to LockedBounds-only presentation.
+    // Riders are packed as T3D_ONLY (T3D is their only presentation path) and
+    // are left untouched, so the transform is stripped per-row, never globally.
+    uint32_t eff_row_mode = row_mode;
+    if (g_window_manager.window_animation_policy == WM_ANIM_POLICY_LB_ONLY &&
+        row_mode == SA_T3D_ROW_MODE_LB_T3D)
+        eff_row_mode = SA_T3D_ROW_MODE_LB_ONLY;
     // Make the payload manage the daemon-observable animating property for
     // this batch (even visual-only) so the pending-finalize poll below has a
     // completion signal to watch.
@@ -860,7 +867,7 @@ bool window_manager_animate_windows_lockedbounds_t3d_async(
         CGRect f = window_ax_frame(win);
         CGRect s = (start_override != NULL) ? start_override[i] : f;
         b.windows[packed].wid  = win->id;
-        b.windows[packed].mode = row_mode;
+        b.windows[packed].mode = eff_row_mode;
         b.windows[packed].pid  = win->application->pid;
         b.windows[packed].start_x = s.origin.x;   b.windows[packed].start_y = s.origin.y;
         b.windows[packed].start_w = s.size.width; b.windows[packed].start_h = s.size.height;
@@ -879,7 +886,7 @@ bool window_manager_animate_windows_lockedbounds_t3d_async(
         // in this branch (the payload owns the animation), so a wide-open wire
         // value would let a constrained window transform past its min/max.
         bool cm_cache = false;
-        window_manager_resolve_anim_constraints(&g_window_manager, win, row_mode,
+        window_manager_resolve_anim_constraints(&g_window_manager, win, eff_row_mode,
             &b.windows[packed].min_w, &b.windows[packed].min_h,
             &b.windows[packed].max_w, &b.windows[packed].max_h, &cm_cache);
         // (aspect wire field stays 0 — the aspect path is not built)
@@ -3856,7 +3863,7 @@ void window_manager_init(struct window_manager *wm)
     wm->window_animation_warp_cover = WM_WARP_COVER_OFF;
     wm->window_animation_cover_fade = 0.25f;   // proxy fade-out (s); knob: window_animation_cover_fade
     wm->window_animation_warp_min_ms = 100.0f; // lb_warp mesh tween (ms); 0 = instant snap. Knob: window_animation_warp_min_ms
-    wm->window_animation_policy = WM_ANIM_POLICY_TRUE_RESIZE; // duration>0 recipe; jello = 9-slice warp + one-shot AX on resize rows. Knob: window_animation_policy
+    wm->window_animation_policy = WM_ANIM_POLICY_TRUE_RESIZE; // duration>0 recipe; lb_only = LockedBounds-only presentation (no T3D). Knob: window_animation_policy
     wm->space_animation_duration = 0.0f;   // 0 = off (instant switch); >0 = animated adjacent same-display slide
     wm->space_animation_fade       = false; // default off = pure slide
     wm->space_animation_fade_enter = true;  // both sides fade when the master is enabled...

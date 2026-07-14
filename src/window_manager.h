@@ -105,16 +105,16 @@ static char *warp_cover_mode_str[] = {
 
 // WM-9 animated-path presentation policy (window_animation_policy).
 // true_resize = the production LB+T3D composition (no warp).
-// jello       = size-animating rows ride the chrome-pinned 9-slice warp mesh
-//               ALONE — no LB, no T3D (the wobble substrate) — with the
-//               instant one-shot AX (move then resize at t=0, no re-fires).
-//               Pure moves keep the true_resize recipe (per-row split is
-//               payload-side).
+// lb_only     = real rows animate via LockedBounds ONLY — no T3D transform.
+//               Crisp bounds-driven move+resize; app content reflows on the
+//               app's own re-render (no transform stretch). Visual-only riders
+//               keep their T3D_ONLY presentation (they have no LB/AX path), so
+//               the transform is stripped per-row, never globally.
 #define WM_ANIM_POLICY_TRUE_RESIZE 0
-#define WM_ANIM_POLICY_JELLO       1
+#define WM_ANIM_POLICY_LB_ONLY     1
 static char *anim_policy_str[] = {
     [WM_ANIM_POLICY_TRUE_RESIZE] = "true_resize",
-    [WM_ANIM_POLICY_JELLO]       = "jello",
+    [WM_ANIM_POLICY_LB_ONLY]     = "lb_only",
 };
 
 // Which display's space a *defaulted* `space --focus` (prev/next) walks.
@@ -203,7 +203,7 @@ struct window_manager
     int   window_animation_warp_cover;  // WM_WARP_COVER_OFF | _PROXY | _LB_WARP
     float window_animation_cover_fade;  // proxy cover fade-out (s); 0 = hard reveal
     float window_animation_warp_min_ms; // lb_warp: mesh tween length (ms, ease-out expo); 0 = instant snap
-    int   window_animation_policy;      // WM_ANIM_POLICY_TRUE_RESIZE | _JELLO (duration>0 presentation recipe)
+    int   window_animation_policy;      // WM_ANIM_POLICY_TRUE_RESIZE | _LB_ONLY (duration>0 presentation recipe)
     // Duration (s) of the payload space cross-fade/slide animator; 0 = off
     // (instant native switch). Drives `space --focus` for adjacent same-display
     // switches; the focus ring reads it to auto-time its fade against the slide.

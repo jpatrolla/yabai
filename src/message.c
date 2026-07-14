@@ -1622,8 +1622,8 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 fprintf(rsp, "%s\n", anim_policy_str[g_window_manager.window_animation_policy]);
             } else if (token_equals(value, "true_resize")) {
                 g_window_manager.window_animation_policy = WM_ANIM_POLICY_TRUE_RESIZE;
-            } else if (token_equals(value, "jello")) {
-                g_window_manager.window_animation_policy = WM_ANIM_POLICY_JELLO;
+            } else if (token_equals(value, "lb_only")) {
+                g_window_manager.window_animation_policy = WM_ANIM_POLICY_LB_ONLY;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
