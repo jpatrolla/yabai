@@ -1,5 +1,6 @@
 extern struct display_manager g_display_manager;
 extern struct window_manager g_window_manager;
+extern struct process_manager g_process_manager;
 extern int g_connection;
 
 bool display_manager_query_displays(FILE *rsp, uint64_t flags)
@@ -461,6 +462,92 @@ void display_manager_set_active_display_id(uint32_t did)
     CFRelease(uuid);
 }
 
+static bool display_manager_window_resides_on_display(uint32_t did, uint32_t wid)
+{
+    CGRect bounds;
+    if (SLSGetWindowBounds(g_connection, wid, &bounds) != kCGErrorSuccess) return false;
+    CGPoint mid = { CGRectGetMidX(bounds), CGRectGetMidY(bounds) };
+    return CGRectContainsPoint(CGDisplayBounds(did), mid);
+}
+
+// Fallback desktop-window hunt: scan `sid`'s full window list (options 0x7 —
+// chrome included) for a Finder-owned window in the desktop band (negative
+// window level; Finder owns no other sub-zero windows) that resides on `did`.
+static uint32_t display_manager_desktop_window_on_space(uint32_t did, uint64_t sid)
+{
+    uint32_t result = 0;
+
+    CFNumberRef sid_num = CFNumberCreate(NULL, kCFNumberSInt64Type, &sid);
+    if (!sid_num) return 0;
+    CFArrayRef space_list = CFArrayCreate(NULL, (const void **)&sid_num, 1, &kCFTypeArrayCallBacks);
+    CFRelease(sid_num);
+    if (!space_list) return 0;
+
+    uint64_t set_tags = 0, clear_tags = 0;
+    CFArrayRef window_list = SLSCopyWindowsWithOptionsAndTags(g_connection, 0, space_list, 0x7, &set_tags, &clear_tags);
+    CFRelease(space_list);
+    if (!window_list) return 0;
+
+    for (int i = 0, count = CFArrayGetCount(window_list); i < count && !result; ++i) {
+        CFNumberRef num = CFArrayGetValueAtIndex(window_list, i);
+        uint32_t wid = 0;
+        if (num && CFGetTypeID(num) == CFNumberGetTypeID()) {
+            CFNumberGetValue(num, kCFNumberSInt32Type, &wid);
+        }
+        if (!wid) continue;
+
+        int level = 0;
+        if (SLSGetWindowLevel(g_connection, wid, &level) != kCGErrorSuccess || level >= 0) continue;
+
+        int wcid = 0;
+        ProcessSerialNumber psn = {0};
+        if (SLSGetWindowOwner(g_connection, wid, &wcid) != kCGErrorSuccess) continue;
+        if (SLSGetConnectionPSN(wcid, &psn) != kCGErrorSuccess) continue;
+        if (!psn_equals(&psn, &g_process_manager.finder_psn)) continue;
+
+        if (display_manager_window_resides_on_display(did, wid)) result = wid;
+    }
+    CFRelease(window_list);
+    return result;
+}
+
+// The Finder desktop ("role-1") window that actually RESIDES on `did`.
+// SLSManagedDisplaysCopyRoleWindows is not display-faithful: it can answer a
+// display's UUID with the OTHER display's desktop window (live-verified —
+// display 1's UUID returning display 2's desktop, the z-topmost role window),
+// and keying that window yanks focus to the wrong display. Accept an SPI
+// candidate only if its bounds sit on `did`; otherwise fall back to the
+// space-scoped desktop-band scan above.
+uint32_t display_manager_resident_desktop_window(uint32_t did, uint64_t sid)
+{
+    uint32_t result = 0;
+
+    CFStringRef uuid = display_uuid(did);
+    if (uuid) {
+        const void *uvals[1] = { uuid };
+        CFArrayRef uarr = CFArrayCreate(NULL, uvals, 1, &kCFTypeArrayCallBacks);
+        if (uarr) {
+            CFArrayRef rws = SLSManagedDisplaysCopyRoleWindows(g_connection, uarr, 1);
+            if (rws) {
+                for (int i = 0, count = CFArrayGetCount(rws); i < count && !result; ++i) {
+                    CFNumberRef num = CFArrayGetValueAtIndex(rws, i);
+                    uint32_t wid = 0;
+                    if (num && CFGetTypeID(num) == CFNumberGetTypeID()) {
+                        CFNumberGetValue(num, kCFNumberSInt32Type, &wid);
+                    }
+                    if (wid && display_manager_window_resides_on_display(did, wid)) result = wid;
+                }
+                CFRelease(rws);
+            }
+            CFRelease(uarr);
+        }
+        CFRelease(uuid);
+    }
+
+    if (!result) result = display_manager_desktop_window_on_space(did, sid);
+    return result;
+}
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 void display_manager_focus_display(uint32_t did, uint64_t sid)
@@ -471,43 +558,25 @@ void display_manager_focus_display(uint32_t did, uint64_t sid)
         window_manager_center_mouse(&g_window_manager, window);
         display_manager_set_active_display_id(did);
     } else {
-        // No app window on the target display (desktop only). Focus the
-        // per-display Finder DESKTOP window (PKGDisplay role-1) through the same
-        // full idiom as a real window (SLPS front + make_key_window + raise);
-        // yabai tracks these (window_manager_track_role_windows). A bare
-        // front-process call or cursor warp does NOT land focus on an empty
-        // display — focusing the role window + the active-display switch does.
-        uint32_t role_wid = 0;
-        CFStringRef uuid = display_uuid(did);
-        if (uuid) {
-            const void *uvals[1] = { uuid };
-            CFArrayRef uarr = CFArrayCreate(NULL, uvals, 1, &kCFTypeArrayCallBacks);
-            if (uarr) {
-                CFArrayRef rws = SLSManagedDisplaysCopyRoleWindows(g_connection, uarr, 1);
-                if (rws) {
-                    if (CFArrayGetCount(rws) > 0) {
-                        CFNumberRef n = CFArrayGetValueAtIndex(rws, 0);
-                        if (n && CFGetTypeID(n) == CFNumberGetTypeID()) {
-                            CFNumberGetValue(n, kCFNumberSInt32Type, &role_wid);
-                        }
-                    }
-                    CFRelease(rws);
-                }
-                CFRelease(uarr);
-            }
-            CFRelease(uuid);
+        // No app window on the target display (desktop only). Key the display's
+        // OWN Finder desktop window (role-1) via the SLPS front + make-key idiom.
+        // A bare front-process call or cursor warp does NOT land focus on an
+        // empty display — keying the RESIDENT desktop window + the
+        // active-display switch does. Resident is the operative word: the raw
+        // role-windows SPI can answer with the other display's desktop (see
+        // display_manager_resident_desktop_window), and keying that window
+        // yanks focus to THAT display instead of this one.
+        uint32_t role_wid = display_manager_resident_desktop_window(did, sid);
+        if (role_wid) {
+            int wcid = 0;
+            ProcessSerialNumber psn = {0};
+            SLSGetWindowOwner(g_connection, role_wid, &wcid);
+            SLSGetConnectionPSN(wcid, &psn);
+            // Pure SLPS idiom (no raise): desktop windows have no AX ref, and
+            // the sls focus method's Dock hand-off does not land on them.
+            window_manager_focus_window_without_raise(&psn, role_wid);
         }
-
-        struct window *role_window = role_wid
-            ? window_manager_find_window(&g_window_manager, role_wid) : NULL;
-        if (role_window) {
-            window_manager_focus_window_with_raise(&role_window->application->psn,
-                                                   role_window->id, role_window->ref);
-            display_manager_set_active_display_id(did);
-        } else {
-            // No tracked role window — just move the active display / menu bar.
-            display_manager_set_active_display_id(did);
-        }
+        display_manager_set_active_display_id(did);
     }
 }
 #pragma clang diagnostic pop

@@ -3912,35 +3912,18 @@ static void window_manager_track_role_windows(struct window_manager *wm)
     if (!display_list) return;
 
     for (int i = 0; i < display_count; ++i) {
-        CFStringRef uuid = display_uuid(display_list[i]);
-        if (!uuid) continue;
+        // Residency-verified per display — the raw role-windows SPI can hand
+        // every display the same (z-topmost) desktop window, which left the
+        // other display's desktop untracked and mislabelled this log line.
+        uint32_t role_wid = display_manager_resident_desktop_window(display_list[i], display_space_id(display_list[i]));
+        if (!role_wid) continue;
+        if (window_manager_find_window(wm, role_wid)) continue;
 
-        const void *uvals[1] = { uuid };
-        CFArrayRef uarr = CFArrayCreate(NULL, uvals, 1, &kCFTypeArrayCallBacks);
-        if (uarr) {
-            CFArrayRef rws = SLSManagedDisplaysCopyRoleWindows(g_connection, uarr, 1);
-            if (rws) {
-                int n = CFArrayGetCount(rws);
-                for (int j = 0; j < n; ++j) {
-                    CFNumberRef num = CFArrayGetValueAtIndex(rws, j);
-                    uint32_t role_wid = 0;
-                    if (num && CFGetTypeID(num) == CFNumberGetTypeID()) {
-                        CFNumberGetValue(num, kCFNumberSInt32Type, &role_wid);
-                    }
-                    if (!role_wid) continue;
-                    if (window_manager_find_window(wm, role_wid)) continue;
-
-                    struct window *window = window_create(finder, NULL, role_wid);
-                    window->is_eligible = false;   // never tiled/managed
-                    window_manager_add_window(wm, window);
-                    debug("%s: tracked role-1 desktop window %u (did=%u)\n",
-                          __FUNCTION__, role_wid, display_list[i]);
-                }
-                CFRelease(rws);
-            }
-            CFRelease(uarr);
-        }
-        CFRelease(uuid);
+        struct window *window = window_create(finder, NULL, role_wid);
+        window->is_eligible = false;   // never tiled/managed
+        window_manager_add_window(wm, window);
+        debug("%s: tracked role-1 desktop window %u (did=%u)\n",
+              __FUNCTION__, role_wid, display_list[i]);
     }
 }
 
