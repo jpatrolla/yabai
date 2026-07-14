@@ -294,7 +294,7 @@ Global Settings
 *space_animation_fade_exit_dur* ['auto|<FLOAT_SEL>']::
     Length (in seconds) of the outgoing fade. 'auto' tracks the slide duration.
 
-*multi_display_edge_guard* ['<BOOL_SEL>']::
+*contain_space_focus_per_display* ['<BOOL_SEL>']::
     Stop an animated space slide at a display edge (with a nudge) instead of walking across to the neighbouring display. +
     Off by default (stock behaviour: focus continues onto the next display).
 

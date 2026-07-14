@@ -110,7 +110,7 @@ Developed and daily-driven on a dual-display rig, so multi-display behavior is a
 first-class concern:
 
 #### Space-slide edge guard
-A space slide nudges and stops at a display edge instead of walking across to the next display. See `multi_display_edge_guard` below.
+On multi-display setups a defaulted `space --focus next|prev` walks spaces by global index &mdash; so at the edge of one display's spaces it crosses to a space on *another* display, silently moving keyboard focus and the active monitor. This guard keeps a defaulted `space --focus` on the current display: at that edge it animates a gentle nudge instead of crossing over. See `contain_space_focus_per_display` below.
 
 <details>
 <summary>Example</summary>
@@ -170,7 +170,7 @@ yabai -m config window_animation_warp_min_ms   100             # lb_warp mesh tw
 # Space transitions
 yabai -m config space_animation_duration       0.25            # seconds; 0.0 = instant switch (default)
 yabai -m config space_animation_background     on              # wallpaper slides with the switch (default on); off = static backdrop
-yabai -m config multi_display_edge_guard       on              # stop slide at a display edge (default off = stock walk)
+yabai -m config contain_space_focus_per_display on             # keep a defaulted space --focus on the current display (default off = stock walk)
 yabai -m config space_animation_enter_delay    0.0             # delay (s) before the incoming space starts sliding
 yabai -m config space_animation_exit_delay     0.0             # delay (s) before the outgoing space starts sliding
 yabai -m config space_animation_fade           off             # master: cross-fade windows over the slide (default off)

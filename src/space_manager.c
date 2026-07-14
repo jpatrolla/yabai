@@ -1285,7 +1285,7 @@ uint64_t space_manager_focus_target_space(void)
 
 // Resolve `space --focus prev/next` with display-aware semantics. `dir` is +1
 // (next) or -1 (prev). When the next/prev space is on the SAME display, focus
-// it. At a display edge (no in-display target): when multi_display_edge_guard is
+// it. At a display edge (no in-display target): when contain_space_focus_per_display is
 // on, nudge the active space back and stop (never cross displays); when off,
 // fall through to stock behavior — focus the next/prev space even on another
 // display. SUCCESS for guard-only outcomes (designed no-ops, not errors).
@@ -1322,7 +1322,7 @@ enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int di
     }
 
     // Edge of this display's spaces — no in-display target.
-    if (g_window_manager.multi_display_edge_guard) {
+    if (g_window_manager.contain_space_focus_per_display) {
         // ON: guard the boundary — nudge the active space back and stop.
         int nudge_distance = 100;
         int dx_nudge = (dir > 0) ? -nudge_distance : nudge_distance;  // content slides opposite to press

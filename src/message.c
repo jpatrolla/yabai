@@ -59,7 +59,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE_EXIT_DELAY  "space_animation_fade_exit_delay"
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE_ENTER_DUR   "space_animation_fade_enter_dur"
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE_EXIT_DUR    "space_animation_fade_exit_dur"
-#define COMMAND_CONFIG_MULTI_DISPLAY_EDGE_GUARD "multi_display_edge_guard"
+#define COMMAND_CONFIG_CONTAIN_SPACE_FOCUS_PER_DISPLAY "contain_space_focus_per_display"
 #define COMMAND_CONFIG_WINDOW_FOCUS_INTER_DISPLAY "window_focus_inter_display"
 #define COMMAND_CONFIG_WINDOW_FOCUS_WRAP     "window_focus_wrap"
 #define COMMAND_CONFIG_SPACE_FOCUS_TARGET_DISPLAY "space_focus_target_display"
@@ -1793,14 +1793,14 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 else if (tv.type == TOKEN_TYPE_INT) g_window_manager.space_animation_fade_exit_dur = (float)tv.int_value;
                 else daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
-        } else if (token_equals(command, COMMAND_CONFIG_MULTI_DISPLAY_EDGE_GUARD)) {
+        } else if (token_equals(command, COMMAND_CONFIG_CONTAIN_SPACE_FOCUS_PER_DISPLAY)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", bool_str[g_window_manager.multi_display_edge_guard]);
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.contain_space_focus_per_display]);
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
-                g_window_manager.multi_display_edge_guard = false;
+                g_window_manager.contain_space_focus_per_display = false;
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
-                g_window_manager.multi_display_edge_guard = true;
+                g_window_manager.contain_space_focus_per_display = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
@@ -2335,7 +2335,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
             struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             // Relative prev/next routes through the edge-guard-aware path so a
-            // hop that would leave this display nudges (multi_display_edge_guard
+            // hop that would leave this display nudges (contain_space_focus_per_display
             // on) instead of silently crossing to another display.
             bool relative = selector.sid && token_is_valid(selector.token) &&
                 (token_equals(selector.token, ARGUMENT_COMMON_SEL_NEXT) ||

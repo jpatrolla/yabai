@@ -239,7 +239,7 @@ struct window_manager
     float space_animation_fade_exit_dur;      // outgoing fade duration; <=0 = auto
     // Edge-of-display guard: nudge the active space back and stop (never cross
     // displays) when `space --focus next/prev` would leave this display. On/off.
-    bool multi_display_edge_guard;
+    bool contain_space_focus_per_display;
     // Directional `window --focus DIR` fallbacks past the current space. Tier 2
     // (floating windows on the current space) is always on; these gate the rest.
     bool window_focus_inter_display;   // hop to a window on the display in that direction
