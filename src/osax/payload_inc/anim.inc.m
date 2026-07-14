@@ -57,6 +57,7 @@ extern int      proc_name(int pid, void *buf, uint32_t bufsize);                
 // side in resolve_anim_constraints, so the NEXT animation preshapes (no skew) even
 // while the SLS iterator stays lazy-zero.
 #define ANIM_CLS_LAND_PX     8.0f   // |asked - WB| under this == the asked size landed on that axis (axis free)
+#define ANIM_SEAT_MAX_DISP   8      // display-snapshot capacity for the seat seam-guard (struct anim_ctx)
 
 #include "../../pile_transform.h"  // pile pose math (pure; shared with the daemon)
 
@@ -84,6 +85,11 @@ struct anim_window {
     volatile float glb_x, glb_y, glb_w, glb_h;   // last LB rect asked (lb_x,lb_y,clamped_w,clamped_h)
     volatile float gt;                            // last lerp progress, clamped 0..1
     volatile float wb_w, wb_h;                    // app's REAL frame (WindowBounds) sampled UNLOCKED in the pre-pass; the locked step clamps the asked size to within MAX_DEV of it (conformance clamp). 0 = not yet sampled / probe run → no clamp.
+    volatile float wb_x, wb_y;                    // app's REAL on-screen ORIGIN, sampled with wb_w/wb_h in the same pre-pass tick. Seam-held rows anchor their T3D translate on this LIVE origin (not the AX-asked one): the asked anchor leads the server-visible frame by the app's commit lag, and an identity transform in that gap flashes the window at its raw (start) position. wb_w>0 is the "sampled" proxy (a real window's size is never 0).
+    bool     seam_hold;              // latched (seam_eval): the endpin seat at START size would occupy a display the end rect doesn't touch → never seat, resize in place, terminal server-side move at the clear, T3D anchored on live WB
+    bool     seam_eval;              // seam_hold computed (write-once; START size is constant so the verdict can't flip)
+    float    vis_x, vis_y, vis_w, vis_h;   // last committed VISUAL rect (lerp), stored each locked tick — a superseding begin hands it to the successor row as its lerp start (a seam row's real frame parks at start, so the daemon's captured start is stale mid-flight). g_anim_lock-protected, no atomics.
+    bool     vis_set;                // vis_* valid (at least one tick committed)
     // Classify-at-settle (single-axis constraint learning). Pump-thread-only:
     // Pass-1 filters by did so one display's pump owns this context — no atomics.
     bool     cls_done;               // classified this run (write-once verdict guard)
@@ -112,6 +118,13 @@ struct anim_ctx {
     double   duration, fade_duration, start_s;
     uint64_t tick_count;
     bool     geom_end_marked;    // geom probe: ANIMATION-END marker already emitted to the log for this context
+    // Display snapshot for the endpin seat seam-guard: macOS clamps any AX
+    // resize that would vacate a display the window currently occupies (it
+    // keeps a ~54px vertical / ~80px horizontal sliver), so the seat move must
+    // never drag the start-size frame onto a display the end rect doesn't
+    // touch. Snapped per begin (hotplug-safe); empty = guard disabled.
+    CGRect   disp[ANIM_SEAT_MAX_DISP];
+    int      disp_count;
     struct anim_metrics metrics;
     struct anim_window win[ANIM_AX_MAX];
 };
@@ -609,6 +622,10 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
         float slack_y = lerp_h - clamped_h;
         float cx = lerp_x + (slack_x > 0.0f ? slack_x * 0.5f : 0.0f);
         float cy = lerp_y + (slack_y > 0.0f ? slack_y * 0.5f : 0.0f);
+        // Stash the committed visual rect for takeover handoff (see vis_* in
+        // struct anim_window). Under g_anim_lock — begin serializes with us.
+        w->vis_x = cx; w->vis_y = cy; w->vis_w = clamped_w; w->vis_h = clamped_h;
+        w->vis_set = true;
 
         // Anchor = last committed AX (use_ax) or the natural surface rect
         // (visual-only). For visual-only T3D the app's surface stays at its natural
@@ -620,6 +637,19 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
         float ax, ay, aw, ah;
         if (use_ax) { ax = lb_load_f(&w->ax_x); ay = lb_load_f(&w->ax_y); aw = lb_load_f(&w->ax_w); ah = lb_load_f(&w->ax_h); }
         else        { ax = w->nx; ay = w->ny; aw = w->nw; ah = w->nh; }
+        // Seam-held rows anchor the translate on the LIVE server origin
+        // instead: the asked anchor leads the real frame by the app's commit
+        // lag, and with a large terminal move that gap composites the surface
+        // at its raw start position for a frame or two (the end-of-animation
+        // flash). Live-WB anchoring keeps the visual pinned on the lerp rect
+        // through the catch-up, and identity lands exactly when the server
+        // frame does. Origin only — sizes converge progressively, so the
+        // asked sizes are already within a few px of WB here. Also makes the
+        // Trigger-3 landed-compare WB-driven (re-fires until the server sees
+        // the end rect), the same recipe as the WIP tree's instant-snap rows.
+        if (use_ax && w->seam_hold && lb_load_f(&w->wb_w) > 0.0f) {
+            ax = lb_load_f(&w->wb_x); ay = lb_load_f(&w->wb_y);
+        }
 
         // -------- AX fire decision (use_ax only) — endpin recipe --------
         // Endpin (the production default): the app's real origin is pinned at
@@ -656,20 +686,56 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
             float fy = endpin ? end_cy : cy;
             float fw = clamped_w, fh = clamped_h;
 
-            if (!w->ax_initial && (pure_move || endpin)) {
-                // Trigger 1 (t=0): endpin → pure MOVE to end_xy at START size
-                // (defer the resize → no re-raster flicker). Non-endpin pure
-                // moves commit the full end_rect.
+            // Seat seam-guard: the seat move plants the frame at end_xy at
+            // START size — that rect must not occupy a display the end rect
+            // doesn't touch. AppKit's edge-resize logic refuses shrinks around
+            // a seam shared with another display: a straddling window can't
+            // shrink off the neighbor (clamped at a ~54px vertical / ~80px
+            // horizontal sliver), and even a CLEAR window can't land its edge
+            // near the seam (a 17px shrink 3px clear of the neighbor is
+            // refused) — so a premature seat both wedges mid-flight shrinks
+            // AND strands the final padding gap. Flagged rows never seat:
+            // Trigger 2 shrinks in place at the start origin (far from the
+            // seam every ask lands) and Trigger 3's terminal setFrame — size
+            // at the start origin FIRST, then the move — lands the end rect,
+            // the same recipe the daemon's non-animated sandwich uses. The
+            // test uses START size (constant) so the verdict can't flip
+            // mid-flight. Void overhang stays legal (occupancy, not
+            // containment).
+            if (!w->seam_eval && endpin && !pure_move) {
+                w->seam_eval = true;
+                CGRect sg_seat = CGRectMake(end_cx, end_cy, w->sw, w->sh);
+                CGRect sg_end  = CGRectMake(end_cx, end_cy, end_cw, end_ch);
+                for (int sg = 0; sg < c->disp_count; ++sg) {
+                    if (CGRectIntersectsRect(sg_seat, c->disp[sg]) &&
+                        !CGRectIntersectsRect(sg_end, c->disp[sg])) { w->seam_hold = true; break; }
+                }
+            }
+            bool seat_safe = !w->seam_hold;
+
+            if (!w->ax_initial && (pure_move || endpin) && seat_safe) {
+                // Trigger 1 (t=0): endpin → pure MOVE to end_xy at the last
+                // COMMITTED size (defer the resize → no re-raster flicker; a
+                // seam-deferred seat continues from the in-place shrinks, so
+                // start size would re-grow the frame). Non-endpin pure moves
+                // commit the full end_rect.
                 fire = terminal = true;
                 fx = end_cx; fy = end_cy;
-                if (endpin && !pure_move) { fw = w->sw;  fh = w->sh;
+                if (endpin && !pure_move) { fw = aw;  fh = ah;
                                             if (warp_ax) move_only = true; }   // jello: PURE kAXPosition move (no redundant AXSize touch)
                 else                      { fw = w->ew;  fh = w->eh; }
-            } else if (t >= 1.0f && (ax != end_cx || ay != end_cy || aw != w->ew || ah != w->eh)) {
+            } else if (t >= 1.0f && (w->seam_hold ? (aw != w->ew || ah != w->eh)
+                                                  : (ax != end_cx || ay != end_cy || aw != w->ew || ah != w->eh))) {
                 // Trigger 3 (t>=1): full end_rect terminal safety fire (also the
                 // settle-phase driver — round-robin throttled for same-PID).
+                // Seam-held rows fire SIZE only: their position lands
+                // SERVER-SIDE in the finalize-clear transaction (same commit
+                // that drops LB/T3D) — an AX move's app-side apply can't be
+                // made atomic with the clear, and composites one raw frame at
+                // the start origin (the end-of-animation flash).
                 fire = terminal = true;
-                fx = end_cx; fy = end_cy; fw = w->ew; fh = w->eh;
+                if (w->seam_hold) { fx = ax; fy = ay; fw = w->ew; fh = w->eh; resize_only = true; }
+                else              { fx = end_cx; fy = end_cy; fw = w->ew; fh = w->eh; }
             } else if (warp_ax && t < 1.0f) {
                 // Jello single end-resize: Trigger 1 seated the origin (pure
                 // move); commit the FULL end size once, immediately — kAXSize
@@ -679,17 +745,38 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
                 // terminal safety net. Swallows Trigger 2 for warp rows.
                 if (aw != end_cw || ah != end_ch) {
                     fire = true; resize_only = true;
-                    fx = end_cx; fy = end_cy; fw = end_cw; fh = end_ch;
+                    // Seam-deferred seat: the origin is still the start rect —
+                    // the anchor must record the REAL origin (kAXSize doesn't
+                    // move) or Trigger 1/3's landed-compares go stale; and the
+                    // in-place fire caps each axis at start size (a pre-seat
+                    // GROW could overhang a neighbor display — the capped axis
+                    // catches up right here once the seat lands).
+                    if (w->ax_initial) { fx = end_cx; fy = end_cy; fw = end_cw; fh = end_ch; }
+                    else               { fx = ax;     fy = ay;
+                                         fw = fminf(end_cw, w->sw); fh = fminf(end_ch, w->sh); }
                 }
             } else if (t < 1.0f && c->ax_th_mode != WM_AX_TH_NONE_ && c->ax_th_val > 0.0f) {
                 // Trigger 2 (mid): PX threshold on resize delta from anchor.
                 float dmax = fmaxf(fabsf(lerp_w - aw), fabsf(lerp_h - ah));
                 if (dmax >= c->ax_th_val) {
                     fire = true;
-                    fx = endpin ? end_cx : cx;
-                    fy = endpin ? end_cy : cy;
-                    fw = clamped_w; fh = clamped_h;
-                    resize_only = endpin && endpin_ro;   // kAXSize-only fast path (origin held)
+                    if (endpin && !w->ax_initial) {
+                        // Seam-deferred seat (above): shrink in place at the
+                        // committed origin. kAXSize only — and the anchor must
+                        // record the REAL origin or Trigger 3's landed-compare
+                        // reads "already at end" and skips the terminal move.
+                        // Cap each axis at start size: an in-place GROW (mixed
+                        // resize) could overhang a neighbor display from the
+                        // start origin — the growing axis catches up post-seat.
+                        fx = ax; fy = ay;
+                        resize_only = true;
+                        fw = fminf(clamped_w, w->sw); fh = fminf(clamped_h, w->sh);
+                    } else {
+                        fx = endpin ? end_cx : cx;
+                        fy = endpin ? end_cy : cy;
+                        resize_only = endpin && endpin_ro;   // kAXSize-only fast path (origin held)
+                        fw = clamped_w; fh = clamped_h;
+                    }
                 }
             }
 
@@ -891,6 +978,21 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
             for (int i = 0; i < c->count; ++i) {
                 if (c->win[i].superseded) continue;   // the new owner clears it
                 if (!anim_owns(c->win[i].wid, ANIM_CH_GEO, c->win[i].own_geo)) continue;   // AC-15: ditto, cross-animator
+                // Seam-held rows: land the origin SERVER-SIDE in this same
+                // transaction — the masks drop in the exact commit that
+                // materializes the window at end, so no frame ever composites
+                // the raw window at its start origin (the AX-move recipe's
+                // 1-frame flash). Sizes were AX-committed in place; the app
+                // adopts the new origin via kCGSWindowDidMove. Centered origin
+                // mirrors the step's available-slack rule.
+                if (c->win[i].seam_hold) {
+                    float mw = lb_clamp_w(&c->win[i], c->win[i].ew);
+                    float mh = lb_clamp_h(&c->win[i], c->win[i].eh);
+                    CGPoint mo = CGPointMake(
+                        c->win[i].ex + (c->win[i].ew > mw ? (c->win[i].ew - mw) * 0.5f : 0.0f),
+                        c->win[i].ey + (c->win[i].eh > mh ? (c->win[i].eh - mh) * 0.5f : 0.0f));
+                    SLSTransactionMoveWindowWithGroup(tx, c->win[i].wid, mo);
+                }
                 if (do_t3) SLSTransactionSetWindowTransform3D(tx, c->win[i].wid, ident);
                 if (do_lb) SLSTransactionClearWindowLockedBounds(tx, c->win[i].wid);
                 // Jello: unconditional warp clear (identity at settle → visual no-op)
@@ -1233,6 +1335,8 @@ static bool anim_step(void *ctx_did, CFTypeRef pump_tx, uint32_t pump_did)
                     wb.size.width > 0.0f && wb.size.height > 0.0f) {
                     lb_store_f(&w->wb_w, (float)wb.size.width);
                     lb_store_f(&w->wb_h, (float)wb.size.height);
+                    lb_store_f(&w->wb_x, (float)wb.origin.x);
+                    lb_store_f(&w->wb_y, (float)wb.origin.y);
                 }
             }
         }
@@ -1268,10 +1372,15 @@ static bool anim_step(void *ctx_did, CFTypeRef pump_tx, uint32_t pump_did)
             float esy  = c->win[k].eh - eh_c;
             float ex_c = c->win[k].ex + (esx > 0.0f ? esx * 0.5f : 0.0f);
             float ey_c = c->win[k].ey + (esy > 0.0f ? esy * 0.5f : 0.0f);
-            bool match = fabsf((float)sr.origin.x    - ex_c) <= ANIM_SETTLE_PX &&
-                         fabsf((float)sr.origin.y    - ey_c) <= ANIM_SETTLE_PX &&
-                         fabsf((float)sr.size.width  - ew_c) <= ANIM_SETTLE_PX &&
-                         fabsf((float)sr.size.height - eh_c) <= ANIM_SETTLE_PX;
+            // Seam-held rows never AX-move — their origin lands server-side in
+            // the finalize-clear transaction — so the verdict is SIZE-only
+            // (waiting on the origin would stall every seam row to the
+            // hard-stop and re-introduce the raw-frame flash it exists to fix).
+            bool match = fabsf((float)sr.size.width  - ew_c) <= ANIM_SETTLE_PX &&
+                         fabsf((float)sr.size.height - eh_c) <= ANIM_SETTLE_PX &&
+                         (c->win[k].seam_hold ||
+                          (fabsf((float)sr.origin.x - ex_c) <= ANIM_SETTLE_PX &&
+                           fabsf((float)sr.origin.y - ey_c) <= ANIM_SETTLE_PX));
             if (!match) { settled = false; continue; }  // keep walking so every landed row can classify
 
             // ---- Classify-at-settle ----
@@ -1475,6 +1584,16 @@ static void do_anim_ax_begin(char *message)
     c->pile_pose_easing = pile_pose_easing;
     c->use_ax        = (flags & SA_T3D_FLAG_AX) != 0;
     c->notify_done   = (flags & SA_T3D_FLAG_NOTIFY_DONE) != 0;
+    // Seat seam-guard snapshot (cheap; AX contexts only — visual-only rows
+    // never commit real frames, so they can't trip the vacate clamp).
+    if (c->use_ax) {
+        CGDirectDisplayID sg_dl[ANIM_SEAT_MAX_DISP]; uint32_t sg_dn = 0;
+        if (CGGetActiveDisplayList(ANIM_SEAT_MAX_DISP, sg_dl, &sg_dn) == kCGErrorSuccess) {
+            for (uint32_t sg_i = 0; sg_i < sg_dn; ++sg_i) {
+                c->disp[c->disp_count++] = CGDisplayBounds(sg_dl[sg_i]);
+            }
+        }
+    }
     for (int i = 0; i < c->count; ++i) {
         struct anim_window *w = &c->win[i];
         // AC-9: row decoded from SA_ANIM_ROW_FIELDS (common_experimental.h) — the
@@ -1508,6 +1627,23 @@ static void do_anim_ax_begin(char *message)
             if (o == c || !__atomic_load_n(&o->active, __ATOMIC_ACQUIRE)) continue;
             for (int j = 0; j < o->count; ++j) {
                 if (o->win[j].wid != wid) continue;
+                // Seam-held takeover handoff: a seam row's REAL frame parks at
+                // its start origin for the whole flight, so the daemon's
+                // captured start (an AX read) is the park — a superseding
+                // animation would visually restart from there. Hand the old
+                // row's last committed VISUAL rect to the new row as its lerp
+                // start, and its real anchor as the new anchor (the wire
+                // start==anchor assumption breaks when start is overridden).
+                // Both rows are under g_anim_lock here.
+                // (donor must be the LIVE owner — an already-superseded row's
+                // stash is frozen at ITS takeover tick)
+                if (!__atomic_load_n(&o->win[j].superseded, __ATOMIC_ACQUIRE) &&
+                    o->win[j].seam_hold && o->win[j].vis_set) {
+                    c->win[i].sx = o->win[j].vis_x; c->win[i].sy = o->win[j].vis_y;
+                    c->win[i].sw = o->win[j].vis_w; c->win[i].sh = o->win[j].vis_h;
+                    c->win[i].ax_x = o->win[j].ax_x; c->win[i].ax_y = o->win[j].ax_y;
+                    c->win[i].ax_w = o->win[j].ax_w; c->win[i].ax_h = o->win[j].ax_h;
+                }
                 __atomic_store_n(&o->win[j].superseded, true, __ATOMIC_RELEASE);
                 __atomic_store_n(&o->win[j].ax_dispatch_id, 0, __ATOMIC_RELEASE);   // invalidate any in-flight AX completion (token 0 is never live)
             }
