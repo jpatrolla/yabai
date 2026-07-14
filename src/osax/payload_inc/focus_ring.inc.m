@@ -127,10 +127,11 @@ struct fr_style_bank {
 }
 static struct fr_style_bank g_fr_style_main    = FR_STYLE_BANK_DEFAULTS;
 static struct fr_style_bank g_fr_style_desktop = FR_STYLE_BANK_DEFAULTS;
-// Discrete-transition animation (focus_ring_animate{,_duration}) — when set, the BLUR
-// band's mask mutations on a SHOW are wrapped in an animated CATransaction; live-drag
-// tracking always passes animated=false so the band stays glued to the window.
-static bool  g_focus_ring_animate          = true;
+// Discrete-transition animation — when set, the BLUR band's mask mutations on a
+// SHOW are wrapped in an animated CATransaction; live-drag tracking always passes
+// animated=false so the band stays glued to the window. Payload-internal
+// compile-time defaults (no config key, nothing on the SHOW wire); off in this tree.
+static bool  g_focus_ring_animate          = false;
 static float g_focus_ring_animate_duration = 0.25f;
 // Crossfade-between-windows duration (focus_ring_fade_duration). On a focus change
 // the outgoing ring window fades 1->0 while the incoming fades 0->1 over this, both
@@ -1993,8 +1994,6 @@ static void do_focus_ring_show(char *message)
         float    str_r, str_g, str_b, str_a;
         float    blur_contrast;
         float    blur_feather;   // appended (wire contract)
-        uint8_t  animate;
-        float    animate_duration;
         float    fade_duration;  // appended (wire contract — never reorder)
         int32_t  target_level;     // appended (wire contract — never reorder)
         int32_t  target_sublevel;  // appended (wire contract — never reorder)
@@ -2099,10 +2098,6 @@ static void do_focus_ring_show(char *message)
     g_focus_ring_blur_feather = req.blur_feather < 0.0f ? 0.0f
                               : (req.blur_feather > 64.0f ? 64.0f : req.blur_feather);
 
-    // Discrete-transition animation. Clamp duration defensively — daemon clamps to [0,2].
-    g_focus_ring_animate = req.animate != 0;
-    g_focus_ring_animate_duration = req.animate_duration < 0.0f ? 0.0f
-                                  : (req.animate_duration > 2.0f ? 2.0f : req.animate_duration);
     g_focus_ring_fade_duration = req.fade_duration < 0.0f ? 0.0f
                                : (req.fade_duration > 5.0f ? 5.0f : req.fade_duration);
 

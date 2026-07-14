@@ -90,7 +90,6 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_FOCUS_RING_OPACITY    "focus_ring_opacity"
 #define COMMAND_CONFIG_FOCUS_RING_ALPHA      "focus_ring_alpha"
 #define COMMAND_CONFIG_FOCUS_RING_COLOR      "focus_ring_color"
-#define COMMAND_CONFIG_FOCUS_RING_ANIMATE    "focus_ring_animate"
 #define COMMAND_CONFIG_FOCUS_RING_BLUR_RADIUS          "focus_ring_blur_radius"
 #define COMMAND_CONFIG_FOCUS_RING_BLUR_BLEED           "focus_ring_blur_bleed"
 #define COMMAND_CONFIG_FOCUS_RING_BLUR_FEATHER         "focus_ring_blur_feather"
@@ -1544,8 +1543,6 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             fr_config_float(rsp, &message, command, domain, focus_ring_get_alpha, focus_ring_set_alpha);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_COLOR)) {
             fr_config_color_base(rsp, &message, command, domain, focus_ring_get_color, focus_ring_get_color_is_auto, focus_ring_set_color, focus_ring_set_color_auto);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_ANIMATE)) {
-            fr_config_bool(rsp, &message, command, domain, focus_ring_get_animate, focus_ring_set_animate);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_RADIUS)) {
             fr_config_int(rsp, &message, command, domain, focus_ring_get_blur_radius, focus_ring_set_blur_radius);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_BLEED)) {

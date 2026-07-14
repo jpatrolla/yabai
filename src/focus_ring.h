@@ -57,11 +57,6 @@
 //                                                  the band's alpha MASK so its edges
 //                                                  feather/soften instead of reading
 //                                                  as a clean rounded-rect cutout)
-//   yabai -m config focus_ring_animate on|off      (blur style only; ease the frosted
-//                                                  band on DISCRETE transitions — focus
-//                                                  change, space switch, config change.
-//                                                  Live drag/resize tracking stays
-//                                                  instant so the band glues to the window)
 //   yabai -m config focus_ring_alpha <0.0..1.0>    (whole-window translucency of the
 //                                                  ring surface; composes with opacity)
 //
@@ -284,17 +279,14 @@ enum focus_ring_blur_stroke_position {
 #define FOCUS_RING_MIN_BLUR_FEATHER              0.0f
 #define FOCUS_RING_MAX_BLUR_FEATHER             64.0f
 
-// focus_ring_animate — ease the ring's band on DISCRETE transitions (focus
-// change, space switch, config change) via Core Animation's implicit actions,
-// wrapped in a CATransaction at focus_ring_animate_duration. Continuous tracking
-// (the t3d-batch lockstep redraw during a live drag/resize) always passes
+// Discrete-transition ease — easing the ring's band on DISCRETE transitions
+// (focus change, space switch, config change) via Core Animation's implicit
+// actions is a payload-internal path with no config key: it runs on the
+// compile-time defaults in focus_ring.inc.m (g_focus_ring_animate — off in
+// this tree — and g_focus_ring_animate_duration). Continuous tracking (the
+// t3d-batch lockstep redraw during a live drag/resize) always passes
 // animated=false so the band stays glued to the window — an implicit animation
-// there would make it trail. Applies to BOTH the frosted and the sharp (blur=0)
-// ring since FR-24 unified them onto the CA surface.
-#define FOCUS_RING_DEFAULT_ANIMATE               true
-#define FOCUS_RING_DEFAULT_ANIMATE_DURATION      0.25f
-#define FOCUS_RING_MIN_ANIMATE_DURATION          0.0f
-#define FOCUS_RING_MAX_ANIMATE_DURATION          2.0f
+// there would make it trail.
 
 // Per-layer color / opacity overrides for the BLUR ring: focus_ring_blur_opacity /
 // _color drive the frosted color wash; focus_ring_blur_stroke_opacity / _color drive
@@ -388,12 +380,6 @@ void      focus_ring_set_blur_stroke_color_inherit(void);
 // soften. 0 = off (sharp band).
 float     focus_ring_get_blur_feather(void);
 void      focus_ring_set_blur_feather(float feather);
-
-// Discrete-transition animation (BLUR style only). Pushed to the payload on every
-// SHOW; the payload eases the frosted band on focus/space/config changes and stays
-// instant during live-drag tracking.
-bool      focus_ring_get_animate(void);
-void      focus_ring_set_animate(bool enabled);
 
 // Stroke color. get_color returns the current RGB packed as 0xAARRGGBB with
 // alpha forced to 0xff (opacity is the separate focus_ring_opacity config).

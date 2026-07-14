@@ -330,9 +330,6 @@ Global Settings
 *focus_ring_opacity* ['<FLOAT_SEL>']::
     Alpha of the hard stroke / tint wash (0.0 - 1.0); 0.0 disables it.
 
-*focus_ring_animate* ['<BOOL_SEL>']::
-    Ease the band on focus change and space switch; live tracking during moves stays instant.
-
 *focus_ring_blur_radius* ['<FLOAT_SEL>']::
     Frost blur radius in pixels; drives the ring style: 0 is a sharp solid stroke, greater than 0 is a frosted band.
 

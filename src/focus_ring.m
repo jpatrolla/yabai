@@ -213,8 +213,6 @@ static struct {
     uint32_t blur_stroke_color;      // stroke overlay RGB override (0x00RRGGBB)
     bool     blur_stroke_color_is_set;
     float    blur_feather;           // band-mask edge feather px; 0 = off; BLUR only; pushed on SHOW
-    bool     animate;                // ease the BLUR band on discrete transitions; pushed on SHOW
-    float    animate_duration;       // discrete-transition ease duration (s); pushed on SHOW
     float    fade_duration;          // FR-9: fade duration (s); 0 = fade off (FR-22: replaces fade_enabled)
     int      fade_easing;            // FR-9: alpha easing curve (enum focus_ring_easing)
     float    fade_delay;             // FR-9: delay (s) from switch start before fade fires; <0 = auto (= space_animation_duration)
@@ -276,8 +274,6 @@ static struct {
     .blur_opacity        = FOCUS_RING_DEFAULT_BLUR_OPACITY,
     .blur_stroke_opacity = FOCUS_RING_DEFAULT_BLUR_STROKE_OPACITY,
     .blur_feather        = FOCUS_RING_DEFAULT_BLUR_FEATHER,
-    .animate             = FOCUS_RING_DEFAULT_ANIMATE,
-    .animate_duration    = FOCUS_RING_DEFAULT_ANIMATE_DURATION,
     .fade_duration       = FOCUS_RING_DEFAULT_FADE_DURATION,
     .fade_easing         = FOCUS_RING_DEFAULT_EASING,
     .fade_delay          = FOCUS_RING_DEFAULT_FADE_DELAY,
@@ -551,15 +547,6 @@ void focus_ring_set_blur_feather(float feather)
     g_focus_ring.blur_feather = feather;
     focus_ring_log("set_blur_feather", "feather=%.2f", feather);
     focus_ring_reissue_show_for_last_target("set_blur_feather", true);
-}
-
-bool focus_ring_get_animate(void) { return g_focus_ring.animate; }
-
-void focus_ring_set_animate(bool enabled)
-{
-    g_focus_ring.animate = enabled;
-    focus_ring_log("set_animate", "enabled=%d", enabled ? 1 : 0);
-    focus_ring_reissue_show_for_last_target("set_animate", true);
 }
 
 // Resolve the two BLUR-ring layers' final RGBA from the per-layer overrides, falling
@@ -951,8 +938,6 @@ bool focus_ring_show_for_wid_at_rect_sync(uint32_t target_wid, CGRect target_rec
                                                   str_r, str_g, str_b, str_a,
                                                   g_focus_ring.blur_contrast,
                                                   g_focus_ring.blur_feather,
-                                                  g_focus_ring.animate,
-                                                  g_focus_ring.animate_duration,
                                                   g_focus_ring.fade_duration,
                                                   g_focus_ring.blur_hue,
                                                   g_focus_ring.xray,
@@ -1692,7 +1677,7 @@ void focus_ring_show_for_display(uint32_t did)
         // short). focus_ring_hide zeroes last_send_ns, so a re-show after a hide
         // always proceeds. Desktop twin of the idempotent_rect_unchanged guard
         // in focus_ring_show_for_wid_at_rect_sync.
-        double coalesce_ms = (g_focus_ring.animate && g_focus_ring.fade_duration > 0.0f)
+        double coalesce_ms = (g_focus_ring.fade_duration > 0.0f)
                            ? (double)g_focus_ring.fade_duration * 1000.0
                            : FOCUS_RING_MAX_COALESCE_MS;
         uint64_t now_ns = focus_ring_now_ns();
@@ -1738,8 +1723,6 @@ void focus_ring_show_for_display(uint32_t did)
             str_r, str_g, str_b, str_a,
             dt_con,
             dt_feather,
-            g_focus_ring.animate,
-            g_focus_ring.animate_duration,
             g_focus_ring.fade_duration,
             dt_hue,
             // FR-21 xray: no overlap resolve for the desktop ring (wid 0 — the

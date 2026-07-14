@@ -195,7 +195,6 @@ yabai -m config focus_ring_color               0xffffffff      # 0xAARRGGBB | au
 yabai -m config focus_ring_width               10              # band thickness in px (default 10)
 yabai -m config focus_ring_alpha               0.60            # whole-ring translucency 0.0..1.0 (default 0.60)
 yabai -m config focus_ring_opacity             0.0             # hard stroke/tint wash alpha 0.0..1.0 (default 0.0 = off)
-yabai -m config focus_ring_animate             on              # ease the band on focus change / space switch; live tracking stays instant (default on)
 
 # Frosted-band styling — focus_ring_blur_radius drives the look: 0 = a sharp solid stroke,
 # > 0 = a frosted band (the style is inferred from this radius; there is no separate style key).

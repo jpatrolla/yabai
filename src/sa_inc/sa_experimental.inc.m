@@ -71,7 +71,7 @@ bool scripting_addition_animate_edge_nudge(uint64_t sid, int32_t dx, int32_t dy,
     return sa_payload_send(SA_OPCODE_SPACE_NUDGE);
 }
 
-bool scripting_addition_focus_ring_show(uint32_t wid, float x, float y, float w, float h, float radius, float stroke_width, float stroke_alpha, float stroke_r, float stroke_g, float stroke_b, bool force_style, int blur_radius, int style, float blur_saturation, float blur_brightness, int blend_mode, bool blur_stroke, int blur_stroke_position, float blur_stroke_width, float blur_bleed, float tint_r, float tint_g, float tint_b, float tint_a, float str_r, float str_g, float str_b, float str_a, float blur_contrast, float blur_feather, bool animate, float animate_duration, float fade_duration, float blur_hue, bool xray, float xray_r, float xray_g, float xray_b, float xray_a, int xray_count, CGRect *xray_rects, float window_alpha)
+bool scripting_addition_focus_ring_show(uint32_t wid, float x, float y, float w, float h, float radius, float stroke_width, float stroke_alpha, float stroke_r, float stroke_g, float stroke_b, bool force_style, int blur_radius, int style, float blur_saturation, float blur_brightness, int blend_mode, bool blur_stroke, int blur_stroke_position, float blur_stroke_width, float blur_bleed, float tint_r, float tint_g, float tint_b, float tint_a, float str_r, float str_g, float str_b, float str_a, float blur_contrast, float blur_feather, float fade_duration, float blur_hue, bool xray, float xray_r, float xray_g, float xray_b, float xray_a, int xray_count, CGRect *xray_rects, float window_alpha)
 {
     sa_payload_init();
     pack(wid);
@@ -111,9 +111,6 @@ bool scripting_addition_focus_ring_show(uint32_t wid, float x, float y, float w,
     pack(str_a);
     pack(blur_contrast);
     pack(blur_feather);   // appended (wire contract — never reorder)
-    uint8_t an = animate ? 1 : 0;
-    pack(an);
-    pack(animate_duration);
     pack(fade_duration);   // appended (wire contract — never reorder)
     // Target's z-band, read daemon-side so the ring can share it (the payload
     // orders the ring relative to this wid; a BSP target sits at sublevel -20).
