@@ -76,7 +76,7 @@ yabai -m config space_animation_duration   0.0
 
 # 2 — closest to the native macOS slide
 yabai -m config space_animation_duration   0.8
-yabai -m config space_animation_background on              # wallpaper changes with the space
+yabai -m config space_animation_background on              # wallpaper slides along with the space
 yabai -m config window_animation_easing    ease_out_expo   # one easing lever drives windows + spaces
 
 # 3 — a modern cross-fade
@@ -170,7 +170,7 @@ yabai -m config window_animation_warp_min_ms   100             # lb_warp mesh tw
 
 # Space transitions
 yabai -m config space_animation_duration       0.25            # seconds; 0.0 = instant switch (default)
-yabai -m config space_animation_background     on              # wallpaper cross-fades with the switch (default on); off = static backdrop
+yabai -m config space_animation_background     on              # wallpaper slides with the switch (default on); off = static backdrop
 yabai -m config multi_display_edge_guard       on              # stop slide at a display edge (default off = stock walk)
 yabai -m config space_animation_enter_delay    0.0             # delay (s) before the incoming space starts sliding
 yabai -m config space_animation_exit_delay     0.0             # delay (s) before the outgoing space starts sliding

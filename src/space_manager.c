@@ -1188,7 +1188,7 @@ static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
                                                g_window_manager.space_animation_duration,
                                                width,
                                                0.0,        // gap
-                                               (uint8_t)g_window_manager.space_animation_background,   // wallpaper cross-fade (off = static backdrop)
+                                               (uint8_t)g_window_manager.space_animation_background,   // wallpaper rides the slide (off = static backdrop)
                                                0,          // animate_menubar
                                                did, refresh_hz,
                                                -1, -1,     // out/in active stage: no filtering

@@ -306,7 +306,7 @@ struct space_cross_fade_animator {
     int       direction;
     double    width, duration, mach_to_s;
     uint64_t  start_mach_time;
-    bool      wallpaper;                              // cross-fade both wallpapers
+    bool      wallpaper;                              // wallpapers ride the slide with their spaces
     uint32_t  in_wp, out_wp;
     uint32_t  in_wids[SA_WINDOWS_ONLY_MAX_WIDS];  int in_n;
     uint32_t  out_wids[SA_WINDOWS_ONLY_MAX_WIDS]; int out_n;
@@ -319,6 +319,7 @@ struct space_cross_fade_animator {
     uint64_t  in_geo[SA_WINDOWS_ONLY_MAX_WIDS],  in_alpha[SA_WINDOWS_ONLY_MAX_WIDS];
     uint64_t  out_geo[SA_WINDOWS_ONLY_MAX_WIDS], out_alpha[SA_WINDOWS_ONLY_MAX_WIDS];
     uint64_t  in_wp_alpha, out_wp_alpha;          // wallpaper ALPHA tokens (0 = no wallpaper)
+    uint64_t  in_wp_geo, out_wp_geo;              // wallpaper GEO tokens (0 = ride disabled: lever off, unresolved, or a shared picture)
     // SPA-9: per-wid steady-state alpha (anim_baseline_capture at seed). The
     // cross-fade runs 0<->baseline instead of 0<->1, and settle/handoff restore
     // the baseline — a --opacity 0.5 window survives the switch at 0.5.
@@ -537,6 +538,7 @@ struct xfade_settle_snap {
     uint64_t in_geo[SA_WINDOWS_ONLY_MAX_WIDS],   in_alpha[SA_WINDOWS_ONLY_MAX_WIDS];
     uint64_t out_geo[SA_WINDOWS_ONLY_MAX_WIDS],  out_alpha[SA_WINDOWS_ONLY_MAX_WIDS];
     uint64_t in_wp_alpha, out_wp_alpha;
+    uint64_t in_wp_geo, out_wp_geo;
 };
 
 // Cede one side's claims (stale tokens no-op). Shared by the settle block and
@@ -595,6 +597,7 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
     memcpy(out_geo_only,  a->out_geo_only,  sizeof(bool) * out_n);
     float    in_wp_base = a->in_wp_base, out_wp_base = a->out_wp_base;
     uint64_t in_wp_alpha = a->in_wp_alpha, out_wp_alpha = a->out_wp_alpha;
+    uint64_t in_wp_geo = a->in_wp_geo, out_wp_geo = a->out_wp_geo;
     uint32_t in_wp = a->in_wp, out_wp = a->out_wp;
     bool     wallpaper = a->wallpaper;
     int      fs_n = a->fs_n;
@@ -627,7 +630,7 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
     // lead and the other trail (a geometric hand-off). delay(s) -> slide fraction;
     // zero delay => payload_ease(easing, t) == e => an exact no-op. This offsets the
     // WINDOWS (Transform3D), NOT their opacity: the alpha below stays on the shared
-    // timeline (the fade lever), and the wallpaper cross-fade is untouched.
+    // timeline (the fade lever), and the wallpaper ride keeps the shared timeline too.
     double edf = dur > 0.0 ? enter_delay / dur : 0.0;   // enter delay as a slide fraction
     double xdf = dur > 0.0 ? exit_delay  / dur : 0.0;   // exit  delay as a slide fraction
     double es  = 1.0 - edf, xs = 1.0 - xdf;             // span left after the delay
@@ -652,17 +655,16 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
     float ae  = (float)(e < 0.0 ? 0.0 : (e > 1.0 ? 1.0 : e));   // entering fade fraction
     float aeo = 1.0f - ae;                                       // leaving fade fraction
     // SPA: `fade` off → windows ride the slide at full baseline opacity (no
-    // cross-fade). The wallpaper cross-fade below AND the fade-only menubar rows
-    // (see the (fade_only ? ae : win_ae) splits below) deliberately keep using the
-    // raw ae/aeo so they cross-fade over the slide duration INDEPENDENT of this
-    // window-only lever — the menubar fades even when window `fade` is off
-    // (menubar decouple).
+    // cross-fade). The fade-only menubar rows (see the (fade_only ? ae : win_ae)
+    // splits below) deliberately keep using the raw ae/aeo so they cross-fade over
+    // the slide duration INDEPENDENT of this window-only lever — the menubar fades
+    // even when window `fade` is off (menubar decouple).
     // Window fade runs on its OWN per-side sub-timeline (delay + duration),
     // decoupled from the slide. Each knob AUTO-tracks the slide when unset:
     // fade delay < 0 → the side's slide delay; fade dur <= 0 → ramp to the slide
     // end. All-auto ⇒ fer/fxr == the slide's er/xr ⇒ the fade exactly tracks the
-    // Transform3D (an exact no-op). (The wallpaper + fade-only menubar rows keep
-    // the raw shared ae/aeo above — full-duration cross-fade regardless.)
+    // Transform3D (an exact no-op). (The fade-only menubar rows keep the raw
+    // shared ae/aeo above — full-duration cross-fade regardless.)
     double fade_now_s = t * dur;
     double fed = fade_enter_delay >= 0.0 ? fade_enter_delay : enter_delay;   // auto delay = the side's slide delay
     double fxd = fade_exit_delay  >= 0.0 ? fade_exit_delay  : exit_delay;
@@ -694,10 +696,16 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
             if (anim_owns(out_wids[i], ANIM_CH_ALPHA, out_alpha[i])) SLSTransactionSetWindowSystemAlpha(pump_tx, out_wids[i], (out_fade_only[i] ? aeo : win_aeo) * out_base[i]);
             if (!out_fade_only[i] && anim_owns(out_wids[i], ANIM_CH_GEO, out_geo[i])) SLSTransactionSetWindowSystemLevel(pump_tx, out_wids[i], SPACE_SLIDE_OUT_SYSTEM_LEVEL);   // z: sink outgoing below the incoming
         }
-        if (wallpaper) {   // cross-fade both wallpapers in place (off path leaves out_wp as static backdrop)
-            // Skip fs_scale_wid: on a fullscreen transition the abyss block below owns its alpha.
-            if (in_wp  && in_wp  != fs_scale_wid && anim_owns(in_wp,  ANIM_CH_ALPHA, in_wp_alpha))  SLSTransactionSetWindowSystemAlpha(pump_tx, in_wp,  ae * in_wp_base);
-            if (out_wp && out_wp != fs_scale_wid && anim_owns(out_wp, ANIM_CH_ALPHA, out_wp_alpha)) SLSTransactionSetWindowSystemAlpha(pump_tx, out_wp, aeo * out_wp_base);
+        if (wallpaper) {   // wallpapers ride the slide with their spaces, native-style (off path
+            // leaves both as a static backdrop). Driven by the SHARED slide progress `e`,
+            // NOT the per-side staggered Min/Mout — the same fraction on both sides keeps
+            // the two pictures seamlessly adjacent while staggered windows move over them.
+            // Token 0 (ride disabled at seed) skips the writes; skip fs_scale_wid too — on
+            // a fullscreen transition the abyss block below owns it.
+            double Win[16]  = { 1,0,0,0, 0,1,0,0, 0,0,1,0,  (double)direction * width * (1.0 - e),0,0,1 };
+            double Wout[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, -(double)direction * width * e,        0,0,1 };
+            if (in_wp  && in_wp  != fs_scale_wid && anim_owns(in_wp,  ANIM_CH_GEO, in_wp_geo))  SLSTransactionSetWindowTransform3D(pump_tx, in_wp,  Win);
+            if (out_wp && out_wp != fs_scale_wid && anim_owns(out_wp, ANIM_CH_GEO, out_wp_geo)) SLSTransactionSetWindowTransform3D(pump_tx, out_wp, Wout);
         }
         // SPA-20: fullscreen enter/exit — the normal-space wallpaper "recedes into the
         // abyss". The Dock backdrop AND every other identical wallpaper on this display
@@ -776,6 +784,10 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
     }
     if (in_wp  && anim_owns(in_wp,  ANIM_CH_ALPHA, in_wp_alpha))  SLSTransactionSetWindowSystemAlpha(pump_tx, in_wp,  in_wp_base);
     if (out_wp && anim_owns(out_wp, ANIM_CH_ALPHA, out_wp_alpha)) SLSTransactionSetWindowSystemAlpha(pump_tx, out_wp, out_wp_base);
+    // Riding wallpapers land at identity T3D with their windows (token 0 = ride
+    // disabled → no-op; fs_scale_wid's 2D transform is restored separately below).
+    if (in_wp  && in_wp  != fs_scale_wid && anim_owns(in_wp,  ANIM_CH_GEO, in_wp_geo))  SLSTransactionSetWindowTransform3D(pump_tx, in_wp,  I);
+    if (out_wp && out_wp != fs_scale_wid && anim_owns(out_wp, ANIM_CH_GEO, out_wp_geo)) SLSTransactionSetWindowTransform3D(pump_tx, out_wp, I);
     // SPA-20: restore Dock's Fullscreen Backdrop to opaque (it's the fullscreen
     // presentation's backdrop for next time; invisible now on the background space).
     for (int i = 0; i < fs_n; i++)
@@ -802,6 +814,8 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
         memcpy(snap->out_alpha, out_alpha, sizeof(uint64_t) * out_n);
         snap->in_wp_alpha  = in_wp_alpha;
         snap->out_wp_alpha = out_wp_alpha;
+        snap->in_wp_geo    = in_wp_geo;
+        snap->out_wp_geo   = out_wp_geo;
     }
 
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -815,6 +829,8 @@ static bool space_cross_fade_animator_ca_step(void *ctx, CFTypeRef pump_tx, uint
             xfade_release_side(snap->out_wids, snap->out_geo, snap->out_alpha, out_n);
             if (in_wp  && snap->in_wp_alpha)  anim_release(in_wp,  ANIM_CH_ALPHA, snap->in_wp_alpha);
             if (out_wp && snap->out_wp_alpha) anim_release(out_wp, ANIM_CH_ALPHA, snap->out_wp_alpha);
+            if (in_wp  && snap->in_wp_geo)    anim_release(in_wp,  ANIM_CH_GEO,   snap->in_wp_geo);
+            if (out_wp && snap->out_wp_geo)   anim_release(out_wp, ANIM_CH_GEO,   snap->out_wp_geo);
         }
 
         // Repaint Dock's model so the MC strip thumbnail tracks the switch
@@ -876,6 +892,7 @@ static void xfade_handoff_no_commit(struct space_cross_fade_animator *a)
     memcpy(out_geo_only,  a->out_geo_only,  sizeof(bool) * out_n);
     float    in_wp_base = a->in_wp_base, out_wp_base = a->out_wp_base;
     uint64_t in_wp_alpha = a->in_wp_alpha, out_wp_alpha = a->out_wp_alpha;
+    uint64_t in_wp_geo = a->in_wp_geo, out_wp_geo = a->out_wp_geo;
     uint32_t in_wp = a->in_wp, out_wp = a->out_wp;
     int      fs_n = a->fs_n;
     uint32_t fs_wids[SA_FS_BACKDROP_MAX];
@@ -930,6 +947,10 @@ static void xfade_handoff_no_commit(struct space_cross_fade_animator *a)
         }
         if (in_wp  && anim_owns(in_wp,  ANIM_CH_ALPHA, in_wp_alpha))  SLSTransactionSetWindowSystemAlpha(tx, in_wp,  in_wp_base);
         if (out_wp && anim_owns(out_wp, ANIM_CH_ALPHA, out_wp_alpha)) SLSTransactionSetWindowSystemAlpha(tx, out_wp, out_wp_base);
+        // Riding wallpapers land at identity — the arriving picture becomes the next
+        // hop's leaving one and must start from natural placement (token 0 no-ops).
+        if (in_wp  && in_wp  != fs_scale_wid && anim_owns(in_wp,  ANIM_CH_GEO, in_wp_geo))  SLSTransactionSetWindowTransform3D(tx, in_wp,  I);
+        if (out_wp && out_wp != fs_scale_wid && anim_owns(out_wp, ANIM_CH_GEO, out_wp_geo)) SLSTransactionSetWindowTransform3D(tx, out_wp, I);
         for (int i = 0; i < fs_n; i++) SLSTransactionSetWindowSystemAlpha(tx, fs_wids[i], 1.0f);   // SPA-20: restore on interrupt
         for (int i = 0; i < fs_mask_n; i++) SLSTransactionSetWindowSystemAlpha(tx, fs_mask_wids[i], 1.0f);   // SPA-20: un-hide masked wallpapers
         if (fs_scale_wid) SLSTransactionSetWindowTransform(tx, fs_scale_wid, 0, 0, fs_abyss_xform(fs_wp_x, fs_wp_y, fs_wp_w, fs_wp_h, 1.0));   // SPA-20: restore natural 2D transform
@@ -947,6 +968,8 @@ static void xfade_handoff_no_commit(struct space_cross_fade_animator *a)
     xfade_release_side(out_wids, out_geo, out_alpha, out_n);
     if (in_wp  && in_wp_alpha)  anim_release(in_wp,  ANIM_CH_ALPHA, in_wp_alpha);
     if (out_wp && out_wp_alpha) anim_release(out_wp, ANIM_CH_ALPHA, out_wp_alpha);
+    if (in_wp  && in_wp_geo)    anim_release(in_wp,  ANIM_CH_GEO,   in_wp_geo);
+    if (out_wp && out_wp_geo)   anim_release(out_wp, ANIM_CH_GEO,   out_wp_geo);
     logpf("SPACE_ANIM", "xfade handoff (no commit) leaving src=%llu", src_sid);
 }
 
@@ -1054,7 +1077,8 @@ static void space_cross_fade_animator_start(int cid, uint64_t out_sid, uint64_t 
     xfade_log_collected("out", out_sid, a->out_wids, a->out_n);
 
     // AC-15: claim both channels of every collected wid (and the wallpapers'
-    // ALPHA — the settle/handoff restores touch them unconditionally). Claims
+    // ALPHA — the settle/handoff restores touch them unconditionally — plus
+    // their GEO when the wallpaper ride below is engaged). Claims
     // come AFTER skip_all_to_end above: eviction courtesy first (finish the
     // in-flight resizes), then take ownership. From here every per-frame write
     // and terminal reset presents these tokens; an anim begin landing
@@ -1094,6 +1118,13 @@ static void space_cross_fade_animator_start(int cid, uint64_t out_sid, uint64_t 
     a->out_wp_base  = a->out_wp ? anim_baseline_capture(a->out_wp) : 1.0f;
     a->in_wp_alpha  = a->in_wp  ? anim_claim(a->in_wp,  ANIM_CH_ALPHA, ANIM_OWNER_XFADE) : 0;
     a->out_wp_alpha = a->out_wp ? anim_claim(a->out_wp, ANIM_CH_ALPHA, ANIM_OWNER_XFADE) : 0;
+    // Wallpaper ride gate: both pictures must resolve and be DISTINCT windows. A
+    // shared/sticky picture (or a failed resolve) falls back to the static-backdrop
+    // path — sliding a shared picture with one side would strand the other side on
+    // black. GEO token 0 disables every ride write (seed, per-frame, terminal).
+    bool wp_ride = wallpaper && a->in_wp && a->out_wp && a->in_wp != a->out_wp;
+    a->in_wp_geo    = wp_ride ? anim_claim(a->in_wp,  ANIM_CH_GEO, ANIM_OWNER_XFADE) : 0;
+    a->out_wp_geo   = wp_ride ? anim_claim(a->out_wp, ANIM_CH_GEO, ANIM_OWNER_XFADE) : 0;
 
     // SPA-20: only engage the fullscreen "abyss" effect when THIS transition actually
     // enters or leaves a fullscreen space. The Dock "Fullscreen Backdrop" window is
@@ -1133,28 +1164,40 @@ static void space_cross_fade_animator_start(int cid, uint64_t out_sid, uint64_t 
         }
     }
 
-    // Seed the initial hidden state ATOMICALLY with ShowSpace. ShowSpace composites the
-    // incoming space at full alpha; if the alpha=0 clamp lands in a LATER commit, the
-    // compositor can present the space at full opacity for the intervening frame — the
-    // cold-start flash. Folding ShowSpace + IsAnimating + every entering-window/
-    // wallpaper alpha=0 into ONE transaction means the space is already hidden the
+    // Seed the initial state ATOMICALLY with ShowSpace. ShowSpace composites the
+    // incoming space at full alpha and natural placement; if the alpha=0 clamp (or the
+    // riding wallpaper's start translate) lands in a LATER commit, the compositor can
+    // present the space unseeded for the intervening frame — the cold-start flash.
+    // Folding ShowSpace + IsAnimating + every entering-window alpha=0 + the wallpaper's
+    // start translate into ONE transaction means the space is already staged the
     // instant it's revealed. The per-frame callback drives all alpha from here
-    // (entering 0->1, leaving 1->0, both wallpapers when `wallpaper` is set) using
-    // instant SLSTransactionSetWindowAlpha — never the animated SPI (it crashed
-    // WindowServer).
+    // (entering 0->1, leaving 1->0) using instant SLSTransactionSetWindowAlpha —
+    // never the animated SPI (it crashed WindowServer).
     //
-    // OFF: keep BOTH wallpapers visible (static, opaque) as the backdrop. Both are
-    // excluded from the moving sets, so two full-screen wallpapers sit behind the sliding
-    // windows — whatever the WindowServer's space z-order does at the edges (which single-
-    // wallpaper rules couldn't satisfy: out_wp blacked on `prev`, the lower-wp rule blacked
-    // on `next`->last), one of the two always covers the screen, so black is impossible.
-    // ON: incoming wallpaper starts hidden then fades up per frame (current fades down).
+    // Wallpaper OFF: keep BOTH wallpapers visible (static, opaque) as the backdrop. Both
+    // are excluded from the moving sets, so two full-screen wallpapers sit behind the
+    // sliding windows — whatever the WindowServer's space z-order does at the edges (which
+    // single-wallpaper rules couldn't satisfy: out_wp blacked on `prev`, the lower-wp rule
+    // blacked on `next`->last), one of the two always covers the screen, so black is
+    // impossible.
+    // ON (wp_ride): each wallpaper rides the slide's Transform3D with its space,
+    // native-style — the incoming one enters pre-translated a full width offscreen
+    // (below), and the seam between the two pictures stays exact because both ride
+    // the SHARED slide progress.
     CFStringRef uuid = SLSCopyManagedDisplayForSpace(cid, out_sid);
     CFTypeRef show = SLSTransactionCreate(cid);
     if (show) {
         SLSTransactionShowSpace(show, in_sid);
         if (uuid) SLSTransactionSetManagedDisplayIsAnimating(show, uuid, true);
-        if (wallpaper && a->in_wp) SLSTransactionSetWindowSystemAlpha(show, a->in_wp, 0.0f);
+        // Wallpaper ride: pre-translate the incoming picture a full width offscreen,
+        // atomically with ShowSpace — it enters VISIBLE (alpha untouched), so a late
+        // transform would flash it over the outgoing picture for a frame. Guarded by
+        // the ride token (0 = lever off / shared picture); skip fs_scale_wid (the
+        // abyss seeds its own 2D transform below).
+        if (a->in_wp_geo && a->in_wp != a->fs_scale_wid) {
+            double W0[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, (double)direction * width,0,0,1 };
+            SLSTransactionSetWindowTransform3D(show, a->in_wp, W0);
+        }
         // SPA-20: HIDE the Dock "Fullscreen Backdrop" AND every other identical wallpaper
         // on this display (the maskers — incl. the fullscreen child-space wallpaper) for
         // the whole slide, exposing the black behind so the one wallpaper we animate reads
@@ -1209,7 +1252,8 @@ static void space_cross_fade_animator_start(int cid, uint64_t out_sid, uint64_t 
 
 // === Space animation: production animated switch ===
 // SA_OPCODE_SPACE_ANIMATE handler. Delegates to space_cross_fade_animator_start
-// (above): per-window cross-slide + cross-fade over a static wallpaper, committing
+// (above): per-window cross-slide + cross-fade, with the wallpapers riding the
+// slide when the `wallpaper` lever is on (off = static backdrop), committing
 // the real switch via SetManagedDisplayCurrentSpace + Dock model poke ONCE at settle.
 static void do_space_focus_animated(char *message)
 {
@@ -1250,8 +1294,8 @@ static void do_space_focus_animated(char *message)
     int cid = SLSMainConnectionID();
     (void)gap;
     logpf("SPACE_ANIM", "do_space_focus_animated -> cross_fade wallpaper=%u fs_en=%u fs_scale=%.2f", wallpaper, fs_enabled, fs_scale);
-    // Transparent per-window cross-fade (windows slide+fade over a static
-    // wallpaper). Interruptible: a press mid-slide hands off to the next hop
+    // Transparent per-window cross-fade (windows slide+fade; the wallpapers ride
+    // along when the lever is on). Interruptible: a press mid-slide hands off to the next hop
     // WITHOUT committing the space change — the dangerous Dock commit
     // (SetManagedDisplayCurrentSpace + _currentSpace poke) fires ONCE at settle,
     // so spamming can't race Dock's per-switch bookkeeping.
