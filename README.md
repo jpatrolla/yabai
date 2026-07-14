@@ -14,27 +14,27 @@ what is different here.**
 > single machine:
 >
 > - **Mac mini (2023), Apple M2 Pro**
-> - **Dual-display setup**
+> - **Dual-display setup** &mdash; panels at 60 Hz and 144 Hz; ProMotion / variable-refresh displays untested
 > - **macOS Tahoe 26.5**
 >
 > It has not been tested on any other hardware, display configuration, or macOS
 > version. Expect rough edges &mdash; or outright breakage &mdash; anywhere else.
 
-In addition to yabai's normal setup, the animation features require:
-
-- **System Integrity Protection partially disabled** &mdash; so the scripting
-  addition can be injected into `Dock.app`.
-- **Screen Recording permission** &mdash; granted to yabai.
-
-Without both, the animations will not run. See the
-[upstream wiki](https://github.com/koekeishiya/yabai/wiki) for SIP and permission
-setup.
+In addition to yabai's normal setup, the animation features require **System
+Integrity Protection partially disabled** &mdash; so the scripting addition can
+be injected into `Dock.app`. Without it, the animations will not run. See the
+[upstream wiki](https://github.com/koekeishiya/yabai/wiki) for SIP setup.
 
 While running, the daemon keeps a `/usr/bin/log stream` child process alive to
-observe Dock's Mission Control transitions &mdash; seeing it in the process list
-is expected.
+observe Dock's Mission Control / Exposé transitions &mdash; this is what lets the
+focus ring animate correctly across those transitions. Seeing it in the process
+list is expected; it is currently the only unentitled way to observe that event,
+and may be simplified or made optional later.
 
 ## Install
+
+<details>
+<summary>Build from source</summary>
 
 There are no packaged releases &mdash; build from source:
 
@@ -59,10 +59,12 @@ here is versioned differently from upstream's. Run `sudo yabai --reload-sa`
 once to force the installed payload to be replaced and re-injected in a single
 pass (`--load-sa` alone would need two passes).
 
+</details>
+
 ## Main Features
 
 #### Window-frame animation engine
-Replaces yabai's CVDisplayLink proxy-swap animator with a Core-Animation-pump engine (LockedBounds + Transform3D + Accessibility). Windows glide when retiled or resized instead of snapping. See the `window_animation_*` levers below.
+Replaces yabai's proxy-swap animator (CVDisplayLink) with a Core Animation&ndash;driven engine (CADisplayLink) that simulates a true resize, so windows glide when retiled or resized instead of snapping. See the `window_animation_*` levers below.
 
 #### Animated space transitions
 Space animations built from the ground up to be fully customisable: the adjacent-space slide, the direction-aware fullscreen "abyss" transition, and the menubar cross-fade are all driven by the `space_animation_*` levers below.
@@ -89,21 +91,18 @@ yabai -m config window_animation_easing    ease_out_expo
 </details>
 
 #### Focus ring
-A ring that follows the focused window and rides space slides. On by default; a frosted band with an overlaid stroke. See the `focus_ring_*` levers below.
+A built-in replacement for yabai's borders that follows the focused window and rides alongside the window and space animations. On by default; a frosted band with an overlaid stroke. See the `focus_ring_*` levers below.
 
-## Smaller Features
+## Smaller features/fixes
 
 #### Window-server focus resolution
-"Which window is focused?" is asked of the window server, not the app: a rich SLS window query &mdash; z-ordered, sticky/hidden/minimized windows excluded server-side, scoped to the process that actually holds key focus &mdash; resolves the focused window per space. Stock yabai's Accessibility read lags under fast focus churn, can answer with a window on another space, and goes silent when native tabs switch; a raw "topmost window on the space" heuristic can be hijacked by an overlay panel and can never say "nothing is focused". The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on; `focus_unify` below additionally lets it drive yabai's tracked focus state.
+"Which window is focused?" is resolved from the window server rather than Accessibility &mdash; a richer, faster, z-ordered query scoped to the process that actually holds key focus. It stays reliable under fast focus churn and when native tabs switch, where the Accessibility read lags or goes silent. The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on; `focus_unify` below additionally lets it drive yabai's tracked focus state.
 
 #### Mission Control thumbnail strip
 `space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_thumbnails_enabled` config (or forced for one invocation with `space --toggle mission-control-thumbnails`).
 
 #### Directional focus for floating windows
 `window --focus north|east|south|west` now resolves by window geometry when the BSP walk comes up empty, so it works for floating windows (and float/stack spaces), not just managed ones. Cross-display hops and edge wrap-around are opt-in &mdash; see `window_focus_inter_display` and `window_focus_wrap` below.
-
-#### Screen-capture helper
-`yabai -m capture start|stop|status|stitch` records a window, a display, or every display to HEVC video under `~/Movies`, and can stitch per-display recordings into one clip. Run `yabai -m capture help` for the full reference.
 
 ## Multi-display
 
@@ -130,7 +129,7 @@ Spaces 1&ndash;3 on the left display, 4&ndash;6 on the right, focused on space 3
 Which display a bare `space --focus prev|next` acts on is configurable: `mouse` targets the display under the cursor; `smart` does so only when the last focus change came from the mouse, so keyboard-driven focus keeps the active display. See `mission_control_target_display` below.
 
 #### Per-display animation timing
-Each display's refresh timing (ProMotion and VRR included) is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate.
+Each display's refresh timing is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate. Developed on 60 Hz and 144 Hz panels; ProMotion / variable-refresh displays read the same timing path but are untested.
 
 #### Cross-display directional focus
 The directional-focus extension above can hop to the closest window on the display in that direction &mdash; opt-in via `window_focus_inter_display`.
