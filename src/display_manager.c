@@ -511,13 +511,62 @@ static uint32_t display_manager_desktop_window_on_space(uint32_t did, uint64_t s
     return result;
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+// Last-resort desktop-window hunt via PUBLIC CGWindowList. Finder's
+// desktop-icon windows are join-all-spaces chrome with NO per-space
+// association — sid-scoped SLS window lists miss them entirely
+// (live-verified: `debug desktop_residency` shows only WindowServer strips
+// and wallpaper windows in the desktop band of a space's list) — but
+// CGWindowListCopyWindowInfo enumerates them with owner pid, layer, and
+// bounds regardless of space. Runs only on the (rare) empty-display focus
+// path, so the heavier copy is acceptable.
+static uint32_t display_manager_desktop_window_via_cgwindowlist(uint32_t did)
+{
+    pid_t finder_pid = 0;
+    GetProcessPID(&g_process_manager.finder_psn, &finder_pid);
+    if (!finder_pid) return 0;
+
+    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
+    if (!list) return 0;
+
+    uint32_t result = 0;
+    CGRect display_frame = CGDisplayBounds(did);
+    for (int i = 0, count = CFArrayGetCount(list); i < count && !result; ++i) {
+        CFDictionaryRef info = CFArrayGetValueAtIndex(list, i);
+        if (!info || CFGetTypeID(info) != CFDictionaryGetTypeID()) continue;
+
+        int64_t pid = 0, layer = 0, wid = 0;
+        CFNumberRef num;
+        if (!(num = CFDictionaryGetValue(info, kCGWindowOwnerPID)) ||
+            !CFNumberGetValue(num, kCFNumberSInt64Type, &pid) || pid != finder_pid) continue;
+        if (!(num = CFDictionaryGetValue(info, kCGWindowLayer)) ||
+            !CFNumberGetValue(num, kCFNumberSInt64Type, &layer) || layer >= 0) continue;
+        if (!(num = CFDictionaryGetValue(info, kCGWindowNumber)) ||
+            !CFNumberGetValue(num, kCFNumberSInt64Type, &wid) || !wid) continue;
+
+        CFDictionaryRef bounds_dict = CFDictionaryGetValue(info, kCGWindowBounds);
+        CGRect bounds;
+        if (!bounds_dict || !CGRectMakeWithDictionaryRepresentation(bounds_dict, &bounds)) continue;
+
+        CGPoint mid = { CGRectGetMidX(bounds), CGRectGetMidY(bounds) };
+        if (CGRectContainsPoint(display_frame, mid)) result = (uint32_t)wid;
+    }
+    CFRelease(list);
+    return result;
+}
+#pragma clang diagnostic pop
+
 // The Finder desktop ("role-1") window that actually RESIDES on `did`.
 // SLSManagedDisplaysCopyRoleWindows is not display-faithful: it can answer a
 // display's UUID with the OTHER display's desktop window (live-verified —
-// display 1's UUID returning display 2's desktop, the z-topmost role window),
-// and keying that window yanks focus to the wrong display. Accept an SPI
-// candidate only if its bounds sit on `did`; otherwise fall back to the
-// space-scoped desktop-band scan above.
+// display 1's UUID returning display 2's desktop, the stale one-shot
+// registration; see documentation in the main tree), and keying that window
+// yanks focus to the wrong display. Accept an SPI candidate only if its
+// bounds sit on `did`; otherwise fall back to the space-scoped desktop-band
+// scan, then to the CGWindowList hunt (the space scan misses Finder's
+// desktop windows on builds where they are join-all-spaces chrome — the
+// CGWindowList tier is the one that actually fires there).
 uint32_t display_manager_resident_desktop_window(uint32_t did, uint64_t sid)
 {
     uint32_t result = 0;
@@ -545,6 +594,7 @@ uint32_t display_manager_resident_desktop_window(uint32_t did, uint64_t sid)
     }
 
     if (!result) result = display_manager_desktop_window_on_space(did, sid);
+    if (!result) result = display_manager_desktop_window_via_cgwindowlist(did);
     return result;
 }
 
