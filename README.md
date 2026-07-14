@@ -72,11 +72,8 @@ A ring that follows the focused window and rides space slides. On by default; a 
 
 ## Smaller Features
 
-#### Multi-display edge guard
-A space slide nudges and stops at a display edge instead of walking across to the next display. See `multi_display_edge_guard` below.
-
-#### Empty-display focus
-`display --focus` on an empty display lands via its tracked desktop window, so focus resolves correctly on spaces with no windows.
+#### Window-server focus resolution
+"Which window is focused?" is asked of the window server, not the app: a rich SLS window query &mdash; z-ordered, sticky/hidden/minimized windows excluded server-side, scoped to the process that actually holds key focus &mdash; resolves the focused window per space. Stock yabai's Accessibility read lags under fast focus churn, can answer with a window on another space, and goes silent when native tabs switch; a raw "topmost window on the space" heuristic can be hijacked by an overlay panel and can never say "nothing is focused". The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on; `focus_unify` below additionally lets it drive yabai's tracked focus state.
 
 #### Mission Control thumbnail strip
 `space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_thumbnails_enabled` config (or forced for one invocation with `space --toggle mission-control-thumbnails`).
@@ -86,6 +83,26 @@ A space slide nudges and stops at a display edge instead of walking across to th
 
 #### Screen-capture helper
 `yabai -m capture start|stop|status|stitch` records a window, a display, or every display to HEVC video under `~/Movies`, and can stitch per-display recordings into one clip. Run `yabai -m capture help` for the full reference.
+
+## Multi-display
+
+Developed and daily-driven on a dual-display rig, so multi-display behavior is a
+first-class concern:
+
+#### Space-slide edge guard
+A space slide nudges and stops at a display edge instead of walking across to the next display. See `multi_display_edge_guard` below.
+
+#### Empty-display focus
+`display --focus` on an empty display lands via its tracked desktop window, so focus resolves correctly on spaces with no windows &mdash; the no-window corner of the window-server focus resolution above.
+
+#### Display targeting for bare space switches
+Which display a bare `space --focus prev|next` acts on is configurable: `mouse` targets the display under the cursor; `smart` does so only when the last focus change came from the mouse, so keyboard-driven focus keeps the active display. See `mission_control_target_display` below.
+
+#### Per-display animation timing
+Each display's refresh timing (ProMotion and VRR included) is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate.
+
+#### Cross-display directional focus
+The directional-focus extension above can hop to the closest window on the display in that direction &mdash; opt-in via `window_focus_inter_display`.
 
 ## Configuration
 
