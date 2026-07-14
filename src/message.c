@@ -59,6 +59,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE_ENTER_DUR   "space_animation_fade_enter_dur"
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE_EXIT_DUR    "space_animation_fade_exit_dur"
 #define COMMAND_CONFIG_CONTAIN_SPACE_FOCUS_PER_DISPLAY "contain_space_focus_per_display"
+#define COMMAND_CONFIG_WINDOW_FOCUS_FOR_FLOATING "window_focus_for_floating_enabled"
 #define COMMAND_CONFIG_WINDOW_FOCUS_INTER_DISPLAY "window_focus_inter_display"
 #define COMMAND_CONFIG_WINDOW_FOCUS_WRAP     "window_focus_wrap"
 #define COMMAND_CONFIG_SPACE_FOCUS_TARGET_DISPLAY "space_focus_target_display"
@@ -1798,6 +1799,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 g_window_manager.contain_space_focus_per_display = false;
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
                 g_window_manager.contain_space_focus_per_display = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_WINDOW_FOCUS_FOR_FLOATING)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_focus_for_floating_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_focus_for_floating_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_focus_for_floating_enabled = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }

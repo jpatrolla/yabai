@@ -1776,8 +1776,9 @@ static struct window *window_manager_find_window_in_direction_on_space(struct wi
 
 // Directional `window --focus DIR` resolution, in fallback tiers:
 //   1. the neighbouring BSP node (managed windows only) — stock behavior;
-//   2. the closest eligible window on the current space by geometry — this is
-//      what makes DIR selection work for FLOATING windows / float+stack spaces;
+//   2. (window_focus_for_floating_enabled) the closest eligible window on the
+//      current space by geometry — this is what makes DIR selection work for
+//      FLOATING windows / float+stack spaces;
 //   3. (window_focus_inter_display) the closest window on the display in
 //      that direction;
 //   4. (window_focus_wrap) wrap to the farthest window in the opposite
@@ -1788,8 +1789,10 @@ struct window *window_manager_find_closest_window_in_direction(struct window_man
     struct window *closest = window_manager_find_closest_managed_window_in_direction(wm, window, direction);
     if (closest) return closest;
 
-    closest = window_manager_find_window_in_direction_on_space(wm, window, window_space(window->id), direction, false, NULL);
-    if (closest) return closest;
+    if (wm->window_focus_for_floating_enabled) {
+        closest = window_manager_find_window_in_direction_on_space(wm, window, window_space(window->id), direction, false, NULL);
+        if (closest) return closest;
+    }
 
     if (wm->window_focus_inter_display) {
         uint32_t source_did = window_display_id(window->id);
@@ -3962,6 +3965,7 @@ void window_manager_init(struct window_manager *wm)
     wm->space_animation_fade_enter_dur   = -1.0f;
     wm->space_animation_fade_exit_dur    = -1.0f;
     wm->contain_space_focus_per_display = true;  // on (default) = nudge + stop at a display edge; off = stock cross-display walk
+    wm->window_focus_for_floating_enabled = true;  // on (default) = geometry fallback for floating windows; off = stock managed-only walk
     wm->window_focus_inter_display = false;  // window --focus DIR stays on the current display by default
     wm->window_focus_wrap          = false;  // window --focus DIR stops at the edge (no wrap) by default
     wm->space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_DEFAULT;

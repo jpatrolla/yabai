@@ -102,7 +102,7 @@ The "which window is focused?" logic is refactored onto the window server's `SLS
 `space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_always_show_spaces_strip_enabled` config (or forced for one invocation with `space --toggle mission-control-show-strip`).
 
 #### Directional focus for floating windows
-`window --focus north|east|south|west` now resolves by window geometry when the BSP walk comes up empty, so it works for floating windows (and float/stack spaces), not just managed ones. Cross-display hops and edge wrap-around are opt-in &mdash; see `window_focus_inter_display` and `window_focus_wrap` below.
+`window --focus north|east|south|west` resolves by window geometry when the BSP walk comes up empty, so it works for floating windows (and float/stack spaces), not just managed ones &mdash; on by default; set `window_focus_for_floating_enabled` off for the stock managed-only walk. Two further opt-in extensions (both default off): `window_focus_inter_display` hops to the closest window on the display in that direction, and `window_focus_wrap` wraps to the farthest window in the opposite direction when nothing lies that way.
 
 ## Multi-display
 
@@ -130,9 +130,6 @@ Which display a bare `space --focus prev|next` acts on is configurable: `mouse` 
 
 #### Per-display animation timing
 Each display's refresh timing is cached and paces the animations on that display, so a mixed-refresh setup animates every display at its native rate. Developed on 60 Hz and 144 Hz panels; ProMotion / variable-refresh displays read the same timing path but are untested.
-
-#### Cross-display directional focus
-The directional-focus extension above can hop to the closest window on the display in that direction &mdash; opt-in via `window_focus_inter_display`.
 
 ## Configuration
 
@@ -222,7 +219,7 @@ yabai -m config mission_control_always_show_spaces_strip_enabled off  # reveal M
 yabai -m space --toggle mission-control-show-strip                    # force the strip on for one invocation, regardless of config
 
 # Directional focus (window --focus north|east|south|west)
-# Floating-window focus on the current space works out of the box; these extend it:
+yabai -m config window_focus_for_floating_enabled on           # resolve floating windows / float+stack spaces by geometry when the BSP walk misses (default on)
 yabai -m config window_focus_inter_display     off             # cross to the display in that direction (default off)
 yabai -m config window_focus_wrap              off             # wrap to the opposite edge when nothing is in that direction (default off)
 ```

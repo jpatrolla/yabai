@@ -235,8 +235,10 @@ struct window_manager
     // Edge-of-display guard: nudge the active space back and stop (never cross
     // displays) when `space --focus next/prev` would leave this display. On/off.
     bool contain_space_focus_per_display;
-    // Directional `window --focus DIR` fallbacks past the current space. Tier 2
-    // (floating windows on the current space) is always on; these gate the rest.
+    // Directional `window --focus DIR` fallback tiers past the stock BSP walk,
+    // one lever per tier. The floating tier defaults on; the cross-display and
+    // wrap tiers default off (all-off = stock managed-only behavior).
+    bool window_focus_for_floating_enabled;   // geometry fallback on the current space: floating windows / float+stack spaces (default on)
     bool window_focus_inter_display;   // hop to a window on the display in that direction
     bool window_focus_wrap;            // no target in direction: wrap to the farthest opposite
     // Which display's space stack a *defaulted* `space --focus` prev/next walks.
