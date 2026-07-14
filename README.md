@@ -98,8 +98,8 @@ A built-in replacement for yabai's borders that follows the focused window and r
 #### Window-server focus resolution
 "Which window is focused?" is resolved from the window server rather than Accessibility &mdash; a richer, faster, z-ordered query scoped to the process that actually holds key focus. It stays reliable under fast focus churn and when native tabs switch, where the Accessibility read lags or goes silent. The same resolution decides where focus lands: switching to a space refocuses the window last used there (else its topmost eligible window), and closing an app's last window on a space advances focus instead of stranding it. Always on; `focus_unify` below additionally lets it drive yabai's tracked focus state.
 
-#### Mission Control thumbnail strip
-`space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_thumbnails_enabled` config (or forced for one invocation with `space --toggle mission-control-thumbnails`).
+#### Mission Control spaces strip
+`space --toggle mission-control` can reveal Mission Control's spaces thumbnail strip on open, gated by the `mission_control_always_show_spaces_strip_enabled` config (or forced for one invocation with `space --toggle mission-control-show-strip`).
 
 #### Directional focus for floating windows
 `window --focus north|east|south|west` now resolves by window geometry when the BSP walk comes up empty, so it works for floating windows (and float/stack spaces), not just managed ones. Cross-display hops and edge wrap-around are opt-in &mdash; see `window_focus_inter_display` and `window_focus_wrap` below.
@@ -219,9 +219,9 @@ yabai -m config focus_ring_blur_stroke_width    6              # stroke thicknes
 yabai -m config focus_ring_blur_stroke_color    inherit        # 0xAARRGGBB | inherit (inherit = focus_ring_color)
 yabai -m config focus_ring_blur_stroke_opacity  inherit        # 0.0..1.0 | inherit (inherit = focus_ring_opacity)
 
-# Mission Control thumbnail strip
-yabai -m config mission_control_thumbnails_enabled off         # reveal MC's spaces thumbnail strip on open (default off)
-yabai -m space --toggle mission-control-thumbnails             # force the strip on for one invocation, regardless of config
+# Mission Control spaces strip
+yabai -m config mission_control_always_show_spaces_strip_enabled off  # reveal MC's spaces thumbnail strip on open (default off)
+yabai -m space --toggle mission-control-show-strip                    # force the strip on for one invocation, regardless of config
 
 # Directional focus (window --focus north|east|south|west)
 # Floating-window focus on the current space works out of the box; these extend it:

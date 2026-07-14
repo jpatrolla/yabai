@@ -31,7 +31,7 @@ struct space_manager
     uint32_t auto_balance;
     struct space_label *labels;
     bool skip_window_focus_animation;
-    bool mission_control_thumbnails_enabled;
+    bool mission_control_always_show_spaces_strip_enabled;
 
     // Bounded stack — deferred (mid-slide) space focus. A yabai-driven space
     // change fired while a previous slide is still in flight queues here (FIFO)

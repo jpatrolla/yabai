@@ -1672,7 +1672,7 @@ void space_manager_begin(struct space_manager *sm)
     sm->window_zoom_persist = true;
     sm->labels = NULL;
     sm->skip_window_focus_animation = false;
-    sm->mission_control_thumbnails_enabled = false;
+    sm->mission_control_always_show_spaces_strip_enabled = false;
     table_init(&sm->view, 23, hash_view, compare_view);
 
     int display_count;

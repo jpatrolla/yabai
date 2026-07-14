@@ -84,7 +84,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
 #define COMMAND_CONFIG_FRAME_VERIFY_RETRY    "window_frame_verify_retry"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
-#define COMMAND_CONFIG_MC_THUMBNAILS         "mission_control_thumbnails_enabled"
+#define COMMAND_CONFIG_MC_ALWAYS_SHOW_SPACES_STRIP "mission_control_always_show_spaces_strip_enabled"
 #define COMMAND_CONFIG_FOCUS_RING_ENABLED    "focus_ring_enabled"
 #define COMMAND_CONFIG_FOCUS_RING_WIDTH      "focus_ring_width"
 #define COMMAND_CONFIG_FOCUS_RING_OPACITY    "focus_ring_opacity"
@@ -180,7 +180,7 @@ extern bool g_verbose;
 #define ARGUMENT_SPACE_TGL_PADDING  "padding"
 #define ARGUMENT_SPACE_TGL_GAP      "gap"
 #define ARGUMENT_SPACE_TGL_MC       "mission-control"
-#define ARGUMENT_SPACE_TGL_MC_THUMBNAILS "mission-control-thumbnails"
+#define ARGUMENT_SPACE_TGL_MC_SHOW_STRIP "mission-control-show-strip"
 #define ARGUMENT_SPACE_TGL_SD       "show-desktop"
 #define ARGUMENT_SPACE_LAYOUT_BSP   "bsp"
 #define ARGUMENT_SPACE_LAYOUT_STACK "stack"
@@ -1523,14 +1523,14 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
-        } else if (token_equals(command, COMMAND_CONFIG_MC_THUMBNAILS)) {
+        } else if (token_equals(command, COMMAND_CONFIG_MC_ALWAYS_SHOW_SPACES_STRIP)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
-                fprintf(rsp, "%s\n", bool_str[g_space_manager.mission_control_thumbnails_enabled]);
+                fprintf(rsp, "%s\n", bool_str[g_space_manager.mission_control_always_show_spaces_strip_enabled]);
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
-                g_space_manager.mission_control_thumbnails_enabled = false;
+                g_space_manager.mission_control_always_show_spaces_strip_enabled = false;
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
-                g_space_manager.mission_control_thumbnails_enabled = true;
+                g_space_manager.mission_control_always_show_spaces_strip_enabled = true;
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
@@ -2584,8 +2584,8 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                     daemon_fail(rsp, "cannot toggle gap for a non-managed space.\n");
                 }
             } else if (token_equals(value, ARGUMENT_SPACE_TGL_MC)) {
-                space_manager_toggle_mission_control(acting_sid, g_space_manager.mission_control_thumbnails_enabled);
-            } else if (token_equals(value, ARGUMENT_SPACE_TGL_MC_THUMBNAILS)) {
+                space_manager_toggle_mission_control(acting_sid, g_space_manager.mission_control_always_show_spaces_strip_enabled);
+            } else if (token_equals(value, ARGUMENT_SPACE_TGL_MC_SHOW_STRIP)) {
                 space_manager_toggle_mission_control(acting_sid, true);
             } else if (token_equals(value, ARGUMENT_SPACE_TGL_SD)) {
                 space_manager_toggle_show_desktop(acting_sid);

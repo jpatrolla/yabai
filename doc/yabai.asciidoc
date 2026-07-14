@@ -190,9 +190,9 @@ Global Settings
     You should only enable this if you do NOT use the scripting addition. +
     The scripting addition implements the same functionality in a more robust way.
 
-*mission_control_thumbnails_enabled* ['<BOOL_SEL>']::
+*mission_control_always_show_spaces_strip_enabled* ['<BOOL_SEL>']::
     When *space --toggle mission-control* opens Mission Control, reveal the spaces thumbnail strip at the top of the screen by briefly nudging the cursor to the top of the active display. +
-    Off by default. The *space --toggle mission-control-thumbnails* argument forces this on for a single invocation regardless of the config value.
+    Off by default. The *space --toggle mission-control-show-strip* argument forces this on for a single invocation regardless of the config value.
 
 *window_focus_inter_display* ['<BOOL_SEL>']::
     Extends *window --focus north|east|south|west* so that, when no target window is found on the current space, focus crosses to the closest window on the display in that direction. +
@@ -517,7 +517,7 @@ COMMAND
 *--gap* 'abs|rel:<gap>'::
     Size of the gap that separates windows on the selected space.
 
-*--toggle* 'padding|gap|mission-control|mission-control-thumbnails|show-desktop'::
+*--toggle* 'padding|gap|mission-control|mission-control-show-strip|show-desktop'::
     Toggle space setting on or off for the selected space.
 
 *--layout* 'bsp|stack|float'::
