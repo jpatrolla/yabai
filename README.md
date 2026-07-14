@@ -101,7 +101,7 @@ yabai -m config window_animation_min_opacity   0.85            # fade floor -> 1
 yabai -m config window_animation_ax_wake       on              # wake Chromium/Electron lazy AX tree (default on)
 
 # Window-frame animation — advanced presentation levers
-yabai -m config window_animation_policy        true_resize     # true_resize | jello (mesh-warp resize presentation)
+yabai -m config window_animation_policy        true_resize     # true_resize | lb_only (bounds-only presentation, no transform)
 yabai -m config window_animation_warp_cover    off             # off | proxy | lb_warp; cover instant (non-animated) placements
 yabai -m config window_animation_cover_fade    0.25            # proxy cover fade-out (s)
 yabai -m config window_animation_warp_min_ms   100             # lb_warp mesh tween (ms); 0 = snap

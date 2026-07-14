@@ -241,10 +241,10 @@ Global Settings
     Wake an application's lazy accessibility tree at animation start so apps that defer it (e.g. Chromium / Electron) animate smoothly from the first frame. +
     System Integrity Protection must be partially disabled.
 
-*window_animation_policy* ['true_resize|jello']::
+*window_animation_policy* ['true_resize|lb_only']::
     Presentation recipe used while a window animation is in flight. +
     'true_resize': the real window is resized every frame. +
-    'jello': windows whose size changes are presented as a stretched mesh warp with a single real resize at the end. +
+    'lb_only': the window animates via locked bounds only &mdash; crisp bounds-driven motion with no transform. +
     System Integrity Protection must be partially disabled.
 
 *window_animation_warp_cover* ['off|proxy|lb_warp']::
