@@ -88,6 +88,8 @@ struct anim_window {
     volatile float wb_x, wb_y;                    // app's REAL on-screen ORIGIN, sampled with wb_w/wb_h in the same pre-pass tick. Seam-held rows anchor their T3D translate on this LIVE origin (not the AX-asked one): the asked anchor leads the server-visible frame by the app's commit lag, and an identity transform in that gap flashes the window at its raw (start) position. wb_w>0 is the "sampled" proxy (a real window's size is never 0).
     bool     seam_hold;              // latched (seam_eval): the endpin seat at START size would occupy a display the end rect doesn't touch → never seat, resize in place, terminal server-side move at the clear, T3D anchored on live WB
     bool     seam_eval;              // seam_hold computed (write-once; START size is constant so the verdict can't flip)
+    bool     seam_park;              // straddling-start rescue armed (latch): ONE pure kAXPosition move to park_x/y must fire before any resize; cleared at the dispatch that sends it
+    float    park_x, park_y;         // park origin — the real-frame rect clamped inside the end display (moves are never refused; in-place resizes at a straddling origin are)
     float    vis_x, vis_y, vis_w, vis_h;   // last committed VISUAL rect (lerp), stored each locked tick — a superseding begin hands it to the successor row as its lerp start (a seam row's real frame parks at start, so the daemon's captured start is stale mid-flight). g_anim_lock-protected, no atomics.
     bool     vis_set;                // vis_* valid (at least one tick committed)
     // Classify-at-settle (single-axis constraint learning). Pump-thread-only:
@@ -410,7 +412,7 @@ static int anim_skip_all_to_end(void)
 {
     struct skip_item { uint32_t wid; int32_t pid; CGRect end; uint64_t gen;
                        uint64_t own_geo, own_alpha;
-                       bool do_t3, do_lb, use_ax; };
+                       bool do_t3, do_lb, use_ax, seam; };
     struct skip_item items[ANIM_SKIP_MAX];
     int n = 0, dropped = 0;
 
@@ -449,6 +451,7 @@ static int anim_skip_all_to_end(void)
             items[n].do_t3     = do_t3 && w->mode != SA_T3D_ROW_MODE_LB_ONLY;
             items[n].do_lb     = do_lb && w->mode != SA_T3D_ROW_MODE_T3D_ONLY;
             items[n].use_ax    = c->use_ax;
+            items[n].seam      = w->seam_hold;
             n++;
         }
         if (c->use_ax) anim_release_eui(c);   // pump-context EUI restore (lock-safe: blocking AX call dispatches off-lock)
@@ -463,6 +466,13 @@ static int anim_skip_all_to_end(void)
     for (int i = 0; i < n; ++i) {
         if (items[i].use_ax) payload_ax_set_frame(items[i].pid, items[i].wid, items[i].end);   // finish the real resize
         if (tx) {
+            // Seam-held rows: their real frame sat at the park the whole
+            // flight, and the set_frame above lands app-side a frame+ AFTER
+            // the masks drop below — the window would pop at the park for
+            // that gap (the space-switch pop). Land the origin server-side
+            // in this SAME commit (the finalize-clear recipe); the app's own
+            // AX move then arrives idempotent.
+            if (items[i].seam) SLSTransactionMoveWindowWithGroup(tx, items[i].wid, items[i].end.origin);
             if (items[i].do_t3) SLSTransactionSetWindowTransform3D(tx, items[i].wid, ident);
             if (items[i].do_lb) SLSTransactionClearWindowLockedBounds(tx, items[i].wid);
             // Jello: unconditional warp clear at every terminal site — cheaper
@@ -670,7 +680,7 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
             bool endpin    = ((c->flags & SA_T3D_FLAG_ENDPIN) != 0) || warp_ax;   // warp rows: move-first is mandatory
             bool endpin_ro = (c->flags & SA_T3D_FLAG_ENDPIN_RESIZE_ONLY) != 0;
             bool pure_move = (w->sw == w->ew) && (w->sh == w->eh);
-            bool fire = false, terminal = false, resize_only = false, move_only = false;
+            bool fire = false, terminal = false, resize_only = false, move_only = false, park_fire = false;
             // Centered AX end-origin — same available-slack rule as the visual
             // (cx/cy above), but against the *end* slot so the real surface
             // settles centered. Without this the AX commit pins the surface to
@@ -710,6 +720,35 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
                     if (CGRectIntersectsRect(sg_seat, c->disp[sg]) &&
                         !CGRectIntersectsRect(sg_end, c->disp[sg])) { w->seam_hold = true; break; }
                 }
+                // Straddling-START rescue: when the REAL frame itself occupies
+                // the foreign display, even the in-place shrinks are refused
+                // (the ~54/80px sliver clamp) — holding at the start origin
+                // wedges the whole resize. Arm ONE pure move (never refused)
+                // to the real-frame rect clamped inside the end display; the
+                // hold recipe then runs from that park. Real frame = the
+                // anchor (== start for fresh rows; a takeover row inherits the
+                // donor's committed frame, not its stale daemon-captured one).
+                if (w->seam_hold) {
+                    CGRect sg_real = CGRectMake(ax, ay, aw, ah);
+                    for (int sg = 0; sg < c->disp_count; ++sg) {
+                        if (!CGRectIntersectsRect(sg_real, c->disp[sg]) ||
+                            CGRectIntersectsRect(sg_end, c->disp[sg])) continue;
+                        int end_di = -1; float best_ov = 0.0f;   // park display = biggest end-rect overlap
+                        for (int sd = 0; sd < c->disp_count; ++sd) {
+                            CGRect ov = CGRectIntersection(sg_end, c->disp[sd]);
+                            float ova = (float)(ov.size.width * ov.size.height);
+                            if (ova > best_ov) { best_ov = ova; end_di = sd; }
+                        }
+                        if (end_di >= 0) {
+                            float dx = (float)c->disp[end_di].origin.x, dw = (float)c->disp[end_di].size.width;
+                            float dy = (float)c->disp[end_di].origin.y, dh = (float)c->disp[end_di].size.height;
+                            w->park_x = (dw < aw) ? dx : lb_clamp(ax, dx, dx + dw - aw);
+                            w->park_y = (dh < ah) ? dy : lb_clamp(ay, dy, dy + dh - ah);
+                            w->seam_park = true;
+                        }
+                        break;
+                    }
+                }
             }
             bool seat_safe = !w->seam_hold;
 
@@ -724,6 +763,15 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
                 if (endpin && !pure_move) { fw = aw;  fh = ah;
                                             if (warp_ax) move_only = true; }   // jello: PURE kAXPosition move (no redundant AXSize touch)
                 else                      { fw = w->ew;  fh = w->eh; }
+            } else if (w->seam_park) {
+                // Straddling-start park (armed at the latch above): ONE pure
+                // kAXPosition move to the in-display park — this branch owns
+                // the fire slot until it dispatches, so no resize can execute
+                // at the still-straddling origin. Sizes stay the committed
+                // anchor's; the T3D anchor rides the live WB origin, so the
+                // visual never leaves the lerp rect while the frame relocates.
+                fire = true; move_only = true; park_fire = true;
+                fx = w->park_x; fy = w->park_y; fw = aw; fh = ah;
             } else if (t >= 1.0f && (w->seam_hold ? (aw != w->ew || ah != w->eh)
                                                   : (ax != end_cx || ay != end_cy || aw != w->ew || ah != w->eh))) {
                 // Trigger 3 (t>=1): full end_rect terminal safety fire (also the
@@ -799,6 +847,7 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
                     uint64_t did = __atomic_add_fetch(&g_lb_ax_dispatch_id, 1, __ATOMIC_RELAXED);
                     __atomic_store_n(&w->ax_dispatch_id, did, __ATOMIC_RELEASE);
                     if (terminal) w->ax_initial = true;
+                    if (park_fire) w->seam_park = false;   // one-shot: the park move is on its way
                     int32_t pid = w->pid; uint32_t wid = w->wid;
                     CGRect rr = CGRectMake(fx, fy, fw, fh);
                     bool ro = resize_only;
@@ -988,10 +1037,21 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
                 if (c->win[i].seam_hold) {
                     float mw = lb_clamp_w(&c->win[i], c->win[i].ew);
                     float mh = lb_clamp_h(&c->win[i], c->win[i].eh);
-                    CGPoint mo = CGPointMake(
-                        c->win[i].ex + (c->win[i].ew > mw ? (c->win[i].ew - mw) * 0.5f : 0.0f),
-                        c->win[i].ey + (c->win[i].eh > mh ? (c->win[i].eh - mh) * 0.5f : 0.0f));
-                    SLSTransactionMoveWindowWithGroup(tx, c->win[i].wid, mo);
+                    float gw = lb_load_f(&c->win[i].wb_w);
+                    float gh = lb_load_f(&c->win[i].wb_h);
+                    // Stomp gate: land the origin only when OUR terminal size
+                    // actually arrived (live WB ≈ clamped end — trivially true
+                    // on the settled path, whose verdict IS this compare). On
+                    // the SETTLE_MAX hard-stop the window may sit wherever a
+                    // FOREIGN op re-placed it mid-settle; moving it to this
+                    // animation's end origin would stomp that placement.
+                    if (gw > 0.0f && fabsf(gw - mw) <= ANIM_SETTLE_PX
+                                  && fabsf(gh - mh) <= ANIM_SETTLE_PX) {
+                        CGPoint mo = CGPointMake(
+                            c->win[i].ex + (c->win[i].ew > mw ? (c->win[i].ew - mw) * 0.5f : 0.0f),
+                            c->win[i].ey + (c->win[i].eh > mh ? (c->win[i].eh - mh) * 0.5f : 0.0f));
+                        SLSTransactionMoveWindowWithGroup(tx, c->win[i].wid, mo);
+                    }
                 }
                 if (do_t3) SLSTransactionSetWindowTransform3D(tx, c->win[i].wid, ident);
                 if (do_lb) SLSTransactionClearWindowLockedBounds(tx, c->win[i].wid);
@@ -1366,8 +1426,16 @@ static bool anim_step(void *ctx_did, CFTypeRef pump_tx, uint32_t pump_did)
             // finalize clear snaps nothing). Same wb_w/wb_h the step consumed.
             float sdev = ANIM_CONFORM_MAX_DEV * apply_easing(1.0f - fminf((float)pt, 1.0f), (int)c->easing);
             float cwbw = lb_load_f(&c->win[k].wb_w), cwbh = lb_load_f(&c->win[k].wb_h);
-            if (cwbw > 0.0f) ew_c = lb_clamp(ew_c, cwbw - sdev, cwbw + sdev);
-            if (cwbh > 0.0f) eh_c = lb_clamp(eh_c, cwbh - sdev, cwbh + sdev);
+            // Seam-held rows skip the conformance fold: with sdev→0 at settle
+            // it collapses the target to WB itself, and with their origin
+            // exempt below the whole verdict would be vacuously true — they
+            // need the REAL landed check (WB == clamped end) so finalize's
+            // server-side move fires only once the terminal size arrived, and
+            // classify never reads a mid-catch-up WB as the final size.
+            if (!c->win[k].seam_hold) {
+                if (cwbw > 0.0f) ew_c = lb_clamp(ew_c, cwbw - sdev, cwbw + sdev);
+                if (cwbh > 0.0f) eh_c = lb_clamp(eh_c, cwbh - sdev, cwbh + sdev);
+            }
             float esx  = c->win[k].ew - ew_c;
             float esy  = c->win[k].eh - eh_c;
             float ex_c = c->win[k].ex + (esx > 0.0f ? esx * 0.5f : 0.0f);
