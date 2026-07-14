@@ -3865,6 +3865,7 @@ void window_manager_init(struct window_manager *wm)
     wm->window_animation_warp_min_ms = 100.0f; // lb_warp mesh tween (ms); 0 = instant snap. Knob: window_animation_warp_min_ms
     wm->window_animation_policy = WM_ANIM_POLICY_TRUE_RESIZE; // duration>0 recipe; lb_only = LockedBounds-only presentation (no T3D). Knob: window_animation_policy
     wm->space_animation_duration = 0.0f;   // 0 = off (instant switch); >0 = animated adjacent same-display slide
+    wm->space_animation_background = true; // wallpaper cross-fades with the switch; off = static backdrop
     wm->space_animation_fade       = false; // default off = pure slide
     wm->space_animation_fade_enter = true;  // both sides fade when the master is enabled...
     wm->space_animation_fade_exit  = true;  // ...turn one off for a one-sided fade (e.g. exit-only)

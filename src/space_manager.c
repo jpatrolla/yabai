@@ -1119,10 +1119,10 @@ void space_manager_reconcile_optimistic_target(uint64_t committed_sid)
 //
 // out/in_active_stage = -1 (no per-stage thumbnail filtering); ring_wid is
 // resolved from the destination's focused window (FR-9 geo-rider) when the
-// ring is enabled, else 0. gap/wallpaper/menubar/fade use conservative
-// defaults; easing reuses the window-animation curve so one config lever
-// governs both. direction: +1 toward the previous space, -1 toward the next
-// (mirrors the caller's geometry).
+// ring is enabled, else 0. gap/menubar use conservative defaults; easing
+// reuses the window-animation curve so one config lever governs both.
+// direction: +1 toward the previous space, -1 toward the next (mirrors the
+// caller's geometry).
 static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
                                                               uint64_t in_sid,
                                                               int direction)
@@ -1188,7 +1188,7 @@ static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
                                                g_window_manager.space_animation_duration,
                                                width,
                                                0.0,        // gap
-                                               1,          // wallpaper: slide it along
+                                               (uint8_t)g_window_manager.space_animation_background,   // wallpaper cross-fade (off = static backdrop)
                                                0,          // animate_menubar
                                                did, refresh_hz,
                                                -1, -1,     // out/in active stage: no filtering

@@ -47,6 +47,7 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_ANIMATION_MIN_OPACITY "window_animation_min_opacity"
 #define COMMAND_CONFIG_ANIMATION_AX_WAKE      "window_animation_ax_wake"
 #define COMMAND_CONFIG_SPACE_ANIMATION_DURATION "space_animation_duration"
+#define COMMAND_CONFIG_SPACE_ANIMATION_BACKGROUND "space_animation_background"
 #define COMMAND_CONFIG_EXPOSE_ANIMATION_DURATION "expose_animation_duration"
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE       "space_animation_fade"
 #define COMMAND_CONFIG_SPACE_ANIMATION_FADE_ENTER "space_animation_fade_enter"
@@ -1656,6 +1657,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 }
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_BACKGROUND)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.space_animation_background]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.space_animation_background = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.space_animation_background = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
         } else if (token_equals(command, COMMAND_CONFIG_EXPOSE_ANIMATION_DURATION)) {
             // MC-5b: push -[WVExpose animationDuration] to the Dock-side SA swizzle

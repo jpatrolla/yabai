@@ -208,6 +208,11 @@ struct window_manager
     // (instant native switch). Drives `space --focus` for adjacent same-display
     // switches; the focus ring reads it to auto-time its fade against the slide.
     float space_animation_duration;
+    // Wallpaper participation in the animated switch: on = cross-fade the two
+    // spaces' wallpapers in place over the slide, so the background changes
+    // with the space; off = both wallpapers hold as a static, opaque backdrop
+    // behind the sliding windows.
+    bool space_animation_background;
     // Space-slide cross-fade levers (space_manager_focus_space_animated packs
     // these into the SPACE_FADE_* mask). Master gate + independent per-side
     // control: with the master on, fade the incoming and/or outgoing windows

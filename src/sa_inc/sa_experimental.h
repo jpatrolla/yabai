@@ -197,10 +197,11 @@ uint32_t scripting_addition_anim_skip_all_to_end(void);
 bool scripting_addition_freeze_windows(uint32_t *wids, int count);
 bool scripting_addition_thaw_windows(uint32_t *wids, int count);
 
-// Native-replica space slide: show both spaces, slide them past each other at
-// the VBL rate via SLSSetSpaceTransform, then commit (HideSpace +
-// SetManagedDisplayCurrentSpace + Dock _currentSpace poke). Wallpaper rides
-// along. This is the production space_animation path.
+// Animated space switch: show both spaces, slide their windows past each
+// other at the VBL rate (per-window Transform3D + cross-fade), then commit
+// (HideSpace + SetManagedDisplayCurrentSpace + Dock _currentSpace poke).
+// `wallpaper` cross-fades the two spaces' wallpapers in place (off = both
+// hold as a static backdrop). This is the production space_animation path.
 bool scripting_addition_animate_space(uint64_t out_sid, uint64_t in_sid, int32_t direction, float duration, double width, double gap, uint8_t wallpaper, uint8_t animate_menubar, uint32_t did, float refresh_hz, int32_t out_active_stage, int32_t in_active_stage, uint8_t easing, uint8_t fade, uint32_t ring_wid, float ring_x, float ring_y, float ring_w, float ring_h, float ring_radius, uint8_t fs_enabled, float fs_scale, uint8_t fs_easing, float fs_duration, float fs_delay, uint8_t fs_fade, float enter_delay, float exit_delay, float fade_enter_delay, float fade_exit_delay, float fade_enter_dur, float fade_exit_dur);
 
 // Elastic edge-nudge: translate a space's content by (dx, dy) then snap back
