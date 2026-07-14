@@ -2342,18 +2342,26 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
 
     for (; token_is_valid(command); command = get_token(&message)) {
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
-            struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
             // Relative prev/next routes through the edge-guard-aware path so a
             // hop that would leave this display nudges (contain_space_focus_per_display
-            // on) instead of silently crossing to another display.
-            bool relative = selector.sid && token_is_valid(selector.token) &&
-                (token_equals(selector.token, ARGUMENT_COMMON_SEL_NEXT) ||
-                 token_equals(selector.token, ARGUMENT_COMMON_SEL_PREV));
+            // on) instead of silently crossing to another display. Peek the
+            // selector token BEFORE parsing: at an outer extreme (globally
+            // first/last space) prev/next resolves to no space at all and the
+            // parse would fail before the guard could fire — so route on the
+            // token itself and suppress the parse's own "could not locate"
+            // failure (NULL rsp); the relative path owns the edge semantics.
+            char *peek = message;
+            struct token selector_token = get_token(&peek);
+            bool relative = token_equals(selector_token, ARGUMENT_COMMON_SEL_NEXT) ||
+                            token_equals(selector_token, ARGUMENT_COMMON_SEL_PREV);
+            struct selector selector = parse_space_selector(relative ? NULL : rsp, &message, acting_sid, false);
             if (relative) {
-                int dir = token_equals(selector.token, ARGUMENT_COMMON_SEL_NEXT) ? +1 : -1;
+                int dir = token_equals(selector_token, ARGUMENT_COMMON_SEL_NEXT) ? +1 : -1;
                 uint64_t base_sid = acting_explicit ? acting_sid : space_manager_focus_target_space();
                 enum space_op_error result = space_manager_focus_relative_space(base_sid, dir);
-                if (result == SPACE_OP_ERROR_SAME_SPACE) {
+                if (result == SPACE_OP_ERROR_MISSING_DST) {
+                    daemon_fail(rsp, "could not locate the %s space.\n", dir > 0 ? "next" : "previous");
+                } else if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
                 } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
                     daemon_fail(rsp, "cannot focus space because the display is in the middle of an animation.\n");

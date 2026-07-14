@@ -3965,7 +3965,7 @@ void window_manager_init(struct window_manager *wm)
     wm->space_animation_fade_exit_delay  = -1.0f;
     wm->space_animation_fade_enter_dur   = -1.0f;
     wm->space_animation_fade_exit_dur    = -1.0f;
-    wm->contain_space_focus_per_display = false;  // off = stock cross-display walk; on = nudge + stop at a display edge
+    wm->contain_space_focus_per_display = true;  // on (default) = nudge + stop at a display edge; off = stock cross-display walk
     wm->window_focus_inter_display = false;  // window --focus DIR stays on the current display by default
     wm->window_focus_wrap          = false;  // window --focus DIR stops at the edge (no wrap) by default
     wm->space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_DEFAULT;

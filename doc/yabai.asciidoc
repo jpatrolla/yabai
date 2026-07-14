@@ -295,8 +295,8 @@ Global Settings
     Length (in seconds) of the outgoing fade. 'auto' tracks the slide duration.
 
 *contain_space_focus_per_display* ['<BOOL_SEL>']::
-    Stop an animated space slide at a display edge (with a nudge) instead of walking across to the neighbouring display. +
-    Off by default (stock behaviour: focus continues onto the next display).
+    Stop a *space --focus prev|next* at any edge of the current display's spaces (with a nudge) — a display seam or the globally first/last space — instead of walking across to the neighbouring display. +
+    On by default; turn off for the stock behaviour (focus continues onto the next display).
 
 *expose_animation_duration* ['<FLOAT_SEL>']::
     Override the duration of the native Mission Control enter / exit animation. +

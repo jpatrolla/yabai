@@ -1285,10 +1285,14 @@ uint64_t space_manager_focus_target_space(void)
 
 // Resolve `space --focus prev/next` with display-aware semantics. `dir` is +1
 // (next) or -1 (prev). When the next/prev space is on the SAME display, focus
-// it. At a display edge (no in-display target): when contain_space_focus_per_display is
-// on, nudge the active space back and stop (never cross displays); when off,
-// fall through to stock behavior — focus the next/prev space even on another
-// display. SUCCESS for guard-only outcomes (designed no-ops, not errors).
+// it. At a display edge (no in-display target) — a display seam (the next/prev
+// space lives on another display) or an outer extreme (prev from the globally
+// first space, next from the globally last; no such space at all) — when
+// contain_space_focus_per_display is on, nudge the active space back and stop
+// (never leave the display); when off, fall through to stock behavior — focus
+// the next/prev space even on another display, or MISSING_DST at an outer
+// extreme so the caller fails like stock ("could not locate the ... space").
+// SUCCESS for guard-only outcomes (designed no-ops, not errors).
 enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int dir)
 {
     if (!from_sid || (dir != +1 && dir != -1)) return SPACE_OP_ERROR_INVALID_SRC;
@@ -1321,7 +1325,8 @@ enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int di
         return space_manager_focus_space(mc_target);
     }
 
-    // Edge of this display's spaces — no in-display target.
+    // Edge of this display's spaces — no in-display target (mc_target is on
+    // another display at a seam, or 0 at an outer extreme).
     if (g_window_manager.contain_space_focus_per_display) {
         // ON: guard the boundary — nudge the active space back and stop.
         int nudge_distance = 100;
@@ -1332,7 +1337,9 @@ enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int di
 
     // OFF: stock — walk to the next/prev space even across the display boundary.
     if (mc_target) return space_manager_focus_space(mc_target);
-    return SPACE_OP_ERROR_SUCCESS;
+    // Outer extreme: no next/prev space exists anywhere — report it so the
+    // caller can fail like stock.
+    return SPACE_OP_ERROR_MISSING_DST;
 }
 
 enum space_op_error space_manager_focus_space(uint64_t sid)
