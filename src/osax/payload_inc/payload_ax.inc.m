@@ -108,8 +108,9 @@ static bool payload_ax_set_size(int32_t pid, uint32_t wid, float w, float h)
 
 // Position-only AX commit (kAXPosition). The mover half of the MOVE-FIRST
 // recipe (anim.inc.m endpin / jello warp rows): get the origin to the end
-// FIRST so the subsequent kAXSize resize lands at the on-screen origin and
-// AppKit's constrainFrameRect can't clamp it. payload_ax_set_frame CANNOT be
+// FIRST so the subsequent kAXSize resize lands at the on-screen origin where
+// AppKit's edge-resize clamp (__NSWindowComputeMaxAllowedMovement — not
+// constrainFrameRect) has nothing to cut. payload_ax_set_frame CANNOT be
 // the mover — it sets AXSize BEFORE AXPosition, so a combined setFrame
 // resizes at the OLD origin (the clamp). One AX IPC, position only.
 static bool payload_ax_set_position(int32_t pid, uint32_t wid, float x, float y)
