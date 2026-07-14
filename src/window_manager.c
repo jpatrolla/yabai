@@ -1323,6 +1323,106 @@ static void wm_proxy_cover_run(struct window *window, CGRect dst)
     pthread_detach(thread);
 }
 
+// The AX commit itself — resize THEN move (THEN resize) — lives here, in
+// exactly one place, so the apply path and the verify-retry re-fire can never
+// drift in ordering.
+static void wm_commit_frame_ax(struct window *window, CGRect frame)
+{
+    AX_ENHANCED_UI_WORKAROUND_CACHED(window->application,{
+        CGPoint position = frame.origin;
+        CFTypeRef position_ref = AXValueCreate(kAXValueTypeCGPoint, (void *) &position);
+
+        CGSize size = frame.size;
+        CFTypeRef size_ref = AXValueCreate(kAXValueTypeCGSize, (void *) &size);
+
+        // NOTE(asmvik): Due to macOS constraints (visible screen-area), we might need to resize the window *before* moving it.
+        if (size_ref) AXUIElementSetAttributeValue(window->ref, kAXSizeAttribute, size_ref);
+
+        if (position_ref) {
+            AXUIElementSetAttributeValue(window->ref, kAXPositionAttribute, position_ref);
+            CFRelease(position_ref);
+        }
+
+        // NOTE(asmvik): Due to macOS constraints (visible screen-area), we might need to resize the window *after* moving it.
+        if (size_ref) {
+            AXUIElementSetAttributeValue(window->ref, kAXSizeAttribute, size_ref);
+            CFRelease(size_ref);
+        }
+    });
+}
+
+static inline bool wm_rect_close(CGRect a, CGRect b, float eps)
+{
+    return fabsf((float)a.origin.x    - (float)b.origin.x)    <= eps &&
+           fabsf((float)a.origin.y    - (float)b.origin.y)    <= eps &&
+           fabsf((float)a.size.width  - (float)b.size.width)  <= eps &&
+           fabsf((float)a.size.height - (float)b.size.height) <= eps;
+}
+
+// --- window_frame_verify_retry --------------------------------------------
+// The single-shot terminal commit (resize->move) can be clamped by macOS on a
+// large frame change — the move clamped to keep a still-large window on-screen,
+// the resize clamped by min-size / increment, or a size ask evaluated against
+// pre-move state near a shared display seam (AppKit's edge-resize refusal) —
+// with no second chance. At duration 0.0 that shows as a window that lands
+// "half way." The animated path hides it by re-firing every frame; this gives
+// the single-shot path the same self-heal: re-read SLS bounds and re-fire the
+// SAME bracketed commit until the window lands, plateaus (constrained), or
+// hits the cap.
+//
+// Runs on the main queue so the AX re-fire stays serialized with all other AX
+// work. State is heap-allocated; the window is re-resolved by wid each tick (it
+// may have closed) — never derefs a stale window*.
+#define WM_VERIFY_TICK_MS   16
+#define WM_VERIFY_MAX_RETRY 3
+#define WM_VERIFY_TOL       2.0f
+
+struct wm_verify_ctx {
+    uint32_t wid;
+    CGRect   want;
+    CGRect   prev;
+    int      attempt;
+    bool     have_prev;
+};
+
+static void wm_verify_tick(struct wm_verify_ctx *c)
+{
+    CGRect after = {0};
+    if (SLSGetWindowBounds(g_connection, c->wid, &after) != kCGErrorSuccess) {
+        free(c); return;                                      // unreadable / gone — stop
+    }
+    if (wm_rect_close(after, c->want, WM_VERIFY_TOL)) {
+        free(c); return;                                      // landed — done
+    }
+    if (c->have_prev && wm_rect_close(after, c->prev, WM_VERIFY_TOL)) {
+        free(c); return;                                      // plateaued (constrained) — stop, no jitter
+    }
+    if (c->attempt >= WM_VERIFY_MAX_RETRY) {
+        free(c); return;                                      // hard cap — give up
+    }
+
+    struct window *w = window_manager_find_window(&g_window_manager, c->wid);
+    if (!w) { free(c); return; }                              // window closed between ticks
+
+    wm_commit_frame_ax(w, c->want);                           // re-fire the same path
+    c->prev = after;
+    c->have_prev = true;
+    c->attempt++;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(WM_VERIFY_TICK_MS * NSEC_PER_MSEC)),
+                   dispatch_get_main_queue(), ^{ wm_verify_tick(c); });
+}
+
+static void window_manager_arm_frame_verify(uint32_t wid, CGRect before, CGRect want)
+{
+    if (wm_rect_close(before, want, WM_VERIFY_TOL)) return;   // no-op move — nothing to verify
+    struct wm_verify_ctx *c = malloc(sizeof(*c));
+    if (!c) return;
+    c->wid = wid; c->want = want; c->prev = (CGRect){0};
+    c->attempt = 0; c->have_prev = false;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(WM_VERIFY_TICK_MS * NSEC_PER_MSEC)),
+                   dispatch_get_main_queue(), ^{ wm_verify_tick(c); });
+}
+
 void window_manager_set_window_frame(struct window *window, float x, float y, float width, float height)
 {
     //
@@ -1374,27 +1474,16 @@ void window_manager_set_window_frame(struct window *window, float x, float y, fl
         }
     }
 
-    AX_ENHANCED_UI_WORKAROUND_CACHED(window->application,{
-        CGPoint position = CGPointMake(x, y);
-        CFTypeRef position_ref = AXValueCreate(kAXValueTypeCGPoint, (void *) &position);
+    // Capture pre-commit SLS bounds only when the verify-retry self-heal is
+    // armed — one cheap server round-trip, no AX involved.
+    CGRect want = CGRectMake(x, y, width, height);
+    CGRect ax_before = {0};
+    bool have_before = g_window_manager.window_frame_verify_retry &&
+                       SLSGetWindowBounds(g_connection, window->id, &ax_before) == kCGErrorSuccess;
 
-        CGSize size = CGSizeMake(width, height);
-        CFTypeRef size_ref = AXValueCreate(kAXValueTypeCGSize, (void *) &size);
+    wm_commit_frame_ax(window, want);
 
-        // NOTE(asmvik): Due to macOS constraints (visible screen-area), we might need to resize the window *before* moving it.
-        if (size_ref) AXUIElementSetAttributeValue(window->ref, kAXSizeAttribute, size_ref);
-
-        if (position_ref) {
-            AXUIElementSetAttributeValue(window->ref, kAXPositionAttribute, position_ref);
-            CFRelease(position_ref);
-        }
-
-        // NOTE(asmvik): Due to macOS constraints (visible screen-area), we might need to resize the window *after* moving it.
-        if (size_ref) {
-            AXUIElementSetAttributeValue(window->ref, kAXSizeAttribute, size_ref);
-            CFRelease(size_ref);
-        }
-    });
+    if (have_before) window_manager_arm_frame_verify(window->id, ax_before, want);
 }
 
 void window_manager_set_purify_mode(struct window_manager *wm, enum purify_mode mode)
@@ -3848,6 +3937,7 @@ void window_manager_init(struct window_manager *wm)
     wm->active_window_opacity = 1.0f;
     wm->normal_window_opacity = 1.0f;
     wm->window_opacity_duration = 0.0f;
+    wm->window_frame_verify_retry = false; // default off: opt-in self-heal for single-shot set_window_frame; A/B against current behavior before enabling
     wm->window_animation_duration = 0.0f;
     wm->expose_animation_duration = -1.0f;   // MC-5b: < 0 = native WVExpose.animationDuration passthrough
     wm->window_animation_easing = ease_out_circ_type;

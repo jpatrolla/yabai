@@ -204,6 +204,7 @@ struct window_manager
     float window_animation_cover_fade;  // proxy cover fade-out (s); 0 = hard reveal
     float window_animation_warp_min_ms; // lb_warp: mesh tween length (ms, ease-out expo); 0 = instant snap
     int   window_animation_policy;      // WM_ANIM_POLICY_TRUE_RESIZE | _LB_ONLY (duration>0 presentation recipe)
+    bool window_frame_verify_retry;     // config window_frame_verify_retry (default OFF): after a terminal AX setFrame, poll SLS bounds and re-fire resize->move (bounded, tolerance-gated) until the window lands on target or plateaus — fixes single-shot (duration 0.0) grid moves that land "half way" when macOS clamps the move/resize.
     // Duration (s) of the payload space cross-fade/slide animator; 0 = off
     // (instant native switch). Drives `space --focus` for adjacent same-display
     // switches; the focus ring reads it to auto-time its fade against the slide.
