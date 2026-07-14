@@ -4,7 +4,10 @@
 #define SA_SOCKET_PATH_FMT "/tmp/yabai-sa_%s.socket"
 #define SA_SOCKET_BUFF_LEN 0x1000
 
-#define OSAX_VERSION                "2.1.30"
+// 2.2.0: byte-pattern-free space create/destroy/move extends the wire protocol
+// (SPACE_DESTROY now carries dest_sid; new SPACE_RECONFIG opcode), so a stale
+// 2.1.x payload must fail the version check and be replaced on `--load-sa`.
+#define OSAX_VERSION                "2.2.0"
 
 #define OSAX_ATTRIB_DOCK_SPACES     0x01
 #define OSAX_ATTRIB_DPPM            0x02
@@ -43,6 +46,10 @@ enum sa_opcode
     SA_OPCODE_WINDOW_ORDER_IN       = 0x11,
     SA_OPCODE_WINDOW_LIST_TO_SPACE  = 0x12,
     SA_OPCODE_WINDOW_TO_SPACE       = 0x13,
+    // Rebuild Dock's Mission-Control strip via the named @objc
+    // -[Spaces handleDisplayReconfig] after a byte-pattern-free server-side
+    // space op. No wire payload, no reply.
+    SA_OPCODE_SPACE_RECONFIG        = 0x14,
 };
 
 #endif

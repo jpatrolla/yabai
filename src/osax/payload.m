@@ -62,6 +62,16 @@ extern void SLSShowSpaces(int cid, CFArrayRef space_list);
 extern void SLSHideSpaces(int cid, CFArrayRef space_list);
 extern CFTypeRef SLSTransactionCreate(int cid);
 extern CGError SLSTransactionCommit(CFTypeRef transaction, int synchronous);
+
+// Byte-pattern-free space create/destroy/move — named SkyLight exports, callable from this
+// payload's Dock cid (universal owner). SLSSpaceCreate/Destroy and the op-0x80 transaction
+// mover (SLSTransactionMoveManagedSpaceToDisplayAfterSpace) replace the Dock-internal
+// byte-pattern asm add/move/remove that break on every Dock update (#2799).
+extern uint64_t SLSSpaceCreate(int cid, int options, CFDictionaryRef values);
+extern void SLSSpaceDestroy(int cid, uint64_t sid);
+extern CGError SLSSpaceResetMenuBar(int cid, uint64_t sid);
+extern CGError SLSTransactionMoveManagedSpaceToDisplayAfterSpace(CFTypeRef transaction, uint64_t sid, CFStringRef display_uuid, uint64_t after_sid);
+extern CFStringRef kCGSPackagesDisplayIdentifierKey;
 extern CGError SLSTransactionOrderWindowGroup(CFTypeRef transaction, uint32_t wid, int order, uint32_t rel_wid);
 extern CGError SLSTransactionSetWindowSystemAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
 extern CGError SLSSetWindowSubLevel(int cid, uint32_t wid, int level);
@@ -457,9 +467,58 @@ static inline id display_space_for_space_with_id(uint64_t space_id)
     return nil;
 }
 
+// Mark Dock's in-process Spaces model stale by ivar NAME (robust; no byte-pattern).
+// A server-side space op (SLSSpaceCreate / op-0x80 move / SLSSpaceDestroy) changes
+// the WindowServer but not Dock's model. Called only for the wallpaper cases: the
+// `wallpaper` flag sets _needToUpdateDesktopPicture, which handleDisplayReconfig's
+// wallpaper branch is gated on, so a brand-new space (create) or a display-changed
+// space (cross-display move) renders its desktop picture. The strip itself rebuilds
+// unconditionally in handleDisplayReconfig and needs no poke. Runs on the main queue
+// to match Dock's space-change path.
+static void payload_mark_spaces_dirty(bool wallpaper)
+{
+    if (dock_spaces == nil) return;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        Class cls = object_getClass(dock_spaces);
+        Ivar iv = class_getInstanceVariable(cls, "_needToUpdateSpaces");
+        if (iv) *((uint8_t *)dock_spaces + ivar_getOffset(iv)) = 1;
+        if (wallpaper) {
+            Ivar wv = class_getInstanceVariable(cls, "_needToUpdateDesktopPicture");
+            if (wv) *((uint8_t *)dock_spaces + ivar_getOffset(wv)) = 1;
+        }
+    });
+}
+
+// Rebuild Dock's Mission-Control strip after a byte-pattern-free server-side space op
+// by invoking the named @objc -[Spaces handleDisplayReconfig]. This is a NON-Mission-
+// Control rebuild path: it reaches Dock's per-display rebuild helper directly, without a
+// WVExpose MC enter->exit cycle. Pure @objc, respondsToSelector-guarded so an OS rename
+// degrades to a no-op instead of a crash, run on the main queue to match Dock's own
+// space-change path. handleDisplayReconfig rebuilds the strip UNCONDITIONALLY (not gated
+// on _needToUpdateSpaces); its only internal gate defers the rebuild while a space switch
+// is mid-flight, which never trips here since every daemon caller rejects MC-active.
+static void payload_spaces_reconfig(void)
+{
+    if (dock_spaces == nil) return;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        SEL sel = sel_registerName("handleDisplayReconfig");
+        if ([dock_spaces respondsToSelector:sel])
+            ((void (*)(id, SEL))objc_msgSend)(dock_spaces, sel);
+    });
+}
+
+// SA_OPCODE_SPACE_RECONFIG handler — no wire payload. Rebuilds the MC strip via
+// handleDisplayReconfig; the daemon (space_manager_dock_rebuild_strip) fires this after a
+// byte-pattern-free server-side create / move / destroy.
+static void do_spaces_reconfig(char *message)
+{
+    (void)message;
+    payload_spaces_reconfig();
+}
+
 static void do_space_move(char *message)
 {
-    if (dock_spaces == nil || dp_desktop_picture_manager == nil || move_space_fp == 0) return;
+    if (dock_spaces == nil) return;
 
     uint64_t source_space_id, dest_space_id, source_prev_space_id;
     unpack(source_space_id);
@@ -469,91 +528,173 @@ static void do_space_move(char *message)
     bool focus_dest_space;
     unpack(focus_dest_space);
 
-    CFStringRef source_display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), source_space_id);
+    int cid = SLSMainConnectionID();
+
+    CFStringRef source_display_uuid = SLSCopyManagedDisplayForSpace(cid, source_space_id);
     id source_space = space_for_display_with_id(source_display_uuid, source_space_id);
     id source_display_space = display_space_for_display_uuid(source_display_uuid);
 
-    CFStringRef dest_display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), dest_space_id);
+    CFStringRef dest_display_uuid = SLSCopyManagedDisplayForSpace(cid, dest_space_id);
     id dest_space = space_for_display_with_id(dest_display_uuid, dest_space_id);
     unsigned dest_display_id = ((unsigned (*)(id, SEL, id)) objc_msgSend)(dock_spaces, @selector(displayIDForSpace:), dest_space);
     id dest_display_space = display_space_for_display_uuid(dest_display_uuid);
+
+    bool cross_display = source_display_uuid && dest_display_uuid && !CFEqual(source_display_uuid, dest_display_uuid);
 
     if (source_prev_space_id) {
         NSArray *ns_source_space = @[ @(source_space_id) ];
         NSArray *ns_dest_space = @[ @(source_prev_space_id) ];
         id new_source_space = space_for_display_with_id(source_display_uuid, source_prev_space_id);
-        SLSShowSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_dest_space);
-        SLSHideSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_source_space);
-        SLSManagedDisplaySetCurrentSpace(SLSMainConnectionID(), source_display_uuid, source_prev_space_id);
+        SLSShowSpaces(cid, (__bridge CFArrayRef) ns_dest_space);
+        SLSHideSpaces(cid, (__bridge CFArrayRef) ns_source_space);
+        SLSManagedDisplaySetCurrentSpace(cid, source_display_uuid, source_prev_space_id);
         set_ivar_value(source_display_space, "_currentSpace", [new_source_space retain]);
         [ns_dest_space release];
         [ns_source_space release];
     }
 
-    asm__call_move_space(source_space, dest_space, dest_display_uuid, dock_spaces, move_space_fp);
+    // Byte-pattern-free move (primary): op-0x80 places source after dest on dest's display
+    // (same display UUID = reorder; different = cross-display). Replaces the asm moveSpace.
+    bool moved = false;
+    CFTypeRef txn = SLSTransactionCreate(cid);
+    if (txn) {
+        SLSTransactionMoveManagedSpaceToDisplayAfterSpace(txn, source_space_id, dest_display_uuid, dest_space_id);
+        SLSTransactionCommit(txn, 1);
+        CFRelease(txn);
+        moved = true;
+    } else if (move_space_fp) {
+        asm__call_move_space(source_space, dest_space, dest_display_uuid, dock_spaces, move_space_fp);
+        moved = true;
+    }
 
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        ((void (*)(id, SEL, id, unsigned, CFStringRef)) objc_msgSend)(dp_desktop_picture_manager, @selector(moveSpace:toDisplay:displayUUID:), source_space, dest_display_id, dest_display_uuid);
-    });
+    // Cross-display only: the wallpaper association must follow to the dest display. Prefer the
+    // byte-pattern-free _needToUpdateDesktopPicture dirty (set below); also drive the Dock
+    // desktop-picture-manager mover if its pattern resolved (belt-and-suspenders).
+    if (moved && cross_display && dp_desktop_picture_manager != nil) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            ((void (*)(id, SEL, id, unsigned, CFStringRef)) objc_msgSend)(dp_desktop_picture_manager, @selector(moveSpace:toDisplay:displayUUID:), source_space, dest_display_id, dest_display_uuid);
+        });
+    }
 
     if (focus_dest_space) {
-        uint64_t new_source_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), source_display_uuid);
+        uint64_t new_source_space_id = SLSManagedDisplayGetCurrentSpace(cid, source_display_uuid);
         id new_source_space = space_for_display_with_id(source_display_uuid, new_source_space_id);
         set_ivar_value(source_display_space, "_currentSpace", [new_source_space retain]);
 
         NSArray *ns_dest_monitor_space = @[ @(dest_space_id) ];
-        SLSHideSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_dest_monitor_space);
-        SLSManagedDisplaySetCurrentSpace(SLSMainConnectionID(), dest_display_uuid, source_space_id);
+        SLSHideSpaces(cid, (__bridge CFArrayRef) ns_dest_monitor_space);
+        SLSManagedDisplaySetCurrentSpace(cid, dest_display_uuid, source_space_id);
         set_ivar_value(dest_display_space, "_currentSpace", [source_space retain]);
         [ns_dest_monitor_space release];
     }
+
+    // The daemon rebuilds the MC strip via handleDisplayReconfig after this returns; that path
+    // needs no _needToUpdateSpaces poke, so no strip dirty here. BUT a cross-display move changes
+    // the space's display and thus its wallpaper — keep the byte-pattern-free
+    // _needToUpdateDesktopPicture dirty so reconfig's wallpaper branch runs (belt-and-suspenders
+    // with the dp_desktop_picture_manager mover above). Same-display reorder changes no wallpaper.
+    if (cross_display) payload_mark_spaces_dirty(true);
 
     CFRelease(source_display_uuid);
     CFRelease(dest_display_uuid);
 }
 
-typedef void (*remove_space_call)(id space, id display_space, id dock_spaces, uint64_t space_id1, uint64_t space_id2);
 static void do_space_destroy(char *message)
 {
-    if (dock_spaces == nil || remove_space_fp == 0) return;
+    if (dock_spaces == nil) return;
 
-    uint64_t space_id;
+    uint64_t space_id, dest_space_id;
     unpack(space_id);
+    unpack(dest_space_id);
 
-    CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), space_id);
-    uint64_t active_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), display_uuid);
+    int cid = SLSMainConnectionID();
 
-    id space = space_for_display_with_id(display_uuid, space_id);
+    CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(cid, space_id);
+    if (!display_uuid) return;
+
     id display_space = display_space_for_display_uuid(display_uuid);
+    uint64_t active_space_id = SLSManagedDisplayGetCurrentSpace(cid, display_uuid);
 
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        ((remove_space_call) remove_space_fp)(space, display_space, dock_spaces, space_id, space_id);
-    });
-
-    if (active_space_id == space_id) {
-        uint64_t dest_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), display_uuid);
-        id dest_space = space_for_display_with_id(display_uuid, dest_space_id);
-        set_ivar_value(display_space, "_currentSpace", [dest_space retain]);
+    // If the doomed space is the display's visible space, switch the display to the
+    // destination FIRST (mirror do_space_move's source pre-switch) so the display never
+    // shows a destroyed space. The daemon already migrated the doomed space's windows to
+    // dest_space_id before this call.
+    if (active_space_id == space_id && dest_space_id) {
+        NSArray *ns_doomed = @[ @(space_id) ];
+        NSArray *ns_dest   = @[ @(dest_space_id) ];
+        id new_current = space_for_display_with_id(display_uuid, dest_space_id);
+        SLSShowSpaces(cid, (__bridge CFArrayRef) ns_dest);
+        SLSHideSpaces(cid, (__bridge CFArrayRef) ns_doomed);
+        SLSManagedDisplaySetCurrentSpace(cid, display_uuid, dest_space_id);
+        set_ivar_value(display_space, "_currentSpace", [new_current retain]);
+        [ns_dest release];
+        [ns_doomed release];
     }
+
+    // Byte-pattern-free destroy (primary): the named SLS export tears down the managed Space
+    // server-side. SLSSpaceDestroy is void + async with no fallback signal, but it's the same
+    // Dock-cid bridged family as SLSSpaceCreate / op-0x80 move, so it replaces the asm removeSpace
+    // that breaks on Dock updates (#2799). It does NOT migrate windows — the daemon moved them off
+    // space_id first (space_manager_destroy_space) so they aren't orphaned.
+    SLSSpaceDestroy(cid, space_id);
+
+    // No dirty poke: the daemon rebuilds the MC strip via handleDisplayReconfig after this
+    // returns, and that path rebuilds unconditionally. The surviving spaces' wallpapers are
+    // unchanged (windows were pre-migrated to dest_space_id, and the display was pre-switched
+    // there above), so no _needToUpdateDesktopPicture poke either.
 
     CFRelease(display_uuid);
 }
 
 static void do_space_create(char *message)
 {
-    if (dock_spaces == nil || add_space_fp == 0) return;
+    if (dock_spaces == nil) return;
 
     uint64_t space_id;
     unpack(space_id);
 
-    CFStringRef __block display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), space_id);
+    int cid = SLSMainConnectionID();
+
+    // Byte-pattern-free path (primary): mint a managed Space via the named SLS export,
+    // bound to the reference space's display, reset its menubar, then dirty Dock's model.
+    // The daemon rebuilds the MC strip via handleDisplayReconfig after this returns. The
+    // _needToUpdateDesktopPicture dirty (via mark_spaces_dirty true) is what a BRAND-NEW space
+    // needs so reconfig's wallpaper branch renders its desktop picture (the strip itself rebuilds
+    // unconditionally). This survives Dock updates; the legacy asm addSpace below does not (#2799).
+    CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(cid, space_id);
+    if (display_uuid) {
+        CFMutableDictionaryRef values = CFDictionaryCreateMutable(NULL, 0,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        int32_t type = 0; // SLS_SPACE_USER
+        CFNumberRef type_num = CFNumberCreate(NULL, kCFNumberSInt32Type, &type);
+        CFDictionarySetValue(values, CFSTR("type"), type_num);
+        CFDictionarySetValue(values, kCGSPackagesDisplayIdentifierKey, display_uuid);
+
+        uint64_t new_sid = SLSSpaceCreate(cid, 0, values);
+
+        CFRelease(type_num);
+        CFRelease(values);
+
+        if (new_sid) {
+            SLSSpaceResetMenuBar(cid, new_sid);
+            payload_mark_spaces_dirty(true);   // spaces + wallpaper
+            CFRelease(display_uuid);
+            return;
+        }
+        CFRelease(display_uuid);
+    }
+
+    // Legacy fallback: Dock-internal addSpace via byte-pattern (breaks on Dock updates, #2799).
+    // Only reached if SLSSpaceCreate failed AND the pattern resolved.
+    if (add_space_fp == 0) return;
     dispatch_sync(dispatch_get_main_queue(), ^{
+        CFStringRef du = SLSCopyManagedDisplayForSpace(cid, space_id);
         id new_space = macOSSequoia
                      ? [[objc_getClass("ManagedSpace") alloc] init]
                      : [[objc_getClass("Dock.ManagedSpace") alloc] init];
-        id display_space = display_space_for_display_uuid(display_uuid);
+        id display_space = display_space_for_display_uuid(du);
         asm__call_add_space(new_space, display_space, add_space_fp);
-        CFRelease(display_uuid);
+        if (du) CFRelease(du);
     });
 }
 
@@ -972,6 +1113,9 @@ static void handle_message(int sockfd, char *message)
     } break;
     case SA_OPCODE_SPACE_MOVE: {
         do_space_move(message);
+    } break;
+    case SA_OPCODE_SPACE_RECONFIG: {
+        do_spaces_reconfig(message);
     } break;
     case SA_OPCODE_WINDOW_MOVE: {
         do_window_move(message);

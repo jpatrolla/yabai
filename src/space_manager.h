@@ -76,6 +76,10 @@ bool space_manager_set_gap_for_space(struct space_manager *sm, uint64_t sid, int
 bool space_manager_toggle_gap_for_space(struct space_manager *sm, uint64_t sid);
 void space_manager_toggle_mission_control(uint64_t sid);
 void space_manager_toggle_show_desktop(uint64_t sid);
+// Rebuild the MC strip after a byte-pattern-free server-side space op (create / move /
+// swap / display / destroy) via the named @objc -[Spaces handleDisplayReconfig] — a non-MC
+// path: no expose cycle, no scale nudge.
+void space_manager_dock_rebuild_strip(void);
 void space_manager_set_layout_for_all_spaces(struct space_manager *sm, enum view_type layout);
 void space_manager_set_window_gap_for_all_spaces(struct space_manager *sm, int window_gap);
 void space_manager_set_top_padding_for_all_spaces(struct space_manager *sm, int top_padding);

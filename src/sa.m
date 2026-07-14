@@ -453,10 +453,11 @@ bool scripting_addition_create_space(uint64_t sid)
     return sa_payload_send(SA_OPCODE_SPACE_CREATE);
 }
 
-bool scripting_addition_destroy_space(uint64_t sid)
+bool scripting_addition_destroy_space(uint64_t sid, uint64_t dest_sid)
 {
     sa_payload_init();
     pack(sid);
+    pack(dest_sid);
     return sa_payload_send(SA_OPCODE_SPACE_DESTROY);
 }
 
@@ -618,6 +619,13 @@ bool scripting_addition_move_window_to_space(uint64_t sid, uint32_t wid)
     pack(sid);
     pack(wid);
     return sa_payload_send(SA_OPCODE_WINDOW_TO_SPACE);
+}
+
+// Rebuild Dock's MC strip via -[Spaces handleDisplayReconfig] (no wire payload).
+bool scripting_addition_spaces_reconfig(void)
+{
+    sa_payload_init();
+    return sa_payload_send(SA_OPCODE_SPACE_RECONFIG);
 }
 
 #undef sa_payload_init

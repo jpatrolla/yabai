@@ -845,7 +845,9 @@ enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uin
         }
     }
 
-    return success ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    space_manager_dock_rebuild_strip();   // rebuild the MC strip after the byte-pattern-free reorder
+    return SPACE_OP_ERROR_SUCCESS;
 }
 
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid)
@@ -885,7 +887,9 @@ enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint6
         }
     }
 
-    return success ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    space_manager_dock_rebuild_strip();   // rebuild the MC strip after the byte-pattern-free reorder
+    return SPACE_OP_ERROR_SUCCESS;
 }
 
 enum space_op_error space_manager_move_space_to_display(struct space_manager *sm, uint64_t sid, uint32_t did)
@@ -916,6 +920,7 @@ enum space_op_error space_manager_move_space_to_display(struct space_manager *sm
         if (focus_space) {
             space_manager_focus_space(sid);
         }
+        space_manager_dock_rebuild_strip();   // rebuild the MC strip after the byte-pattern-free cross-display move
         return SPACE_OP_ERROR_SUCCESS;
     }
 
@@ -1034,6 +1039,18 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
     return scripting_addition_focus_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
 }
 
+// Rebuild Dock's Mission-Control strip after a byte-pattern-free server-side space op
+// (create / move / swap / display / destroy). Invokes the named @objc
+// -[Spaces handleDisplayReconfig] in the SA payload — a NON-Mission-Control rebuild path
+// that reaches Dock's per-display rebuild helper directly: no expose cycle, no flash, no
+// residual MC scale nudge. handleDisplayReconfig rebuilds the strip unconditionally; its
+// only internal gate defers while a space switch is mid-flight, and every caller already
+// rejects MC-active (SPACE_OP_ERROR_IN_MISSION_CONTROL), so no guard is needed here.
+void space_manager_dock_rebuild_strip(void)
+{
+    scripting_addition_spaces_reconfig();
+}
+
 enum space_op_error space_manager_destroy_space(uint64_t sid)
 {
     bool is_in_mc = mission_control_is_active();
@@ -1044,18 +1061,45 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
     if (space_manager_is_space_last_user_space(sid)) return SPACE_OP_ERROR_INVALID_SRC;
 
     uint32_t did = space_display_id(sid);
-    uint64_t first_sid = space_manager_find_first_user_space_for_display(did);
 
     bool is_animating = display_manager_display_is_animating(did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
-    bool success = scripting_addition_destroy_space(sid);
-    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    // Destination for the doomed space's windows (and the display's fallback if sid is the
+    // visible space): the first user space on sid's display that ISN'T sid. Guaranteed to
+    // exist — we ruled out the last-user-space case above. (display_space_list is arena
+    // memory; copy out the scalar dest_sid before the nested space_window_list arena call.)
+    uint64_t dest_sid = 0;
+    int display_space_count = 0;
+    uint64_t *display_spaces = display_space_list(did, &display_space_count);
+    if (display_spaces) {
+        for (int i = 0; i < display_space_count; ++i) {
+            if (display_spaces[i] != sid && space_is_user(display_spaces[i])) {
+                dest_sid = display_spaces[i];
+                break;
+            }
+        }
+    }
+    if (!dest_sid) return SPACE_OP_ERROR_INVALID_SRC;
 
-    if (first_sid) {
-        window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, first_sid);
+    // SLSSpaceDestroy does NOT migrate windows (native Dock removeSpace does this itself before
+    // tearing the space down). Move the doomed space's windows to dest_sid first so they aren't
+    // orphaned onto a non-existent space. include_minimized=true so minimized windows assigned
+    // to the space follow too.
+    int window_count = 0;
+    uint32_t *window_list = space_window_list(sid, &window_count, true);   // arena — do NOT free
+    if (window_list && window_count > 0) {
+        space_manager_move_window_list_to_space(dest_sid, window_list, window_count);
     }
 
+    bool success = scripting_addition_destroy_space(sid, dest_sid);
+    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+
+    window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, dest_sid);
+
+    // The SA payload destroyed the space server-side (byte-pattern-free); rebuild the MC strip
+    // via handleDisplayReconfig (non-MC path — no expose cycle).
+    space_manager_dock_rebuild_strip();
     return SPACE_OP_ERROR_SUCCESS;
 }
 
@@ -1068,7 +1112,12 @@ enum space_op_error space_manager_add_space(uint64_t sid)
     bool is_animating = display_manager_display_is_animating(space_display_id(sid));
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
-    return scripting_addition_create_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (!scripting_addition_create_space(sid)) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+
+    // The SA payload created the space server-side + set the wallpaper dirty flag byte-pattern-free;
+    // rebuild the MC strip via handleDisplayReconfig (non-MC path — no expose cycle).
+    space_manager_dock_rebuild_strip();
+    return SPACE_OP_ERROR_SUCCESS;
 }
 
 void space_manager_assign_process_to_space(pid_t pid, uint64_t sid)
