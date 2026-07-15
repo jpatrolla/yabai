@@ -1152,6 +1152,9 @@ void window_destroy(struct window *window)
     if (window->role) CFRelease(window->role);
     if (window->subrole) CFRelease(window->subrole);
     if (window->title) CFRelease(window->title);
-    CFRelease(window->ref);
+    // Role-window entries (window_manager_track_role_windows) carry a NULL AX
+    // ref by design — releasing it unguarded traps in CF when a display
+    // disconnect destroys the per-display desktop window.
+    if (window->ref) CFRelease(window->ref);
     free(window);
 }
