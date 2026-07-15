@@ -3976,7 +3976,11 @@ void window_manager_init(struct window_manager *wm)
 // windows, so AX discovery never sees them. Register a lightweight entry per
 // display: owned by Finder, NULL AX ref (AX ops no-op), is_eligible=false so it
 // is never tiled/managed; window_manager_add_window is a plain table-add.
-static void window_manager_track_role_windows(struct window_manager *wm)
+// Idempotent (already-tracked wids are skipped), so it is safe to re-run on
+// display topology changes — a disconnect destroys the display's desktop
+// window (the tracked entry self-cleans via SLS_WINDOW_DESTROYED), and a
+// reconnect mints a NEW wid that only a re-run picks up.
+void window_manager_track_role_windows(struct window_manager *wm)
 {
     pid_t finder_pid = 0;
     GetProcessPID(&g_process_manager.finder_psn, &finder_pid);
@@ -3995,6 +3999,17 @@ static void window_manager_track_role_windows(struct window_manager *wm)
         // other display's desktop untracked and mislabelled this log line.
         uint32_t role_wid = display_manager_resident_desktop_window(display_list[i], display_space_id(display_list[i]));
         if (!role_wid) continue;
+
+        // Evict from the native-tab set before tracking: the wid's own
+        // SLS_WINDOW_CREATED fires before any topology-driven re-track runs,
+        // and the untracked-wid sweep there classifies it as a tab. Dual
+        // membership would make SLS_WINDOW_DESTROYED early-return on the
+        // tab-set hit and leak the table entry. The wid stays subscribed —
+        // update_window_notifications enumerates the window table too.
+        if (window_manager_remove_tab_window(wm, role_wid)) {
+            debug("%s: evicted role-1 wid %u from the tab set\n", __FUNCTION__, role_wid);
+        }
+
         if (window_manager_find_window(wm, role_wid)) continue;
 
         struct window *window = window_create(finder, NULL, role_wid);

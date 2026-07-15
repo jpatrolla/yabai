@@ -1559,6 +1559,13 @@ static EVENT_HANDLER(DISPLAY_ADDED)
     debug("%s: %d\n", __FUNCTION__, did);
     space_manager_handle_display_add(&g_space_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, did);
+
+    // A (re)connected display gets a freshly minted Finder desktop window —
+    // the startup-only tracking never sees it. Re-track (idempotent) so it is
+    // focus-targetable again and evicted from the tab set if the untracked-wid
+    // sweep in SLS_WINDOW_CREATED already claimed it.
+    window_manager_track_role_windows(&g_window_manager);
+
     event_signal_push(SIGNAL_DISPLAY_ADDED, context);
 }
 
@@ -1568,6 +1575,13 @@ static EVENT_HANDLER(DISPLAY_REMOVED)
     debug("%s: %d\n", __FUNCTION__, did);
     display_manager_remove_label_for_display(&g_display_manager, did);
     window_manager_handle_display_add_and_remove(&g_space_manager, &g_window_manager, display_manager_main_display_id());
+
+    // The arrangement rebuild after a removal can rotate surviving displays'
+    // desktop wids too; re-track (idempotent) to catch replacements. A wid
+    // minted after this handler runs is picked up on the next DISPLAY_ADDED
+    // re-track or daemon restart.
+    window_manager_track_role_windows(&g_window_manager);
+
     event_signal_push(SIGNAL_DISPLAY_REMOVED, context);
 }
 
