@@ -1298,7 +1298,8 @@ static EVENT_HANDLER(SLS_WINDOW_CREATED)
 
     // The tab-follow gate below needs only the two owners; the window's full
     // geometry readout is diagnostic and runs under --verbose only, so a
-    // system-wide window create costs two SLS queries, not seven.
+    // system-wide window create costs two SLS queries, not seven (untracked
+    // wids pay one more for the tab-set level gate).
     int owner = 0;  SLSGetWindowOwner(g_connection, wid, &owner);
     uint32_t fwid = g_window_manager.focused_window_id;
     int fowner = 0; if (fwid) SLSGetWindowOwner(g_connection, fwid, &fowner);
@@ -1328,9 +1329,20 @@ static EVENT_HANDLER(SLS_WINDOW_CREATED)
     // replace semantics that would wipe every other window's subscription; a
     // re-materialize is already subscribed, so it needs no rebuild.
     if (!window_manager_find_window(&g_window_manager, wid)) {
-        bool is_new = window_manager_add_tab_window(&g_window_manager, wid);
-        debug("%s: %s tab wid=%d owner=%d\n", __FUNCTION__, is_new ? "NEW" : "re-materialized", wid, owner);
-        if (is_new) update_window_notifications();
+        // Normal-level wids only, mirroring the seed path's filter — without
+        // it the sweep claims desktop-level chrome (e.g. a reconnected
+        // display's freshly minted Finder desktop window) as a native tab. A
+        // level that reads 0 mid-materialization (query not yet answerable)
+        // falls through to the add, same as before this gate; the topology
+        // re-track's tab-set eviction covers that case.
+        int wlevel = 0; SLSGetWindowLevel(g_connection, wid, &wlevel);
+        if (wlevel == 0) {
+            bool is_new = window_manager_add_tab_window(&g_window_manager, wid);
+            debug("%s: %s tab wid=%d owner=%d\n", __FUNCTION__, is_new ? "NEW" : "re-materialized", wid, owner);
+            if (is_new) update_window_notifications();
+        } else {
+            debug("%s: skipping tab-set add for wid=%d (level=%d)\n", __FUNCTION__, wid, wlevel);
+        }
     }
 
     // Native-tab follow, KEYBOARD path. A tab switch re-materializes the incoming
