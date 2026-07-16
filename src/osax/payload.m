@@ -354,8 +354,15 @@ extern void     CVDisplayLinkRelease(CVDisplayLinkRef link);
 // animators so focus_ring + space_animation route through one curve table.
 #include "payload_inc/easing.inc.m"
 
+// Forward declaration for the focus_ring deathwatch hook defined in
+// payload_inc/focus_ring.inc.m. Hoisted so the deathwatch helper (included
+// EARLIER in this TU than focus_ring.inc.m) can tear down the ring windows
+// when yabai dies.
+static void payload_focus_ring_destroy_all(void);
+
 // Daemon deathwatch: kqueue NOTE_EXIT on the daemon pid — resets demoted
-// window sub-levels when yabai dies so nothing is stranded below the desktop.
+// window sub-levels when yabai dies so nothing is stranded below the desktop,
+// and frees the focus_ring overlay windows so no ghost band haunts a space.
 #include "payload_inc/deathwatch.inc.m"
 
 // SkyLight private SPI externs used by code earlier in this TU than the

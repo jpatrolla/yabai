@@ -86,6 +86,13 @@ static int deathwatch_reset_sublevels(void)
 static void deathwatch_fire(void)
 {
     logpf("DEATHWATCH", "yabai death detected — running teardown");
+
+    // Tear down the focus_ring overlay windows before touching the user's
+    // windows. Daemon's gone, nobody will drive these surfaces — releasing
+    // them returns the wids to WindowServer and removes the alpha-0 overlay
+    // ghosts from the active spaces.
+    payload_focus_ring_destroy_all();
+
     deathwatch_reset_sublevels();
 }
 
