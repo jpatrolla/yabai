@@ -127,33 +127,34 @@ yabai -m config space_focus_target_display default             # default | mouse
 # Focus plumbing
 
 # Focus ring (unlike the animations, this is ON by default)
+# The ring is one frosted band around the focused window, washed with a color,
+# plus an optional hard "inner stroke" hugging the window seam on its own layer.
 yabai -m config focus_ring_enabled             on              # master on/off (default on)
-yabai -m config focus_ring_color               0xffffffff      # 0xAARRGGBB | auto | system (default white; auto/system track the macOS accent color)
 yabai -m config focus_ring_width               10              # band thickness in px (default 10)
-yabai -m config focus_ring_alpha               0.60            # whole-ring translucency 0.0..1.0 (default 0.60)
-yabai -m config focus_ring_opacity             0.0             # hard stroke/tint wash alpha 0.0..1.0 (default 0.0 = off)
+yabai -m config focus_ring_color               0xffffffff      # band color: 0xAARRGGBB | auto | system | a named accent (blue, red, ...); auto/system track the macOS accent (default white)
+yabai -m config focus_ring_color_opacity       1.0             # band color wash alpha 0.0..1.0; 1 = solid color (default), 0 = pure frost
+yabai -m config focus_ring_alpha               0.60            # whole-ring translucency 0.0..1.0; dims band + stroke + frost together (default 0.60)
 
-# Frosted-band styling — focus_ring_blur_radius drives the look: 0 = a sharp solid stroke,
-# > 0 = a frosted band (the style is inferred from this radius; there is no separate style key).
-yabai -m config focus_ring_blur_radius         15              # frost blur radius in px; 0 = sharp stroke (default 15)
-yabai -m config focus_ring_blur_bleed          0               # px; sample + frost the window's own edge outward (default 0 = off)
-yabai -m config focus_ring_blur_feather        0               # px; soften the band mask's edges (default 0 = off)
-yabai -m config focus_ring_blur_saturation     1.5             # 0.0..4.0; 1.0 = unchanged frost (default 1.5)
-yabai -m config focus_ring_blur_brightness     0.5             # -1.0..1.0; 0.0 = unchanged frost (default 0.5)
-yabai -m config focus_ring_blur_contrast       2.0             # 0.0..4.0; 1.0 = unchanged frost (default 2.0)
-yabai -m config focus_ring_blur_hue            5               # 0..360 degrees; 0 = unchanged frost (default 5)
-yabai -m config focus_ring_blur_color          inherit         # 0xAARRGGBB | inherit (frost tint; inherit = focus_ring_color)
-yabai -m config focus_ring_blur_opacity        inherit         # 0.0..1.0 | inherit (frost tint alpha; inherit = focus_ring_opacity)
-yabai -m config focus_ring_blend_mode          color-dodge     # tint-over-frost blend; values below (default color-dodge)
+# Band styling — these shape the frost, which shows through wherever
+# color_opacity < 1.0. blur_radius is the only knob that genuinely blurs: it
+# frosts what the band samples behind the window (0 = unblurred).
+yabai -m config focus_ring_blur_radius         15              # frost blur radius in px (default 15)
+yabai -m config focus_ring_bleed               0               # px; sample + frost the window's own edge outward (default 0 = off)
+yabai -m config focus_ring_feather             0               # px; soften the band mask's edges (default 0 = off)
+yabai -m config focus_ring_saturation          1.5             # 0.0..4.0; 1.0 = unchanged frost (default 1.5)
+yabai -m config focus_ring_brightness          0.5             # -1.0..1.0; 0.0 = unchanged frost (default 0.5)
+yabai -m config focus_ring_contrast            2.0             # 0.0..4.0; 1.0 = unchanged frost (default 2.0)
+yabai -m config focus_ring_hue                 5               # 0..360 degrees; 0 = unchanged frost (default 5)
+yabai -m config focus_ring_blend_mode          normal          # color-wash-over-frost blend; values below (default normal — color-dodge etc. blow bright hues toward white)
 # focus_ring_blend_mode values: normal multiply screen overlay darken lighten color-dodge
 #   color-burn soft-light hard-light difference exclusion hue saturation color luminosity
 
-# Hard stroke overlaid on the frosted band
-yabai -m config focus_ring_blur_stroke          on             # overlay a crisp stroke on the frosted band (default on)
-yabai -m config focus_ring_blur_stroke_position above          # above | below the frosted band (default above)
-yabai -m config focus_ring_blur_stroke_width    6              # stroke thickness in px, independent of the band (default 6)
-yabai -m config focus_ring_blur_stroke_color    inherit        # 0xAARRGGBB | inherit (inherit = focus_ring_color)
-yabai -m config focus_ring_blur_stroke_opacity  inherit        # 0.0..1.0 | inherit (inherit = focus_ring_opacity)
+# Inner stroke — a crisp stroke on its own layer, hugging the band's inner edge (the window seam)
+yabai -m config focus_ring_inner_stroke          on            # overlay the stroke (default on)
+yabai -m config focus_ring_inner_stroke_position above         # above | below the band (default above)
+yabai -m config focus_ring_inner_stroke_width    6             # stroke thickness in px, independent of the band (default 6)
+yabai -m config focus_ring_inner_stroke_color    inherit       # 0xAARRGGBB | a named accent | inherit (inherit = focus_ring_color)
+yabai -m config focus_ring_inner_stroke_opacity  inherit       # 0.0..1.0 | inherit (inherit = focus_ring_color_opacity)
 
 # Mission Control spaces strip
 yabai -m config mission_control_always_show_spaces_strip_enabled off  # reveal MC's spaces thumbnail strip on open (default off)

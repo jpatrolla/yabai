@@ -16,31 +16,36 @@
 // without further SA round-trips per frame.
 // Payload re-resolves the target's sid via SLSCopySpacesForWindows inside
 // the SHOW handler, so the daemon passes no display/space identifiers.
-// stroke_width / stroke_alpha / stroke_{r,g,b} are the current config values
-// (yabai -m config focus_ring_width / focus_ring_opacity / focus_ring_color).
-// Daemon stamps them on every SHOW; payload updates its render globals from
-// these before computing surface size (a width change forces a reshape via the
-// size_changed branch in do_focus_ring_show). force_style=1 marks an explicit
-// config change: it clears the payload-side color_override latch so config
-// values reassert authority; passive focus events pass 0 and leave the latch
-// untouched.
-// blur_radius is the background-blur (vibrancy) radius in px (0 = off); the
-// payload masks it to the stroke band via the window shape. style is the
-// enum focus_ring_style (stroke/glow/blur) selecting the payload draw path.
+// The wire keeps its historical field names (append-only contract) — daemon-side
+// they now map: stroke_width = focus_ring_width (band thickness), stroke_alpha /
+// stroke_{r,g,b} = focus_ring_color_opacity / focus_ring_color (the band's color
+// wash — the payload renders the wash from the resolved tint_* below; these slots
+// are stamped for wire compat + the payload's show_recv log). Daemon stamps them
+// on every SHOW; payload updates its render globals from these before computing
+// surface size (a width change forces a reshape via the size_changed branch in
+// do_focus_ring_show). force_style=1 marks an explicit config change: it clears
+// the payload-side color_override latch so config values reassert authority;
+// passive focus events pass 0 and leave the latch untouched.
+// blur_radius is the background-blur (vibrancy) radius in px (0 = unblurred
+// sample); the payload masks it to the band via the window shape. style is the
+// legacy enum focus_ring_style wire slot — derived daemon-side from blur_radius,
+// ignored by the payload since FR-24.
 // blur_saturation / blur_brightness adjust the sampled frosted content (CAFilter
-// colorSaturate/colorBrightness; identity 1.0/0.0), and blend_mode (enum
-// focus_ring_blend_mode) is the tint sublayer's compositingFilter. blur_stroke
-// overlays a hard CAShapeLayer stroke on the blur ring; blur_stroke_position (enum
-// focus_ring_blur_stroke_position) is its zPosition vs the band (above/below) and
-// blur_stroke_width its thickness in px. blur_bleed is the inner-bleed px (band
-// overlaps + frosts the window's own edge). tint_{r,g,b,a} is the frost color wash's
-// final RGBA and str_{r,g,b,a} the stroke overlay's — resolved daemon-side from the
-// per-layer focus_ring_blur_{,stroke_}{opacity,color} overrides (inheriting the base
-// focus_ring_color/opacity). All BLUR-only, ignored by stroke/glow.
+// colorSaturate/colorBrightness; identity 1.0/0.0) — daemon keys focus_ring_
+// saturation/brightness — and blend_mode (enum focus_ring_blend_mode) is the
+// color-wash sublayer's compositingFilter. blur_stroke... wire fields carry the
+// INNER STROKE (daemon keys focus_ring_inner_stroke*): blur_stroke enables the
+// hard CAShapeLayer stroke hugging the band's inner edge; blur_stroke_position
+// is its zPosition vs the band (above/below) and blur_stroke_width its thickness
+// in px. blur_bleed is the inner-bleed px (band overlaps + frosts the window's
+// own edge; key focus_ring_bleed). tint_{r,g,b,a} is the band color wash's final
+// RGBA and str_{r,g,b,a} the inner stroke's — resolved daemon-side (the stroke
+// inherits the band's color/color_opacity unless overridden).
 // FR-21 xray: xray flag + RGBA + up to SA_FOCUS_RING_XRAY_MAX_RECTS screen-space
 // frames of overlapping windows, appended (variable-length) after the fixed
 // struct; the payload recolors the band segments clipped to those frames
-// (STROKE style only). xray_rects may be NULL when xray_count is 0.
+// (renders on the sharp blur-0 band or the inner stroke). xray_rects may be
+// NULL when xray_count is 0.
 // window_alpha: whole-window translucency (`alpha` knob) — the window's NORMAL
 // alpha slot; visibility/fades ride the SYSTEM slot so the two never collide.
 bool scripting_addition_focus_ring_show(uint32_t wid, float x, float y, float w, float h, float radius, float stroke_width, float stroke_alpha, float stroke_r, float stroke_g, float stroke_b, bool force_style, int blur_radius, int style, float blur_saturation, float blur_brightness, int blend_mode, bool blur_stroke, int blur_stroke_position, float blur_stroke_width, float blur_bleed, float tint_r, float tint_g, float tint_b, float tint_a, float str_r, float str_g, float str_b, float str_a, float blur_contrast, float blur_feather, float fade_duration, float blur_hue, bool xray, float xray_r, float xray_g, float xray_b, float xray_a, int xray_count, CGRect *xray_rects, float window_alpha);

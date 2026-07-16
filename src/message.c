@@ -86,24 +86,22 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MC_ALWAYS_SHOW_SPACES_STRIP "mission_control_always_show_spaces_strip_enabled"
 #define COMMAND_CONFIG_FOCUS_RING_ENABLED    "focus_ring_enabled"
 #define COMMAND_CONFIG_FOCUS_RING_WIDTH      "focus_ring_width"
-#define COMMAND_CONFIG_FOCUS_RING_OPACITY    "focus_ring_opacity"
+#define COMMAND_CONFIG_FOCUS_RING_COLOR_OPACITY    "focus_ring_color_opacity"
 #define COMMAND_CONFIG_FOCUS_RING_ALPHA      "focus_ring_alpha"
 #define COMMAND_CONFIG_FOCUS_RING_COLOR      "focus_ring_color"
 #define COMMAND_CONFIG_FOCUS_RING_BLUR_RADIUS          "focus_ring_blur_radius"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_BLEED           "focus_ring_blur_bleed"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_FEATHER         "focus_ring_blur_feather"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_SATURATION      "focus_ring_blur_saturation"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_BRIGHTNESS      "focus_ring_blur_brightness"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_CONTRAST        "focus_ring_blur_contrast"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_HUE             "focus_ring_blur_hue"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_OPACITY         "focus_ring_blur_opacity"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_COLOR           "focus_ring_blur_color"
+#define COMMAND_CONFIG_FOCUS_RING_BLEED           "focus_ring_bleed"
+#define COMMAND_CONFIG_FOCUS_RING_FEATHER         "focus_ring_feather"
+#define COMMAND_CONFIG_FOCUS_RING_SATURATION      "focus_ring_saturation"
+#define COMMAND_CONFIG_FOCUS_RING_BRIGHTNESS      "focus_ring_brightness"
+#define COMMAND_CONFIG_FOCUS_RING_CONTRAST        "focus_ring_contrast"
+#define COMMAND_CONFIG_FOCUS_RING_HUE             "focus_ring_hue"
 #define COMMAND_CONFIG_FOCUS_RING_BLEND_MODE           "focus_ring_blend_mode"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE          "focus_ring_blur_stroke"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_POSITION "focus_ring_blur_stroke_position"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_WIDTH    "focus_ring_blur_stroke_width"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_OPACITY  "focus_ring_blur_stroke_opacity"
-#define COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_COLOR    "focus_ring_blur_stroke_color"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE          "focus_ring_inner_stroke"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_POSITION "focus_ring_inner_stroke_position"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_WIDTH    "focus_ring_inner_stroke_width"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_OPACITY  "focus_ring_inner_stroke_opacity"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_COLOR    "focus_ring_inner_stroke_color"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -1242,7 +1240,7 @@ static char *focus_ring_blend_mode_str[] = {
     "color-dodge", "color-burn", "soft-light", "hard-light", "difference",
     "exclusion", "hue", "saturation", "color", "luminosity",
 };
-static char *focus_ring_blur_stroke_position_str[] = { "above", "below" };
+static char *focus_ring_inner_stroke_position_str[] = { "above", "below" };
 
 // focus_ring config helpers. The ring exposes ~20 knobs sharing a handful of
 // parse shapes; each helper takes the matching getter/setter instead of
@@ -1305,7 +1303,7 @@ static void fr_config_enum(FILE *rsp, char **message, struct token command, stru
     }
 }
 
-// Base stroke color: 0xAARRGGBB | a named accent preset | auto|system (live accent).
+// Band color: 0xAARRGGBB | a named accent preset | auto|system (live accent).
 static void fr_config_color_base(FILE *rsp, char **message, struct token command, struct token domain, uint32_t (*get)(void), bool (*is_auto)(void), void (*set)(uint32_t), void (*set_auto)(void))
 {
     struct token value = get_token(message);
@@ -1324,7 +1322,7 @@ static void fr_config_color_base(FILE *rsp, char **message, struct token command
     }
 }
 
-// Per-layer BLUR color: 0xRRGGBB | a named accent preset | inherit (follow base).
+// Inner-stroke color: 0xRRGGBB | a named accent preset | inherit (follow the band).
 static void fr_config_color_inherit(FILE *rsp, char **message, struct token command, struct token domain, uint32_t (*get)(void), bool (*is_set)(void), void (*set)(uint32_t), void (*set_inherit)(void))
 {
     struct token value = get_token(message);
@@ -1343,16 +1341,16 @@ static void fr_config_color_inherit(FILE *rsp, char **message, struct token comm
     }
 }
 
-// Per-layer BLUR opacity: 0.0..1.0 | inherit (sentinel FOCUS_RING_BLUR_OPACITY_INHERIT).
+// Inner-stroke opacity: 0.0..1.0 | inherit (sentinel FOCUS_RING_OPACITY_INHERIT).
 static void fr_config_opacity_inherit(FILE *rsp, char **message, struct token command, struct token domain, float (*get)(void), void (*set)(float))
 {
     struct token value = get_token(message);
     if (!token_is_valid(value)) {
         float cur = get();
-        if (cur == FOCUS_RING_BLUR_OPACITY_INHERIT) fprintf(rsp, "inherit\n");
+        if (cur == FOCUS_RING_OPACITY_INHERIT) fprintf(rsp, "inherit\n");
         else                                        fprintf(rsp, "%f\n", cur);
     } else if (token_equals(value, "inherit")) {
-        set(FOCUS_RING_BLUR_OPACITY_INHERIT);
+        set(FOCUS_RING_OPACITY_INHERIT);
     } else {
         struct token_value tv = token_to_value(value);
         if (tv.type == TOKEN_TYPE_FLOAT)    set(tv.float_value);
@@ -1512,42 +1510,38 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             fr_config_bool(rsp, &message, command, domain, focus_ring_get_enabled, focus_ring_set_enabled);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_WIDTH)) {
             fr_config_float(rsp, &message, command, domain, focus_ring_get_width, focus_ring_set_width);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_OPACITY)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_opacity, focus_ring_set_opacity);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_COLOR_OPACITY)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_color_opacity, focus_ring_set_color_opacity);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_ALPHA)) {
             fr_config_float(rsp, &message, command, domain, focus_ring_get_alpha, focus_ring_set_alpha);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_COLOR)) {
             fr_config_color_base(rsp, &message, command, domain, focus_ring_get_color, focus_ring_get_color_is_auto, focus_ring_set_color, focus_ring_set_color_auto);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_RADIUS)) {
             fr_config_int(rsp, &message, command, domain, focus_ring_get_blur_radius, focus_ring_set_blur_radius);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_BLEED)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_bleed, focus_ring_set_blur_bleed);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_FEATHER)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_feather, focus_ring_set_blur_feather);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_SATURATION)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_saturation, focus_ring_set_blur_saturation);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_BRIGHTNESS)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_brightness, focus_ring_set_blur_brightness);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_CONTRAST)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_contrast, focus_ring_set_blur_contrast);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_HUE)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_hue, focus_ring_set_blur_hue);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_OPACITY)) {
-            fr_config_opacity_inherit(rsp, &message, command, domain, focus_ring_get_blur_opacity, focus_ring_set_blur_opacity);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_COLOR)) {
-            fr_config_color_inherit(rsp, &message, command, domain, focus_ring_get_blur_color, focus_ring_get_blur_color_is_set, focus_ring_set_blur_color, focus_ring_set_blur_color_inherit);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLEED)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_bleed, focus_ring_set_bleed);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_FEATHER)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_feather, focus_ring_set_feather);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_SATURATION)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_saturation, focus_ring_set_saturation);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BRIGHTNESS)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_brightness, focus_ring_set_brightness);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_CONTRAST)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_contrast, focus_ring_set_contrast);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_HUE)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_hue, focus_ring_set_hue);
         } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLEND_MODE)) {
             fr_config_enum(rsp, &message, command, domain, focus_ring_blend_mode_str, FOCUS_RING_BLEND_COUNT, focus_ring_get_blend_mode, focus_ring_set_blend_mode);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE)) {
-            fr_config_bool(rsp, &message, command, domain, focus_ring_get_blur_stroke, focus_ring_set_blur_stroke);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_POSITION)) {
-            fr_config_enum(rsp, &message, command, domain, focus_ring_blur_stroke_position_str, 2, focus_ring_get_blur_stroke_position, focus_ring_set_blur_stroke_position);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_WIDTH)) {
-            fr_config_float(rsp, &message, command, domain, focus_ring_get_blur_stroke_width, focus_ring_set_blur_stroke_width);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_OPACITY)) {
-            fr_config_opacity_inherit(rsp, &message, command, domain, focus_ring_get_blur_stroke_opacity, focus_ring_set_blur_stroke_opacity);
-        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_STROKE_COLOR)) {
-            fr_config_color_inherit(rsp, &message, command, domain, focus_ring_get_blur_stroke_color, focus_ring_get_blur_stroke_color_is_set, focus_ring_set_blur_stroke_color, focus_ring_set_blur_stroke_color_inherit);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE)) {
+            fr_config_bool(rsp, &message, command, domain, focus_ring_get_inner_stroke, focus_ring_set_inner_stroke);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_POSITION)) {
+            fr_config_enum(rsp, &message, command, domain, focus_ring_inner_stroke_position_str, 2, focus_ring_get_inner_stroke_position, focus_ring_set_inner_stroke_position);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_WIDTH)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_inner_stroke_width, focus_ring_set_inner_stroke_width);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_OPACITY)) {
+            fr_config_opacity_inherit(rsp, &message, command, domain, focus_ring_get_inner_stroke_opacity, focus_ring_set_inner_stroke_opacity);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_COLOR)) {
+            fr_config_color_inherit(rsp, &message, command, domain, focus_ring_get_inner_stroke_color, focus_ring_get_inner_stroke_color_is_set, focus_ring_set_inner_stroke_color, focus_ring_set_inner_stroke_color_inherit);
         } else if (token_equals(command, COMMAND_CONFIG_OPACITY)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {

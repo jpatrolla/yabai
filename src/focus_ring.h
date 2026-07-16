@@ -2,9 +2,9 @@
 #define FOCUS_RING_H
 
 // =========================================================================
-// focus_ring — singular stroke-window focus indicator (PER_FOCUS)
+// focus_ring — singular band-window focus indicator (PER_FOCUS)
 // =========================================================================
-// One Dock-cid-owned SLS window sized to the focused target + stroke
+// One Dock-cid-owned SLS window sized to the focused target + band
 // padding, translated each animation frame inside the t3d batch's own
 // transaction (SLSTransactionMoveWindowWithGroup) so the ring's position
 // commits in the same compositor frame as the target's LB+T3D motion.
@@ -12,53 +12,56 @@
 // surface. Lifecycle is one-instance: created on first SHOW, destroyed on
 // focus loss or HIDE.
 //
+// The ring is ONE window hosting two styled layers (FR-24):
+//   band         — the frosted backdrop strip around the window, washed with
+//                  focus_ring_color at focus_ring_color_opacity. blur_radius
+//                  frosts what it samples (0 = unblurred; color_opacity 1.0
+//                  = the classic solid ring). saturation/brightness/contrast/
+//                  hue re-grade the sampled content; blend_mode composites the
+//                  color wash over it.
+//   inner stroke — a hard rounded-rect stroke hugging the band's inner edge
+//                  (the window seam), on its own layer above or below the
+//                  band. Color/opacity inherit the band's unless overridden.
+//
 // User-facing config:
 //   yabai -m config focus_ring_enabled on|off
-//   yabai -m config focus_ring_width <px>
-//   yabai -m config focus_ring_opacity <0.0..1.0>
+//   yabai -m config focus_ring_width <px>                 (band thickness)
 //   yabai -m config focus_ring_color 0xAARRGGBB | auto | system
-//   yabai -m config focus_ring_blur_radius <px>   (0 = off; vibrancy behind the
-//                                                  stroke band, blur style only)
-//   yabai -m config focus_ring_blur_bleed <px>    (0 = off; blur style only; band
-//                                                  samples + frosts the window's
-//                                                  own edge, bleeding it outward)
-//   yabai -m config focus_ring_blur_saturation <0.0..4.0>  (blur style only;
-//                                                  1.0 = unchanged frost)
-//   yabai -m config focus_ring_blur_brightness <-1.0..1.0> (blur style only;
-//                                                  0.0 = unchanged frost)
-//   yabai -m config focus_ring_blur_contrast <0.0..4.0>    (blur style only;
-//                                                  1.0 = unchanged frost)
-//   yabai -m config focus_ring_blur_hue <0..360>           (blur style only;
-//                                                  degrees; 0 = unchanged frost)
+//                                                  (band color wash; auto/system
+//                                                  track the macOS accent color)
+//   yabai -m config focus_ring_color_opacity <0.0..1.0>   (band color wash alpha;
+//                                                  0 = pure frost, 1 = solid color)
+//   yabai -m config focus_ring_blur_radius <px>   (0 = off; gaussian blur of the
+//                                                  content the band samples)
+//   yabai -m config focus_ring_bleed <px>         (0 = off; band samples + frosts
+//                                                  the window's own edge, bleeding
+//                                                  it outward)
+//   yabai -m config focus_ring_saturation <0.0..4.0>   (1.0 = unchanged frost)
+//   yabai -m config focus_ring_brightness <-1.0..1.0>  (0.0 = unchanged frost)
+//   yabai -m config focus_ring_contrast <0.0..4.0>     (1.0 = unchanged frost)
+//   yabai -m config focus_ring_hue <0..360>            (degrees; 0 = unchanged)
 //   yabai -m config focus_ring_blend_mode normal | multiply | screen | overlay |
 //                                          darken | lighten | color-dodge |
 //                                          color-burn | soft-light | hard-light |
 //                                          difference | exclusion | hue |
 //                                          saturation | color | luminosity
-//                                                  (blur style only; how the ring
-//                                                  color tint blends over the frost)
-//   yabai -m config focus_ring_blur_stroke on|off  (blur style only; overlay a hard
-//                                                  stroke on the frosted ring)
-//   yabai -m config focus_ring_blur_stroke_position above | below
-//                                                  (blur style only; z-order of the
-//                                                  stroke vs the frosted band)
-//   yabai -m config focus_ring_blur_stroke_width <px>  (blur style only; stroke
-//                                                  thickness, independent of the band)
-//   yabai -m config focus_ring_blur_opacity <0.0..1.0> | inherit  (blur style only;
-//                                                  the frosted color wash's alpha;
-//                                                  inherit = follow focus_ring_opacity)
-//   yabai -m config focus_ring_blur_color 0xAARRGGBB | inherit    (blur style only;
-//                                                  the frosted color wash's color)
-//   yabai -m config focus_ring_blur_stroke_opacity <0.0..1.0> | inherit  (blur only;
-//                                                  the stroke overlay's alpha)
-//   yabai -m config focus_ring_blur_stroke_color 0xAARRGGBB | inherit    (blur only;
-//                                                  the stroke overlay's color)
-//   yabai -m config focus_ring_blur_feather <px>   (0 = off; blur style only; blurs
-//                                                  the band's alpha MASK so its edges
-//                                                  feather/soften instead of reading
-//                                                  as a clean rounded-rect cutout)
-//   yabai -m config focus_ring_alpha <0.0..1.0>    (whole-window translucency of the
-//                                                  ring surface; composes with opacity)
+//                                                  (how the color wash blends
+//                                                  over the frost)
+//   yabai -m config focus_ring_feather <px>       (0 = off; blurs the band's alpha
+//                                                  MASK so its edges soften instead
+//                                                  of reading as sharp cutouts)
+//   yabai -m config focus_ring_inner_stroke on|off
+//   yabai -m config focus_ring_inner_stroke_position above | below
+//                                                  (z-order of the stroke vs the band)
+//   yabai -m config focus_ring_inner_stroke_width <px>
+//   yabai -m config focus_ring_inner_stroke_opacity <0.0..1.0> | inherit
+//                                                  (inherit = follow color_opacity)
+//   yabai -m config focus_ring_inner_stroke_color 0xAARRGGBB | inherit
+//                                                  (inherit = follow color)
+//   yabai -m config focus_ring_alpha <0.0..1.0>   (whole-window translucency of the
+//                                                  ring surface — dims band + stroke +
+//                                                  frost together; composes with the
+//                                                  per-layer opacities)
 //
 // The desktop ring (display-sized band when the desktop is focused), the
 // FR-21 xray recolor, the FR-9 fade timing, and the modal-follow mode run on
@@ -80,10 +83,13 @@
 // daemon stamps the current value on every SA SHOW so the two stay in sync.
 #define FOCUS_RING_DEFAULT_ENABLED  true
 #define FOCUS_RING_DEFAULT_WIDTH    10.0f
-#define FOCUS_RING_DEFAULT_OPACITY  0.0f
+// Band color wash alpha. 0 = pure frost (the color knobs are visually inert
+// until this is raised); 1 = solid color band (default — focus_ring_color is
+// WYSIWYG out of the box; lower this to let the frost through).
+#define FOCUS_RING_DEFAULT_COLOR_OPACITY  1.0f
 // Whole-window translucency (`alpha` knob) — the ring window's NORMAL alpha
-// slot. Distinct from OPACITY (the fill/tint wash alpha); show/hide + fades
-// ride the SYSTEM alpha slot, so the two compose multiplicatively.
+// slot. Distinct from COLOR_OPACITY (the band's color wash alpha); show/hide +
+// fades ride the SYSTEM alpha slot, so the two compose multiplicatively.
 #define FOCUS_RING_DEFAULT_ALPHA    0.60f
 
 // FR-20: desktop-ring style overrides. The desktop ring (the display-sized ring
@@ -91,7 +97,7 @@
 // visual state from the per-window ring, with its own width / radius / opacity /
 // top-margin and an on/off sub-toggle (the ring shows only when
 // focus_ring_enabled AND focus_ring_desktop are both on). Width and opacity use
-// the -1 = inherit sentinel (fall back to focus_ring_width / focus_ring_opacity)
+// the -1 = inherit sentinel (fall back to focus_ring_width / focus_ring_color_opacity)
 // so an unconfigured desktop ring matches the main ring. Radius has nothing to
 // inherit (the per-window ring derives its radius from the window's own corner
 // radius); it rounds the band's INNER edge (the ring renders inset, outer edge
@@ -114,11 +120,10 @@
 #define FOCUS_RING_DESKTOP_DEFAULT_FEATHER    FOCUS_RING_DESKTOP_INHERIT
 #define FOCUS_RING_DESKTOP_DEFAULT_BLEND      (-1)   // int sentinel; <0 = inherit blend_mode
 
-// Default stroke color (0xffffffff — white), mirrored payload-side in
-// g_focus_ring_stroke_{r,g,b} (focus_ring.inc.m). Daemon stamps the current
-// RGB on every SA SHOW so the two stay in sync; keep these matching the
-// payload's initializers so an unconfigured ring looks the same pre/post
-// first SHOW.
+// Default band color (0xffffffff — white). Stamped on every SA SHOW (the wire's
+// legacy stroke_{r,g,b} slots plus the resolved tint); keep these matching the
+// payload's g_focus_ring_stroke_{r,g,b} initializers so an unconfigured ring
+// looks the same pre/post first SHOW.
 #define FOCUS_RING_DEFAULT_R        1.00f
 #define FOCUS_RING_DEFAULT_G        1.00f
 #define FOCUS_RING_DEFAULT_B        1.00f
@@ -145,19 +150,15 @@ enum focus_ring_color_mode {
     FOCUS_RING_COLOR_AUTO  = 1,
 };
 
-// focus_ring_style — the ring's rendering mode, INFERRED from the blur radius
-// (FR-22: 0 = STROKE, > 0 = BLUR; no standalone config key). STROKE is the
-// sharp solid band; BLUR is the frosted CABackdropLayer band. Both render
-// through the same payload CA surface (FR-24) — the enum survives only as the
-// SHOW wire field, which the payload ignores. Value 1 (a retired GLOW style)
-// is reserved; keep BLUR = 2 (wire compat).
+// focus_ring_style — WIRE-ONLY vestige. The value is derived at send time from
+// the blur radius (0 = STROKE, > 0 = BLUR) purely to fill the SHOW wire's
+// `style` slot (append-only contract), which the payload ignores since FR-24 —
+// rendering is one path, driven by the blur radius itself. No daemon state, no
+// config key. Value 1 (a retired GLOW style) is reserved; keep BLUR = 2.
 enum focus_ring_style {
     FOCUS_RING_STYLE_STROKE = 0,
     FOCUS_RING_STYLE_BLUR   = 2,
 };
-// Keep in lockstep with FOCUS_RING_DEFAULT_BLUR (style is inferred from the
-// blur radius: 0 = STROKE, > 0 = BLUR).
-#define FOCUS_RING_DEFAULT_STYLE    FOCUS_RING_STYLE_BLUR
 
 // How the ring treats a modal / attached child window that sits over its parent
 // (e.g. System Settings' "Keyboard Shortcuts" sheet). yabai-the-window-manager
@@ -184,13 +185,12 @@ enum focus_ring_modal_mode {
 #define FOCUS_RING_MAX_WIDTH       32.0f
 
 // Background-blur (vibrancy) radius applied to the framebuffer behind the
-// stroke band. 0 disables it; the default is a 15px frost (BLUR style — keep
-// FOCUS_RING_DEFAULT_STYLE in lockstep). Capped so a typo can't ask the
-// compositor for an absurd Gaussian kernel.
+// band. 0 disables it (unblurred sample); the default is a 15px frost. Capped
+// so a typo can't ask the compositor for an absurd Gaussian kernel.
 #define FOCUS_RING_DEFAULT_BLUR     15
 #define FOCUS_RING_MAX_BLUR        64
 
-// Inner bleed (BLUR style only) — px the frosted band's INNER edge is pushed
+// Inner bleed — px the frosted band's INNER edge is pushed
 // INWARD past the focused window's edge, so the band overlaps a strip of the
 // window. With the ring ordered above the target, the backdrop's behind-window
 // capture samples that strip (the window's own edge pixels) and frosts it, then
@@ -202,7 +202,7 @@ enum focus_ring_modal_mode {
 #define FOCUS_RING_MIN_BLEED        0.0f
 #define FOCUS_RING_MAX_BLEED       64.0f
 
-// Background-blur color adjustment (BLUR style only) — CAFilter colorSaturate /
+// Band color adjustment — CAFilter colorSaturate /
 // colorBrightness applied over the sampled frosted content. Identity is
 // saturation 1.0 / brightness 0.0; the defaults bake the showcase style (saturated,
 // brightened frost composited over the window edge via the color-dodge blend).
@@ -224,9 +224,9 @@ enum focus_ring_modal_mode {
 #define FOCUS_RING_MIN_HUE             0.0f
 #define FOCUS_RING_MAX_HUE           360.0f
 
-// focus_ring_blend_mode — the CAFilter compositingFilter set on the BLUR ring's
-// color-tint sublayer, controlling how the ring color blends over the frosted blur
-// beneath it (BLUR style only). NORMAL clears the filter (default source-over).
+// focus_ring_blend_mode — the CAFilter compositingFilter set on the band's
+// color-wash sublayer, controlling how the ring color blends over the frosted
+// blur beneath it. NORMAL clears the filter (default source-over).
 // The payload mirrors this enum -> CAFilter type-string table, so the integer
 // ordinal IS the wire contract: append new modes at the END, never reorder.
 enum focus_ring_blend_mode {
@@ -248,36 +248,39 @@ enum focus_ring_blend_mode {
     FOCUS_RING_BLEND_LUMINOSITY,
     FOCUS_RING_BLEND_COUNT,
 };
-#define FOCUS_RING_DEFAULT_BLEND_MODE  FOCUS_RING_BLEND_COLOR_DODGE
+// NORMAL by default so focus_ring_color renders literally. color-dodge (the old
+// showcase default) brightens the frost but blows any hue toward white over
+// bright content — opt back in per-config.
+#define FOCUS_RING_DEFAULT_BLEND_MODE  FOCUS_RING_BLEND_NORMAL
 
-// focus_ring_blur_stroke — overlay a hard rounded-rect stroke on the BLUR (quartz)
-// ring so the frosted band reads brighter / more defined. BLUR style only. The
-// payload adds a CAShapeLayer to the existing backdrop CA tree (no second window);
-// position selects its zPosition vs the frosted band.
+// focus_ring_inner_stroke — overlay a hard rounded-rect stroke hugging the
+// band's inner edge (the window seam) so the band reads brighter / more
+// defined. Not a true inset stroke of the window — it lives on its own layer
+// in the ring's CA tree (no second window); position selects its zPosition vs
+// the band.
 //   ABOVE — crisp stroke composited over the band (clean defined edge).
 //   BELOW — stroke under the band, seen translucently through the frost (softer).
 // NB: the backdrop samples behind-WINDOW content, not sibling layers, so BELOW is
 // "stroke through frost", not a true gaussian blur of the stroke.
-enum focus_ring_blur_stroke_position {
-    FOCUS_RING_BLUR_STROKE_ABOVE = 0,
-    FOCUS_RING_BLUR_STROKE_BELOW = 1,
+enum focus_ring_inner_stroke_position {
+    FOCUS_RING_INNER_STROKE_ABOVE = 0,
+    FOCUS_RING_INNER_STROKE_BELOW = 1,
 };
-#define FOCUS_RING_DEFAULT_BLUR_STROKE           true
-#define FOCUS_RING_DEFAULT_BLUR_STROKE_POSITION  FOCUS_RING_BLUR_STROKE_ABOVE
-#define FOCUS_RING_DEFAULT_BLUR_STROKE_WIDTH     6.0f
-#define FOCUS_RING_MIN_BLUR_STROKE_WIDTH         0.5f
-#define FOCUS_RING_MAX_BLUR_STROKE_WIDTH        32.0f
+#define FOCUS_RING_DEFAULT_INNER_STROKE           true
+#define FOCUS_RING_DEFAULT_INNER_STROKE_POSITION  FOCUS_RING_INNER_STROKE_ABOVE
+#define FOCUS_RING_DEFAULT_INNER_STROKE_WIDTH     6.0f
+#define FOCUS_RING_MIN_INNER_STROKE_WIDTH         0.5f
+#define FOCUS_RING_MAX_INNER_STROKE_WIDTH        32.0f
 
-// focus_ring_blur_feather — soften the BLUR (quartz) ring's edges. The frosted
-// band's shape is an even-odd rounded-rect alpha MASK on the backdrop; setting a
-// gaussianBlur CAFilter on that mask layer blurs its alpha, so the band's outer and
-// inner edges feather instead of reading as sharp cutouts (the "gradient mask /
-// feather selection" idiom — black→white falloff at the edges). The value is the
-// blur radius in px. 0 = off (sharp edges, default — an unconfigured blur ring is
-// unchanged). BLUR style only.
-#define FOCUS_RING_DEFAULT_BLUR_FEATHER          0.0f
-#define FOCUS_RING_MIN_BLUR_FEATHER              0.0f
-#define FOCUS_RING_MAX_BLUR_FEATHER             64.0f
+// focus_ring_feather — soften the band's edges. The band's shape is an
+// even-odd rounded-rect alpha MASK on the backdrop; setting a gaussianBlur
+// CAFilter on that mask layer blurs its alpha, so the band's outer and inner
+// edges feather instead of reading as sharp cutouts (the "gradient mask /
+// feather selection" idiom — black→white falloff at the edges). The value is
+// the blur radius in px. 0 = off (sharp edges, default).
+#define FOCUS_RING_DEFAULT_FEATHER          0.0f
+#define FOCUS_RING_MIN_FEATHER              0.0f
+#define FOCUS_RING_MAX_FEATHER             64.0f
 
 // Discrete-transition ease — easing the ring's band on DISCRETE transitions
 // (focus change, space switch, config change) via Core Animation's implicit
@@ -288,101 +291,88 @@ enum focus_ring_blur_stroke_position {
 // animated=false so the band stays glued to the window — an implicit animation
 // there would make it trail.
 
-// Per-layer color / opacity overrides for the BLUR ring: focus_ring_blur_opacity /
-// _color drive the frosted color wash; focus_ring_blur_stroke_opacity / _color drive
-// the stroke overlay. Each INHERITS the base focus_ring_opacity / focus_ring_color
-// until explicitly set, so an unconfigured blur ring is unchanged. Opacity uses the
-// sentinel -1 = inherit; color carries a separate "is set" flag. The daemon resolves
-// all four to final per-layer RGBA before the SHOW wire, so the payload just applies
-// them (no inherit logic payload-side).
-#define FOCUS_RING_BLUR_OPACITY_INHERIT         (-1.0f)
-#define FOCUS_RING_DEFAULT_BLUR_OPACITY         FOCUS_RING_BLUR_OPACITY_INHERIT
-#define FOCUS_RING_DEFAULT_BLUR_STROKE_OPACITY  FOCUS_RING_BLUR_OPACITY_INHERIT
+// Inner-stroke color / opacity overrides. Each INHERITS the band's
+// focus_ring_color / focus_ring_color_opacity until explicitly set, so an
+// unconfigured stroke matches the band. Opacity uses the sentinel -1 = inherit;
+// color carries a separate "is set" flag. The daemon resolves both to final
+// per-layer RGBA before the SHOW wire, so the payload just applies them (no
+// inherit logic payload-side).
+#define FOCUS_RING_OPACITY_INHERIT               (-1.0f)
+#define FOCUS_RING_DEFAULT_INNER_STROKE_OPACITY  FOCUS_RING_OPACITY_INHERIT
 
 bool      focus_ring_get_enabled(void);
 void      focus_ring_set_enabled(bool enabled);
 
 float     focus_ring_get_width(void);
 void      focus_ring_set_width(float width);
-float     focus_ring_get_opacity(void);
-void      focus_ring_set_opacity(float opacity);
+float     focus_ring_get_color_opacity(void);
+void      focus_ring_set_color_opacity(float opacity);
 float     focus_ring_get_alpha(void);
 void      focus_ring_set_alpha(float alpha);
 
 // Background-blur radius (px). Just one knob on the always-on backdrop band
-// (0 = unblurred; the classic solid ring is the tint at full alpha). Pushed to
-// the payload on every SHOW alongside the other style fields; the payload masks
-// the band via the CABackdropLayer's shape mask, center stays sharp.
+// (0 = unblurred; the classic solid ring is the color wash at full alpha).
+// Pushed to the payload on every SHOW alongside the other style fields; the
+// payload masks the band via the CABackdropLayer's shape mask, center stays
+// sharp.
 int       focus_ring_get_blur_radius(void);
 void      focus_ring_set_blur_radius(int radius);
 
-// Rendering style (enum focus_ring_style). FR-22: INFERRED from the blur radius
-// (sharp stroke at 0, blur above) inside focus_ring_set_blur_radius — there is no
-// standalone style setter/config key. The g_focus_ring.style field is still pushed
-// to the payload on every SHOW (wire contract); since FR-24 the payload ignores
-// it and derives the rendering from the blur radius directly.
-
-// Background-blur color adjustment + tint blend mode (BLUR style only). Pushed to
-// the payload on every SHOW alongside the other blur fields; saturation/brightness
-// feed the backdrop's CAFilter chain, blend_mode the tint sublayer's
-// compositingFilter. All three default to identity (no visible change).
-float     focus_ring_get_blur_saturation(void);
-void      focus_ring_set_blur_saturation(float saturation);
-float     focus_ring_get_blur_brightness(void);
-void      focus_ring_set_blur_brightness(float brightness);
-float     focus_ring_get_blur_contrast(void);
-void      focus_ring_set_blur_contrast(float contrast);
-float     focus_ring_get_blur_hue(void);
-void      focus_ring_set_blur_hue(float hue);
+// Band color adjustment + wash blend mode. Pushed to the payload on every SHOW
+// alongside the other style fields; saturation/brightness/contrast/hue feed
+// the backdrop's CAFilter chain, blend_mode the color-wash sublayer's
+// compositingFilter.
+float     focus_ring_get_saturation(void);
+void      focus_ring_set_saturation(float saturation);
+float     focus_ring_get_brightness(void);
+void      focus_ring_set_brightness(float brightness);
+float     focus_ring_get_contrast(void);
+void      focus_ring_set_contrast(float contrast);
+float     focus_ring_get_hue(void);
+void      focus_ring_set_hue(float hue);
 int       focus_ring_get_blend_mode(void);
 void      focus_ring_set_blend_mode(int mode);
 
-// Stroke overlay on the BLUR ring (focus_ring_blur_stroke{,_position,_width}).
-// Pushed to the payload on every SHOW alongside the other blur fields. All three
-// default to "no stroke" so an unconfigured blur ring is unchanged.
-bool      focus_ring_get_blur_stroke(void);
-void      focus_ring_set_blur_stroke(bool enabled);
-int       focus_ring_get_blur_stroke_position(void);
-void      focus_ring_set_blur_stroke_position(int position);
-float     focus_ring_get_blur_stroke_width(void);
-void      focus_ring_set_blur_stroke_width(float width);
+// Inner stroke (focus_ring_inner_stroke{,_position,_width}) — the hard stroke
+// layer hugging the band's inner edge. Pushed to the payload on every SHOW
+// alongside the other style fields.
+bool      focus_ring_get_inner_stroke(void);
+void      focus_ring_set_inner_stroke(bool enabled);
+int       focus_ring_get_inner_stroke_position(void);
+void      focus_ring_set_inner_stroke_position(int position);
+float     focus_ring_get_inner_stroke_width(void);
+void      focus_ring_set_inner_stroke_width(float width);
 
-// Inner bleed (px; BLUR style only). Pushed to the payload on every SHOW; when
+// Inner bleed (px). Pushed to the payload on every SHOW; when
 // > 0 the payload insets the band's inner cutout inward by this many px AND forces
 // the ring to order above the target so the overlapping strip samples the focused
 // window's content. 0 = off (band stays outside the window, ring keeps its
 // configured z-order).
-float     focus_ring_get_blur_bleed(void);
-void      focus_ring_set_blur_bleed(float bleed);
+float     focus_ring_get_bleed(void);
+void      focus_ring_set_bleed(float bleed);
 
-// Per-layer color / opacity for the BLUR ring's two layers (frost wash + stroke
-// overlay), overriding the base focus_ring_color / focus_ring_opacity. Opacity uses
-// FOCUS_RING_BLUR_OPACITY_INHERIT (-1) to mean "follow focus_ring_opacity"; the
-// _inherit color setters clear the override back to focus_ring_color. get_color
-// returns the override RGB packed as 0xAARRGGBB (alpha forced 0xff); _is_set reports
-// whether the override is active. All resolved to final RGBA daemon-side before the
-// SHOW wire (see focus_ring_show_for_wid).
-float     focus_ring_get_blur_opacity(void);
-void      focus_ring_set_blur_opacity(float opacity);        // -1 = inherit
-uint32_t  focus_ring_get_blur_color(void);
-bool      focus_ring_get_blur_color_is_set(void);
-void      focus_ring_set_blur_color(uint32_t argb);
-void      focus_ring_set_blur_color_inherit(void);
-float     focus_ring_get_blur_stroke_opacity(void);
-void      focus_ring_set_blur_stroke_opacity(float opacity);  // -1 = inherit
-uint32_t  focus_ring_get_blur_stroke_color(void);
-bool      focus_ring_get_blur_stroke_color_is_set(void);
-void      focus_ring_set_blur_stroke_color(uint32_t argb);
-void      focus_ring_set_blur_stroke_color_inherit(void);
+// Inner-stroke color / opacity, overriding the band's focus_ring_color /
+// focus_ring_color_opacity. Opacity uses FOCUS_RING_OPACITY_INHERIT (-1) to
+// mean "follow focus_ring_color_opacity"; the _inherit color setter clears the
+// override back to focus_ring_color. get_color returns the override RGB packed
+// as 0xAARRGGBB (alpha forced 0xff); _is_set reports whether the override is
+// active. Resolved to final RGBA daemon-side before the SHOW wire (see
+// focus_ring_show_for_wid).
+float     focus_ring_get_inner_stroke_opacity(void);
+void      focus_ring_set_inner_stroke_opacity(float opacity);  // -1 = inherit
+uint32_t  focus_ring_get_inner_stroke_color(void);
+bool      focus_ring_get_inner_stroke_color_is_set(void);
+void      focus_ring_set_inner_stroke_color(uint32_t argb);
+void      focus_ring_set_inner_stroke_color_inherit(void);
 
-// Edge feather (px; BLUR style only). Pushed to the payload on every SHOW; when > 0
+// Edge feather (px). Pushed to the payload on every SHOW; when > 0
 // the payload sets a gaussianBlur CAFilter on the band's alpha mask so its edges
 // soften. 0 = off (sharp band).
-float     focus_ring_get_blur_feather(void);
-void      focus_ring_set_blur_feather(float feather);
+float     focus_ring_get_feather(void);
+void      focus_ring_set_feather(float feather);
 
-// Stroke color. get_color returns the current RGB packed as 0xAARRGGBB with
-// alpha forced to 0xff (opacity is the separate focus_ring_opacity config).
+// Band color. get_color returns the current RGB packed as 0xAARRGGBB with
+// alpha forced to 0xff (the wash alpha is the separate focus_ring_color_opacity).
 // set_color switches to FIXED mode and tears down any accent observer;
 // set_color_auto switches to AUTO mode, resolves the accent now, and installs
 // the live accent-change observer. Both reissue SHOW for the current target.

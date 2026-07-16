@@ -184,35 +184,31 @@ void focus_ring_log(const char *source, const char *fmt, ...)
 
 static struct {
     bool     enabled;                // user-facing on/off
-    float    stroke_width;           // px; clamped to [MIN, MAX]
-    float    stroke_opacity;         // 0..1; fill opacity (the tint wash alpha)
+    float    band_width;             // px; clamped to [MIN, MAX]
+    float    color_opacity;          // 0..1; the band's color wash alpha; pushed on SHOW
     float    window_alpha;           // 0..1; whole-window translucency (NORMAL alpha slot)
-    float    stroke_r, stroke_g, stroke_b; // 0..1; pushed to payload on SHOW
+    float    color_r, color_g, color_b; // 0..1; the band's color wash; pushed on SHOW
     int      color_mode;             // enum focus_ring_color_mode
     int      blur_radius;            // background-blur px; 0 = off; pushed on SHOW
-    int      style;                  // enum focus_ring_style; pushed on SHOW
     int      modal_mode;             // enum focus_ring_modal_mode; daemon-side target re-resolution
     uint32_t modal_parent_wid;       // focused parent when framing its modal child (follow); 0 otherwise
     uint32_t modal_child_wid;        // the resolved sheet/drawer child currently framed; caches the AX walk so WINDOW_MOVED re-resolves skip it
     uint32_t modal_skip_wid;         // one-shot: a closing child to exclude from the next modal resolve
-    float    blur_saturation;        // colorSaturate inputAmount; 1.0 = identity; pushed on SHOW
-    float    blur_brightness;        // colorBrightness inputAmount; 0.0 = identity; pushed on SHOW
-    float    blur_contrast;          // colorContrast inputAmount; 1.0 = identity; pushed on SHOW
-    float    blur_hue;               // colorHueRotate angle (degrees); 0.0 = identity; pushed on SHOW
+    float    saturation;        // colorSaturate inputAmount; 1.0 = identity; pushed on SHOW
+    float    brightness;        // colorBrightness inputAmount; 0.0 = identity; pushed on SHOW
+    float    contrast;          // colorContrast inputAmount; 1.0 = identity; pushed on SHOW
+    float    hue;               // colorHueRotate angle (degrees); 0.0 = identity; pushed on SHOW
     int      blend_mode;             // enum focus_ring_blend_mode; tint compositingFilter; pushed on SHOW
-    bool     blur_stroke;            // overlay a hard stroke on the blur ring; pushed on SHOW
-    int      blur_stroke_position;   // enum focus_ring_blur_stroke_position; pushed on SHOW
-    float    blur_stroke_width;      // px; stroke thickness independent of band; pushed on SHOW
-    float    blur_bleed;             // inner-bleed px; 0 = off; BLUR only; pushed on SHOW
-    // Per-layer color/opacity overrides for the BLUR ring. -1 opacity / !is_set color
-    // = inherit the base stroke_opacity / stroke_{r,g,b}. Resolved at SHOW.
-    float    blur_opacity;           // frost wash alpha override; -1 = inherit
-    uint32_t blur_color;             // frost wash RGB override (0x00RRGGBB)
-    bool     blur_color_is_set;
-    float    blur_stroke_opacity;    // stroke overlay alpha override; -1 = inherit
-    uint32_t blur_stroke_color;      // stroke overlay RGB override (0x00RRGGBB)
-    bool     blur_stroke_color_is_set;
-    float    blur_feather;           // band-mask edge feather px; 0 = off; BLUR only; pushed on SHOW
+    bool     inner_stroke;            // overlay a hard stroke on the band's inner edge; pushed on SHOW
+    int      inner_stroke_position;   // enum focus_ring_inner_stroke_position; pushed on SHOW
+    float    inner_stroke_width;      // px; stroke thickness independent of band; pushed on SHOW
+    float    bleed;                  // inner-bleed px; 0 = off; pushed on SHOW
+    // Inner-stroke color/opacity overrides. -1 opacity / !is_set color = inherit
+    // the band's color / color_opacity. Resolved at SHOW.
+    float    inner_stroke_opacity;   // stroke overlay alpha override; -1 = inherit
+    uint32_t inner_stroke_color;     // stroke overlay RGB override (0x00RRGGBB)
+    bool     inner_stroke_color_is_set;
+    float    feather;                // band-mask edge feather px; 0 = off; pushed on SHOW
     float    fade_duration;          // FR-9: fade duration (s); 0 = fade off (FR-22: replaces fade_enabled)
     int      fade_easing;            // FR-9: alpha easing curve (enum focus_ring_easing)
     float    fade_delay;             // FR-9: delay (s) from switch start before fade fires; <0 = auto (= space_animation_duration)
@@ -224,9 +220,9 @@ static struct {
     // desktop_enabled is a sub-toggle (gated under .enabled). top_margin is an
     // ABSOLUTE inset of the top edge from the screen's top.
     bool     desktop_enabled;        // sub-toggle: desktop ring shows only if this AND .enabled
-    float    desktop_width;          // px; -1 = inherit stroke_width
+    float    desktop_width;          // px; -1 = inherit band_width
     float    desktop_radius;         // px corner radius (band's INNER edge); 0 = square
-    float    desktop_opacity;        // 0..1; -1 = inherit stroke_opacity
+    float    desktop_opacity;        // 0..1; -1 = inherit color_opacity
     float    desktop_top_margin;     // px; absolute top-edge inset; 0 = screen top
     float    desktop_alpha;          // 0..1 window translucency; -1 = inherit window_alpha
     uint32_t desktop_color;          // RGB override (0x00RRGGBB); valid when _set
@@ -234,7 +230,7 @@ static struct {
     int      desktop_blur;           // background-blur px; -1 = inherit blur_radius
     float    desktop_hsbc[4];        // hue,saturation,brightness,contrast; valid when _set
     bool     desktop_hsbc_set;
-    float    desktop_feather;        // band-mask feather px; -1 = inherit blur_feather
+    float    desktop_feather;        // band-mask feather px; -1 = inherit feather
     int      desktop_blend;          // enum focus_ring_blend_mode; -1 = inherit blend_mode
     // FR-21: xray ring — recolor the band segments overlapping other windows'
     // frames. The overlap rects are resolved per-SHOW (focus_ring_xray_overlap_rects)
@@ -252,28 +248,26 @@ static struct {
     uint32_t last_send_did;
 } g_focus_ring = {
     .enabled        = FOCUS_RING_DEFAULT_ENABLED,
-    .stroke_width   = FOCUS_RING_DEFAULT_WIDTH,
-    .stroke_opacity = FOCUS_RING_DEFAULT_OPACITY,
+    .band_width     = FOCUS_RING_DEFAULT_WIDTH,
+    .color_opacity  = FOCUS_RING_DEFAULT_COLOR_OPACITY,
     .window_alpha   = FOCUS_RING_DEFAULT_ALPHA,
-    .stroke_r       = FOCUS_RING_DEFAULT_R,
-    .stroke_g       = FOCUS_RING_DEFAULT_G,
-    .stroke_b       = FOCUS_RING_DEFAULT_B,
+    .color_r        = FOCUS_RING_DEFAULT_R,
+    .color_g        = FOCUS_RING_DEFAULT_G,
+    .color_b        = FOCUS_RING_DEFAULT_B,
     .color_mode     = FOCUS_RING_COLOR_FIXED,
     .blur_radius    = FOCUS_RING_DEFAULT_BLUR,
-    .style          = FOCUS_RING_DEFAULT_STYLE,
     .modal_mode     = FOCUS_RING_DEFAULT_MODAL,
-    .blur_saturation = FOCUS_RING_DEFAULT_SATURATION,
-    .blur_brightness = FOCUS_RING_DEFAULT_BRIGHTNESS,
-    .blur_contrast   = FOCUS_RING_DEFAULT_CONTRAST,
-    .blur_hue        = FOCUS_RING_DEFAULT_HUE,
-    .blend_mode      = FOCUS_RING_DEFAULT_BLEND_MODE,
-    .blur_stroke          = FOCUS_RING_DEFAULT_BLUR_STROKE,
-    .blur_stroke_position = FOCUS_RING_DEFAULT_BLUR_STROKE_POSITION,
-    .blur_stroke_width    = FOCUS_RING_DEFAULT_BLUR_STROKE_WIDTH,
-    .blur_bleed      = FOCUS_RING_DEFAULT_BLEED,
-    .blur_opacity        = FOCUS_RING_DEFAULT_BLUR_OPACITY,
-    .blur_stroke_opacity = FOCUS_RING_DEFAULT_BLUR_STROKE_OPACITY,
-    .blur_feather        = FOCUS_RING_DEFAULT_BLUR_FEATHER,
+    .saturation     = FOCUS_RING_DEFAULT_SATURATION,
+    .brightness     = FOCUS_RING_DEFAULT_BRIGHTNESS,
+    .contrast       = FOCUS_RING_DEFAULT_CONTRAST,
+    .hue            = FOCUS_RING_DEFAULT_HUE,
+    .blend_mode     = FOCUS_RING_DEFAULT_BLEND_MODE,
+    .inner_stroke          = FOCUS_RING_DEFAULT_INNER_STROKE,
+    .inner_stroke_position = FOCUS_RING_DEFAULT_INNER_STROKE_POSITION,
+    .inner_stroke_width    = FOCUS_RING_DEFAULT_INNER_STROKE_WIDTH,
+    .bleed          = FOCUS_RING_DEFAULT_BLEED,
+    .inner_stroke_opacity = FOCUS_RING_DEFAULT_INNER_STROKE_OPACITY,
+    .feather        = FOCUS_RING_DEFAULT_FEATHER,
     .fade_duration       = FOCUS_RING_DEFAULT_FADE_DURATION,
     .fade_easing         = FOCUS_RING_DEFAULT_EASING,
     .fade_delay          = FOCUS_RING_DEFAULT_FADE_DELAY,
@@ -293,7 +287,7 @@ static struct {
     .xray_g              = FOCUS_RING_XRAY_DEFAULT_G,
     .xray_b              = FOCUS_RING_XRAY_DEFAULT_B,
     .xray_a              = FOCUS_RING_XRAY_DEFAULT_A,
-    // blur_color / blur_stroke_color *_is_set default to false (zero-init) = inherit.
+    // inner_stroke_color_is_set defaults to false (zero-init) = inherit.
 };
 
 bool focus_ring_deferred_fade_pending(void) {
@@ -312,8 +306,8 @@ void focus_ring_set_enabled(bool enabled)
 }
 uint32_t focus_ring_get_target_wid(void)      { return g_focus_ring.last_target_wid; }
 
-float focus_ring_get_width(void)   { return g_focus_ring.stroke_width; }
-float focus_ring_get_opacity(void) { return g_focus_ring.stroke_opacity; }
+float focus_ring_get_width(void)   { return g_focus_ring.band_width; }
+float focus_ring_get_color_opacity(void) { return g_focus_ring.color_opacity; }
 
 // Forward decl — defined at the bottom of this file. Setters re-issue SHOW for
 // the current target so a style change is visible immediately rather than on
@@ -324,18 +318,20 @@ void focus_ring_set_width(float width)
 {
     if (width < FOCUS_RING_MIN_WIDTH) width = FOCUS_RING_MIN_WIDTH;
     if (width > FOCUS_RING_MAX_WIDTH) width = FOCUS_RING_MAX_WIDTH;
-    g_focus_ring.stroke_width = width;
+    g_focus_ring.band_width = width;
     focus_ring_log("set_width", "width=%.2f", width);
-    focus_ring_reissue_show_for_last_target("set_width", false);
+    // force_style: the reissue's idempotent guard drops unforced re-shows for an
+    // unchanged wid+rect, and a style-only change never changes the rect.
+    focus_ring_reissue_show_for_last_target("set_width", true);
 }
 
-void focus_ring_set_opacity(float opacity)
+void focus_ring_set_color_opacity(float opacity)
 {
     if (opacity < 0.0f) opacity = 0.0f;
     if (opacity > 1.0f) opacity = 1.0f;
-    g_focus_ring.stroke_opacity = opacity;
-    focus_ring_log("set_opacity", "opacity=%.2f", opacity);
-    focus_ring_reissue_show_for_last_target("set_opacity", false);
+    g_focus_ring.color_opacity = opacity;
+    focus_ring_log("set_color_opacity", "opacity=%.2f", opacity);
+    focus_ring_reissue_show_for_last_target("set_color_opacity", true);
 }
 
 // Whole-window translucency (`alpha`) — the ring window's NORMAL alpha slot,
@@ -350,7 +346,7 @@ void focus_ring_set_alpha(float alpha)
     if (alpha > 1.0f) alpha = 1.0f;
     g_focus_ring.window_alpha = alpha;
     focus_ring_log("set_alpha", "alpha=%.2f", alpha);
-    focus_ring_reissue_show_for_last_target("set_alpha", false);
+    focus_ring_reissue_show_for_last_target("set_alpha", true);
 }
 
 int focus_ring_get_blur_radius(void) { return g_focus_ring.blur_radius; }
@@ -360,58 +356,54 @@ void focus_ring_set_blur_radius(int radius)
     if (radius < 0)                   radius = 0;
     if (radius > FOCUS_RING_MAX_BLUR) radius = FOCUS_RING_MAX_BLUR;
     g_focus_ring.blur_radius = radius;
-    // FR-22: style is INFERRED from the blur radius — sharp stroke at 0, blur
-    // above. The SHOW wire still carries `style`, so keep the field in lockstep
-    // here; inference means the two can never disagree.
-    g_focus_ring.style = (radius > 0) ? FOCUS_RING_STYLE_BLUR : FOCUS_RING_STYLE_STROKE;
-    focus_ring_log("set_blur_radius", "radius=%d style=%d", radius, g_focus_ring.style);
+    focus_ring_log("set_blur_radius", "radius=%d", radius);
     // force_style so the change is never dropped by the VBL throttle.
     focus_ring_reissue_show_for_last_target("set_blur_radius", true);
 }
 
-float focus_ring_get_blur_saturation(void) { return g_focus_ring.blur_saturation; }
+float focus_ring_get_saturation(void) { return g_focus_ring.saturation; }
 
-void focus_ring_set_blur_saturation(float saturation)
+void focus_ring_set_saturation(float saturation)
 {
     if (saturation < FOCUS_RING_MIN_SATURATION) saturation = FOCUS_RING_MIN_SATURATION;
     if (saturation > FOCUS_RING_MAX_SATURATION) saturation = FOCUS_RING_MAX_SATURATION;
-    g_focus_ring.blur_saturation = saturation;
-    focus_ring_log("set_blur_saturation", "saturation=%.2f", saturation);
+    g_focus_ring.saturation = saturation;
+    focus_ring_log("set_saturation", "saturation=%.2f", saturation);
     // force_style so the change is never dropped by the VBL throttle.
-    focus_ring_reissue_show_for_last_target("set_blur_saturation", true);
+    focus_ring_reissue_show_for_last_target("set_saturation", true);
 }
 
-float focus_ring_get_blur_brightness(void) { return g_focus_ring.blur_brightness; }
+float focus_ring_get_brightness(void) { return g_focus_ring.brightness; }
 
-void focus_ring_set_blur_brightness(float brightness)
+void focus_ring_set_brightness(float brightness)
 {
     if (brightness < FOCUS_RING_MIN_BRIGHTNESS) brightness = FOCUS_RING_MIN_BRIGHTNESS;
     if (brightness > FOCUS_RING_MAX_BRIGHTNESS) brightness = FOCUS_RING_MAX_BRIGHTNESS;
-    g_focus_ring.blur_brightness = brightness;
-    focus_ring_log("set_blur_brightness", "brightness=%.2f", brightness);
-    focus_ring_reissue_show_for_last_target("set_blur_brightness", true);
+    g_focus_ring.brightness = brightness;
+    focus_ring_log("set_brightness", "brightness=%.2f", brightness);
+    focus_ring_reissue_show_for_last_target("set_brightness", true);
 }
 
-float focus_ring_get_blur_contrast(void) { return g_focus_ring.blur_contrast; }
+float focus_ring_get_contrast(void) { return g_focus_ring.contrast; }
 
-void focus_ring_set_blur_contrast(float contrast)
+void focus_ring_set_contrast(float contrast)
 {
     if (contrast < FOCUS_RING_MIN_CONTRAST) contrast = FOCUS_RING_MIN_CONTRAST;
     if (contrast > FOCUS_RING_MAX_CONTRAST) contrast = FOCUS_RING_MAX_CONTRAST;
-    g_focus_ring.blur_contrast = contrast;
-    focus_ring_log("set_blur_contrast", "contrast=%.2f", contrast);
-    focus_ring_reissue_show_for_last_target("set_blur_contrast", true);
+    g_focus_ring.contrast = contrast;
+    focus_ring_log("set_contrast", "contrast=%.2f", contrast);
+    focus_ring_reissue_show_for_last_target("set_contrast", true);
 }
 
-float focus_ring_get_blur_hue(void) { return g_focus_ring.blur_hue; }
+float focus_ring_get_hue(void) { return g_focus_ring.hue; }
 
-void focus_ring_set_blur_hue(float hue)
+void focus_ring_set_hue(float hue)
 {
     if (hue < FOCUS_RING_MIN_HUE) hue = FOCUS_RING_MIN_HUE;
     if (hue > FOCUS_RING_MAX_HUE) hue = FOCUS_RING_MAX_HUE;
-    g_focus_ring.blur_hue = hue;
-    focus_ring_log("set_blur_hue", "hue=%.2f", hue);
-    focus_ring_reissue_show_for_last_target("set_blur_hue", true);
+    g_focus_ring.hue = hue;
+    focus_ring_log("set_hue", "hue=%.2f", hue);
+    focus_ring_reissue_show_for_last_target("set_hue", true);
 }
 
 int focus_ring_get_blend_mode(void) { return g_focus_ring.blend_mode; }
@@ -426,157 +418,120 @@ void focus_ring_set_blend_mode(int mode)
     focus_ring_reissue_show_for_last_target("set_blend_mode", true);
 }
 
-bool focus_ring_get_blur_stroke(void) { return g_focus_ring.blur_stroke; }
+bool focus_ring_get_inner_stroke(void) { return g_focus_ring.inner_stroke; }
 
-void focus_ring_set_blur_stroke(bool enabled)
+void focus_ring_set_inner_stroke(bool enabled)
 {
-    g_focus_ring.blur_stroke = enabled;
-    focus_ring_log("set_blur_stroke", "enabled=%d", enabled ? 1 : 0);
+    g_focus_ring.inner_stroke = enabled;
+    focus_ring_log("set_inner_stroke", "enabled=%d", enabled ? 1 : 0);
     // force_style so the change is never dropped by the VBL throttle.
-    focus_ring_reissue_show_for_last_target("set_blur_stroke", true);
+    focus_ring_reissue_show_for_last_target("set_inner_stroke", true);
 }
 
-int focus_ring_get_blur_stroke_position(void) { return g_focus_ring.blur_stroke_position; }
+int focus_ring_get_inner_stroke_position(void) { return g_focus_ring.inner_stroke_position; }
 
-void focus_ring_set_blur_stroke_position(int position)
+void focus_ring_set_inner_stroke_position(int position)
 {
-    if (position != FOCUS_RING_BLUR_STROKE_ABOVE && position != FOCUS_RING_BLUR_STROKE_BELOW) {
-        position = FOCUS_RING_BLUR_STROKE_ABOVE;
+    if (position != FOCUS_RING_INNER_STROKE_ABOVE && position != FOCUS_RING_INNER_STROKE_BELOW) {
+        position = FOCUS_RING_INNER_STROKE_ABOVE;
     }
-    g_focus_ring.blur_stroke_position = position;
-    focus_ring_log("set_blur_stroke_position", "position=%d", position);
-    focus_ring_reissue_show_for_last_target("set_blur_stroke_position", true);
+    g_focus_ring.inner_stroke_position = position;
+    focus_ring_log("set_inner_stroke_position", "position=%d", position);
+    focus_ring_reissue_show_for_last_target("set_inner_stroke_position", true);
 }
 
-float focus_ring_get_blur_stroke_width(void) { return g_focus_ring.blur_stroke_width; }
+float focus_ring_get_inner_stroke_width(void) { return g_focus_ring.inner_stroke_width; }
 
-void focus_ring_set_blur_stroke_width(float width)
+void focus_ring_set_inner_stroke_width(float width)
 {
-    if (width < FOCUS_RING_MIN_BLUR_STROKE_WIDTH) width = FOCUS_RING_MIN_BLUR_STROKE_WIDTH;
-    if (width > FOCUS_RING_MAX_BLUR_STROKE_WIDTH) width = FOCUS_RING_MAX_BLUR_STROKE_WIDTH;
-    g_focus_ring.blur_stroke_width = width;
-    focus_ring_log("set_blur_stroke_width", "width=%.2f", width);
-    focus_ring_reissue_show_for_last_target("set_blur_stroke_width", true);
+    if (width < FOCUS_RING_MIN_INNER_STROKE_WIDTH) width = FOCUS_RING_MIN_INNER_STROKE_WIDTH;
+    if (width > FOCUS_RING_MAX_INNER_STROKE_WIDTH) width = FOCUS_RING_MAX_INNER_STROKE_WIDTH;
+    g_focus_ring.inner_stroke_width = width;
+    focus_ring_log("set_inner_stroke_width", "width=%.2f", width);
+    focus_ring_reissue_show_for_last_target("set_inner_stroke_width", true);
 }
 
-float focus_ring_get_blur_bleed(void) { return g_focus_ring.blur_bleed; }
+float focus_ring_get_bleed(void) { return g_focus_ring.bleed; }
 
-void focus_ring_set_blur_bleed(float bleed)
+void focus_ring_set_bleed(float bleed)
 {
     if (bleed < FOCUS_RING_MIN_BLEED) bleed = FOCUS_RING_MIN_BLEED;
     if (bleed > FOCUS_RING_MAX_BLEED) bleed = FOCUS_RING_MAX_BLEED;
-    g_focus_ring.blur_bleed = bleed;
-    focus_ring_log("set_blur_bleed", "bleed=%.2f", bleed);
+    g_focus_ring.bleed = bleed;
+    focus_ring_log("set_bleed", "bleed=%.2f", bleed);
     // force_style so the change is never dropped by the VBL throttle (it also
     // flips the ring's z-order above the target, which must land immediately).
-    focus_ring_reissue_show_for_last_target("set_blur_bleed", true);
+    focus_ring_reissue_show_for_last_target("set_bleed", true);
 }
 
-// --- Per-layer color/opacity overrides (BLUR ring frost wash + stroke overlay) ---
+// --- Inner-stroke color/opacity overrides ---
 // Opacity clamps to [0,1] unless it's the inherit sentinel (-1). Color stores RGB
-// only (alpha comes from the matching opacity); set_*_inherit clears the override.
+// only (alpha comes from the matching opacity); set_*_inherit clears the override
+// back to the band's color / color_opacity.
 
-float focus_ring_get_blur_opacity(void) { return g_focus_ring.blur_opacity; }
+float focus_ring_get_inner_stroke_opacity(void) { return g_focus_ring.inner_stroke_opacity; }
 
-void focus_ring_set_blur_opacity(float opacity)
+void focus_ring_set_inner_stroke_opacity(float opacity)
 {
-    if (opacity != FOCUS_RING_BLUR_OPACITY_INHERIT) {
+    if (opacity != FOCUS_RING_OPACITY_INHERIT) {
         if (opacity < 0.0f) opacity = 0.0f;
         if (opacity > 1.0f) opacity = 1.0f;
     }
-    g_focus_ring.blur_opacity = opacity;
-    focus_ring_log("set_blur_opacity", "opacity=%.2f", opacity);
-    focus_ring_reissue_show_for_last_target("set_blur_opacity", true);
+    g_focus_ring.inner_stroke_opacity = opacity;
+    focus_ring_log("set_inner_stroke_opacity", "opacity=%.2f", opacity);
+    focus_ring_reissue_show_for_last_target("set_inner_stroke_opacity", true);
 }
 
-uint32_t focus_ring_get_blur_color(void) { return 0xff000000 | (g_focus_ring.blur_color & 0x00ffffff); }
-bool     focus_ring_get_blur_color_is_set(void) { return g_focus_ring.blur_color_is_set; }
+uint32_t focus_ring_get_inner_stroke_color(void) { return 0xff000000 | (g_focus_ring.inner_stroke_color & 0x00ffffff); }
+bool     focus_ring_get_inner_stroke_color_is_set(void) { return g_focus_ring.inner_stroke_color_is_set; }
 
-void focus_ring_set_blur_color(uint32_t argb)
+void focus_ring_set_inner_stroke_color(uint32_t argb)
 {
-    g_focus_ring.blur_color = argb & 0x00ffffff;
-    g_focus_ring.blur_color_is_set = true;
-    focus_ring_log("set_blur_color", "rgb=0x%06x", g_focus_ring.blur_color);
-    focus_ring_reissue_show_for_last_target("set_blur_color", true);
+    g_focus_ring.inner_stroke_color = argb & 0x00ffffff;
+    g_focus_ring.inner_stroke_color_is_set = true;
+    focus_ring_log("set_inner_stroke_color", "rgb=0x%06x", g_focus_ring.inner_stroke_color);
+    focus_ring_reissue_show_for_last_target("set_inner_stroke_color", true);
 }
 
-void focus_ring_set_blur_color_inherit(void)
+void focus_ring_set_inner_stroke_color_inherit(void)
 {
-    g_focus_ring.blur_color_is_set = false;
-    focus_ring_log("set_blur_color", "inherit");
-    focus_ring_reissue_show_for_last_target("set_blur_color_inherit", true);
+    g_focus_ring.inner_stroke_color_is_set = false;
+    focus_ring_log("set_inner_stroke_color", "inherit");
+    focus_ring_reissue_show_for_last_target("set_inner_stroke_color_inherit", true);
 }
 
-float focus_ring_get_blur_stroke_opacity(void) { return g_focus_ring.blur_stroke_opacity; }
+float focus_ring_get_feather(void) { return g_focus_ring.feather; }
 
-void focus_ring_set_blur_stroke_opacity(float opacity)
+void focus_ring_set_feather(float feather)
 {
-    if (opacity != FOCUS_RING_BLUR_OPACITY_INHERIT) {
-        if (opacity < 0.0f) opacity = 0.0f;
-        if (opacity > 1.0f) opacity = 1.0f;
-    }
-    g_focus_ring.blur_stroke_opacity = opacity;
-    focus_ring_log("set_blur_stroke_opacity", "opacity=%.2f", opacity);
-    focus_ring_reissue_show_for_last_target("set_blur_stroke_opacity", true);
+    if (feather < FOCUS_RING_MIN_FEATHER) feather = FOCUS_RING_MIN_FEATHER;
+    if (feather > FOCUS_RING_MAX_FEATHER) feather = FOCUS_RING_MAX_FEATHER;
+    g_focus_ring.feather = feather;
+    focus_ring_log("set_feather", "feather=%.2f", feather);
+    focus_ring_reissue_show_for_last_target("set_feather", true);
 }
 
-uint32_t focus_ring_get_blur_stroke_color(void) { return 0xff000000 | (g_focus_ring.blur_stroke_color & 0x00ffffff); }
-bool     focus_ring_get_blur_stroke_color_is_set(void) { return g_focus_ring.blur_stroke_color_is_set; }
-
-void focus_ring_set_blur_stroke_color(uint32_t argb)
-{
-    g_focus_ring.blur_stroke_color = argb & 0x00ffffff;
-    g_focus_ring.blur_stroke_color_is_set = true;
-    focus_ring_log("set_blur_stroke_color", "rgb=0x%06x", g_focus_ring.blur_stroke_color);
-    focus_ring_reissue_show_for_last_target("set_blur_stroke_color", true);
-}
-
-void focus_ring_set_blur_stroke_color_inherit(void)
-{
-    g_focus_ring.blur_stroke_color_is_set = false;
-    focus_ring_log("set_blur_stroke_color", "inherit");
-    focus_ring_reissue_show_for_last_target("set_blur_stroke_color_inherit", true);
-}
-
-float focus_ring_get_blur_feather(void) { return g_focus_ring.blur_feather; }
-
-void focus_ring_set_blur_feather(float feather)
-{
-    if (feather < FOCUS_RING_MIN_BLUR_FEATHER) feather = FOCUS_RING_MIN_BLUR_FEATHER;
-    if (feather > FOCUS_RING_MAX_BLUR_FEATHER) feather = FOCUS_RING_MAX_BLUR_FEATHER;
-    g_focus_ring.blur_feather = feather;
-    focus_ring_log("set_blur_feather", "feather=%.2f", feather);
-    focus_ring_reissue_show_for_last_target("set_blur_feather", true);
-}
-
-// Resolve the two BLUR-ring layers' final RGBA from the per-layer overrides, falling
-// back to the caller-supplied base color/opacity when a layer is set to inherit.
-// The base is the main ring's stroke color/opacity for window shows, or the
-// desktop-resolved color/opacity for the desktop ring (an explicit blur_color /
-// inner_stroke_color layer override still wins over either base). The payload
+// Resolve the band's two layers' final RGBA. The color wash (`tint_*`) IS the
+// caller-supplied base — the band's color/color_opacity for window shows, or the
+// desktop-resolved color/opacity for the desktop ring. The inner stroke (`str_*`)
+// follows the base unless its own color/opacity override is set. The payload
 // receives these final values and applies them directly (no inherit logic
-// payload-side). `tint_*` = frost wash, `str_*` = stroke overlay.
-static void focus_ring_resolve_blur_layers(float base_r, float base_g, float base_b, float base_a,
+// payload-side).
+static void focus_ring_resolve_layers(float base_r, float base_g, float base_b, float base_a,
                                            float *tint_r, float *tint_g, float *tint_b, float *tint_a,
                                            float *str_r,  float *str_g,  float *str_b,  float *str_a)
 {
-    if (g_focus_ring.blur_color_is_set) {
-        *tint_r = ((g_focus_ring.blur_color >> 16) & 0xff) / 255.0f;
-        *tint_g = ((g_focus_ring.blur_color >>  8) & 0xff) / 255.0f;
-        *tint_b = ( g_focus_ring.blur_color        & 0xff) / 255.0f;
-    } else {
-        *tint_r = base_r; *tint_g = base_g; *tint_b = base_b;
-    }
-    *tint_a = (g_focus_ring.blur_opacity >= 0.0f) ? g_focus_ring.blur_opacity : base_a;
+    *tint_r = base_r; *tint_g = base_g; *tint_b = base_b;
+    *tint_a = base_a;
 
-    if (g_focus_ring.blur_stroke_color_is_set) {
-        *str_r = ((g_focus_ring.blur_stroke_color >> 16) & 0xff) / 255.0f;
-        *str_g = ((g_focus_ring.blur_stroke_color >>  8) & 0xff) / 255.0f;
-        *str_b = ( g_focus_ring.blur_stroke_color        & 0xff) / 255.0f;
+    if (g_focus_ring.inner_stroke_color_is_set) {
+        *str_r = ((g_focus_ring.inner_stroke_color >> 16) & 0xff) / 255.0f;
+        *str_g = ((g_focus_ring.inner_stroke_color >>  8) & 0xff) / 255.0f;
+        *str_b = ( g_focus_ring.inner_stroke_color        & 0xff) / 255.0f;
     } else {
         *str_r = base_r; *str_g = base_g; *str_b = base_b;
     }
-    *str_a = (g_focus_ring.blur_stroke_opacity >= 0.0f) ? g_focus_ring.blur_stroke_opacity : base_a;
+    *str_a = (g_focus_ring.inner_stroke_opacity >= 0.0f) ? g_focus_ring.inner_stroke_opacity : base_a;
 }
 
 // =========================================================================
@@ -614,11 +569,11 @@ static bool focus_ring_resolve_accent_rgb(float *out_r, float *out_g, float *out
 // Called on set_color_auto and on every accent-change notification.
 static void focus_ring_refresh_accent(const char *trigger)
 {
-    float r = g_focus_ring.stroke_r, g = g_focus_ring.stroke_g, b = g_focus_ring.stroke_b;
+    float r = g_focus_ring.color_r, g = g_focus_ring.color_g, b = g_focus_ring.color_b;
     if (focus_ring_resolve_accent_rgb(&r, &g, &b)) {
-        g_focus_ring.stroke_r = r;
-        g_focus_ring.stroke_g = g;
-        g_focus_ring.stroke_b = b;
+        g_focus_ring.color_r = r;
+        g_focus_ring.color_g = g;
+        g_focus_ring.color_b = b;
     }
     focus_ring_log("accent", "trigger=%s rgb=(%.2f,%.2f,%.2f)", trigger, r, g, b);
     focus_ring_reissue_show_for_last_target(trigger, true);
@@ -652,9 +607,9 @@ static void focus_ring_accent_observer_remove(void)
 
 uint32_t focus_ring_get_color(void)
 {
-    uint8_t r = (uint8_t)lround(g_focus_ring.stroke_r * 255.0f);
-    uint8_t g = (uint8_t)lround(g_focus_ring.stroke_g * 255.0f);
-    uint8_t b = (uint8_t)lround(g_focus_ring.stroke_b * 255.0f);
+    uint8_t r = (uint8_t)lround(g_focus_ring.color_r * 255.0f);
+    uint8_t g = (uint8_t)lround(g_focus_ring.color_g * 255.0f);
+    uint8_t b = (uint8_t)lround(g_focus_ring.color_b * 255.0f);
     return (0xFFu << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
 
@@ -692,11 +647,11 @@ void focus_ring_set_color(uint32_t argb)
 {
     g_focus_ring.color_mode = FOCUS_RING_COLOR_FIXED;
     focus_ring_accent_observer_remove();   // leaving AUTO — stop tracking
-    g_focus_ring.stroke_r = ((argb >> 16) & 0xFF) / 255.0f;
-    g_focus_ring.stroke_g = ((argb >>  8) & 0xFF) / 255.0f;
-    g_focus_ring.stroke_b = ((argb >>  0) & 0xFF) / 255.0f;
+    g_focus_ring.color_r = ((argb >> 16) & 0xFF) / 255.0f;
+    g_focus_ring.color_g = ((argb >>  8) & 0xFF) / 255.0f;
+    g_focus_ring.color_b = ((argb >>  0) & 0xFF) / 255.0f;
     focus_ring_log("set_color", "argb=0x%08x rgb=(%.2f,%.2f,%.2f)",
-                   argb, g_focus_ring.stroke_r, g_focus_ring.stroke_g, g_focus_ring.stroke_b);
+                   argb, g_focus_ring.color_r, g_focus_ring.color_g, g_focus_ring.color_b);
     focus_ring_reissue_show_for_last_target("set_color", true);
 }
 
@@ -895,8 +850,8 @@ bool focus_ring_show_for_wid_at_rect_sync(uint32_t target_wid, CGRect target_rec
     focus_ring_log("sa_call", "wid=%u did=%u", target_wid, target_did);
 
     float tint_r, tint_g, tint_b, tint_a, str_r, str_g, str_b, str_a;
-    focus_ring_resolve_blur_layers(g_focus_ring.stroke_r, g_focus_ring.stroke_g,
-                                   g_focus_ring.stroke_b, g_focus_ring.stroke_opacity,
+    focus_ring_resolve_layers(g_focus_ring.color_r, g_focus_ring.color_g,
+                                   g_focus_ring.color_b, g_focus_ring.color_opacity,
                                    &tint_r, &tint_g, &tint_b, &tint_a, &str_r, &str_g, &str_b, &str_a);
 
     // FR-21 xray: resolve the overlapping windows' frames for this SHOW. The
@@ -905,10 +860,9 @@ bool focus_ring_show_for_wid_at_rect_sync(uint32_t target_wid, CGRect target_rec
     // a frosted ring without the stroke overlay (nothing would render it).
     CGRect xray_rects[SA_FOCUS_RING_XRAY_MAX_RECTS];
     int    xray_count = 0;
-    bool   xray_renders = (g_focus_ring.style == FOCUS_RING_STYLE_STROKE)
-                       || (g_focus_ring.style == FOCUS_RING_STYLE_BLUR && g_focus_ring.blur_stroke);
+    bool   xray_renders = (g_focus_ring.blur_radius == 0) || g_focus_ring.inner_stroke;
     if (g_focus_ring.xray && xray_renders) {
-        CGRect band = CGRectInset(target_rect, -g_focus_ring.stroke_width, -g_focus_ring.stroke_width);
+        CGRect band = CGRectInset(target_rect, -g_focus_ring.band_width, -g_focus_ring.band_width);
         xray_count = focus_ring_xray_overlap_rects(target_wid, band,
                                                    xray_rects, SA_FOCUS_RING_XRAY_MAX_RECTS);
     }
@@ -919,27 +873,30 @@ bool focus_ring_show_for_wid_at_rect_sync(uint32_t target_wid, CGRect target_rec
                                                   target_rect.size.width,
                                                   target_rect.size.height,
                                                   radius,
-                                                  g_focus_ring.stroke_width,
-                                                  g_focus_ring.stroke_opacity,
-                                                  g_focus_ring.stroke_r,
-                                                  g_focus_ring.stroke_g,
-                                                  g_focus_ring.stroke_b,
+                                                  g_focus_ring.band_width,
+                                                  g_focus_ring.color_opacity,
+                                                  g_focus_ring.color_r,
+                                                  g_focus_ring.color_g,
+                                                  g_focus_ring.color_b,
                                                   force_style,
                                                   g_focus_ring.blur_radius,
-                                                  g_focus_ring.style,
-                                                  g_focus_ring.blur_saturation,
-                                                  g_focus_ring.blur_brightness,
+                                                  // wire `style` slot (contract — payload ignores it since
+                                                  // FR-24); derived, no stored state
+                                                  (g_focus_ring.blur_radius > 0) ? FOCUS_RING_STYLE_BLUR
+                                                                                 : FOCUS_RING_STYLE_STROKE,
+                                                  g_focus_ring.saturation,
+                                                  g_focus_ring.brightness,
                                                   g_focus_ring.blend_mode,
-                                                  g_focus_ring.blur_stroke,
-                                                  g_focus_ring.blur_stroke_position,
-                                                  g_focus_ring.blur_stroke_width,
-                                                  g_focus_ring.blur_bleed,
+                                                  g_focus_ring.inner_stroke,
+                                                  g_focus_ring.inner_stroke_position,
+                                                  g_focus_ring.inner_stroke_width,
+                                                  g_focus_ring.bleed,
                                                   tint_r, tint_g, tint_b, tint_a,
                                                   str_r, str_g, str_b, str_a,
-                                                  g_focus_ring.blur_contrast,
-                                                  g_focus_ring.blur_feather,
+                                                  g_focus_ring.contrast,
+                                                  g_focus_ring.feather,
                                                   g_focus_ring.fade_duration,
-                                                  g_focus_ring.blur_hue,
+                                                  g_focus_ring.hue,
                                                   g_focus_ring.xray,
                                                   g_focus_ring.xray_r,
                                                   g_focus_ring.xray_g,
@@ -1625,21 +1582,21 @@ void focus_ring_show_for_display(uint32_t did)
         }
         // FR-20: resolve the desktop-ring style overrides — each falls back to
         // the main ring when set to inherit; radius/top_margin are desktop-only.
-        float dt_width   = (g_focus_ring.desktop_width   >= 0.0f) ? g_focus_ring.desktop_width   : g_focus_ring.stroke_width;
-        float dt_opacity = (g_focus_ring.desktop_opacity >= 0.0f) ? g_focus_ring.desktop_opacity : g_focus_ring.stroke_opacity;
+        float dt_width   = (g_focus_ring.desktop_width   >= 0.0f) ? g_focus_ring.desktop_width   : g_focus_ring.band_width;
+        float dt_opacity = (g_focus_ring.desktop_opacity >= 0.0f) ? g_focus_ring.desktop_opacity : g_focus_ring.color_opacity;
         float dt_radius  = g_focus_ring.desktop_radius;
         float dt_topmrg  = g_focus_ring.desktop_top_margin;
         float dt_alpha   = (g_focus_ring.desktop_alpha   >= 0.0f) ? g_focus_ring.desktop_alpha   : g_focus_ring.window_alpha;
         int   dt_blur    = (g_focus_ring.desktop_blur    >= 0)    ? g_focus_ring.desktop_blur    : g_focus_ring.blur_radius;
-        float dt_feather = (g_focus_ring.desktop_feather >= 0.0f) ? g_focus_ring.desktop_feather : g_focus_ring.blur_feather;
-        float dt_r = g_focus_ring.stroke_r, dt_g = g_focus_ring.stroke_g, dt_b = g_focus_ring.stroke_b;
+        float dt_feather = (g_focus_ring.desktop_feather >= 0.0f) ? g_focus_ring.desktop_feather : g_focus_ring.feather;
+        float dt_r = g_focus_ring.color_r, dt_g = g_focus_ring.color_g, dt_b = g_focus_ring.color_b;
         if (g_focus_ring.desktop_color_set) {
             dt_r = ((g_focus_ring.desktop_color >> 16) & 0xff) / 255.0f;
             dt_g = ((g_focus_ring.desktop_color >>  8) & 0xff) / 255.0f;
             dt_b = ( g_focus_ring.desktop_color        & 0xff) / 255.0f;
         }
-        float dt_hue = g_focus_ring.blur_hue,        dt_sat = g_focus_ring.blur_saturation,
-              dt_bri = g_focus_ring.blur_brightness, dt_con = g_focus_ring.blur_contrast;
+        float dt_hue = g_focus_ring.hue,        dt_sat = g_focus_ring.saturation,
+              dt_bri = g_focus_ring.brightness, dt_con = g_focus_ring.contrast;
         if (g_focus_ring.desktop_hsbc_set) {
             dt_hue = g_focus_ring.desktop_hsbc[0];
             dt_sat = g_focus_ring.desktop_hsbc[1];
@@ -1696,7 +1653,7 @@ void focus_ring_show_for_display(uint32_t did)
                        rect.size.width, rect.size.height);
 
         float tint_r, tint_g, tint_b, tint_a, str_r, str_g, str_b, str_a;
-        focus_ring_resolve_blur_layers(dt_r, dt_g, dt_b, dt_opacity,
+        focus_ring_resolve_layers(dt_r, dt_g, dt_b, dt_opacity,
                                        &tint_r, &tint_g, &tint_b, &tint_a, &str_r, &str_g, &str_b, &str_a);
 
         bool ok = scripting_addition_focus_ring_show(
@@ -1715,10 +1672,10 @@ void focus_ring_show_for_display(uint32_t did)
             dt_sat,
             dt_bri,
             dt_blend,
-            g_focus_ring.blur_stroke,
-            g_focus_ring.blur_stroke_position,
-            g_focus_ring.blur_stroke_width,
-            g_focus_ring.blur_bleed,
+            g_focus_ring.inner_stroke,
+            g_focus_ring.inner_stroke_position,
+            g_focus_ring.inner_stroke_width,
+            g_focus_ring.bleed,
             tint_r, tint_g, tint_b, tint_a,
             str_r, str_g, str_b, str_a,
             dt_con,

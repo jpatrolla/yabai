@@ -310,66 +310,67 @@ Global Settings
 
 *focus_ring_enabled* ['<BOOL_SEL>']::
     Draw a ring that follows the focused window (and rides animated space slides). +
+    The ring is a frosted band washed with a color, plus an optional hard inner
+    stroke hugging the window seam on its own layer. +
     On by default. +
     System Integrity Protection must be partially disabled.
-
-*focus_ring_color* ['0xAARRGGBB|auto|system']::
-    Ring color. 'auto' and 'system' track the macOS accent color.
 
 *focus_ring_width* ['<FLOAT_SEL>']::
     Band thickness in pixels.
 
-*focus_ring_alpha* ['<FLOAT_SEL>']::
-    Whole-ring translucency (0.0 - 1.0).
+*focus_ring_color* ['0xAARRGGBB|auto|system']::
+    Band color wash. 'auto' and 'system' track the macOS accent color; the
+    named accents (blue, purple, pink, red, orange, yellow, green, grey) are
+    also accepted.
 
-*focus_ring_opacity* ['<FLOAT_SEL>']::
-    Alpha of the hard stroke / tint wash (0.0 - 1.0); 0.0 disables it.
+*focus_ring_color_opacity* ['<FLOAT_SEL>']::
+    Alpha of the band's color wash (0.0 - 1.0). 1.0 (the default) is a solid
+    color ring; lower it to let the frost show through, down to 0.0 for a pure
+    frost with no color.
+
+*focus_ring_alpha* ['<FLOAT_SEL>']::
+    Whole-ring translucency (0.0 - 1.0); dims band, stroke and frost together.
 
 *focus_ring_blur_radius* ['<FLOAT_SEL>']::
-    Frost blur radius in pixels; drives the ring style: 0 is a sharp solid stroke, greater than 0 is a frosted band.
+    Frost blur radius in pixels — how strongly the band blurs the content it
+    samples; 0 samples unblurred.
 
-*focus_ring_blur_bleed* ['<FLOAT_SEL>']::
+*focus_ring_bleed* ['<FLOAT_SEL>']::
     Pixels of the window's own edge sampled and frosted outward; 0 disables.
 
-*focus_ring_blur_feather* ['<FLOAT_SEL>']::
+*focus_ring_feather* ['<FLOAT_SEL>']::
     Pixels of softening applied to the band mask's edges; 0 disables.
 
-*focus_ring_blur_saturation* ['<FLOAT_SEL>']::
+*focus_ring_saturation* ['<FLOAT_SEL>']::
     Frost saturation (0.0 - 4.0); 1.0 leaves the frost unchanged.
 
-*focus_ring_blur_brightness* ['<FLOAT_SEL>']::
+*focus_ring_brightness* ['<FLOAT_SEL>']::
     Frost brightness (-1.0 - 1.0); 0.0 leaves the frost unchanged.
 
-*focus_ring_blur_contrast* ['<FLOAT_SEL>']::
+*focus_ring_contrast* ['<FLOAT_SEL>']::
     Frost contrast (0.0 - 4.0); 1.0 leaves the frost unchanged.
 
-*focus_ring_blur_hue* ['<FLOAT_SEL>']::
+*focus_ring_hue* ['<FLOAT_SEL>']::
     Frost hue rotation in degrees (0 - 360); 0 leaves the frost unchanged.
 
-*focus_ring_blur_color* ['0xAARRGGBB|inherit']::
-    Frost tint color; 'inherit' follows *focus_ring_color*.
-
-*focus_ring_blur_opacity* ['<FLOAT_SEL>|inherit']::
-    Frost tint alpha (0.0 - 1.0); 'inherit' follows *focus_ring_opacity*.
-
 *focus_ring_blend_mode* ['<BLEND>']::
-    Blend mode of the tint over the frost. +
+    Blend mode of the color wash over the frost. +
     <BLEND> := normal | multiply | screen | overlay | darken | lighten | color-dodge | color-burn | soft-light | hard-light | difference | exclusion | hue | saturation | color | luminosity
 
-*focus_ring_blur_stroke* ['<BOOL_SEL>']::
-    Overlay a crisp stroke on the frosted band. On by default.
+*focus_ring_inner_stroke* ['<BOOL_SEL>']::
+    Overlay a crisp stroke hugging the band's inner edge (the window seam). On by default.
 
-*focus_ring_blur_stroke_position* ['above|below']::
-    Draw the stroke above or below the frosted band.
+*focus_ring_inner_stroke_position* ['above|below']::
+    Draw the stroke above or below the band.
 
-*focus_ring_blur_stroke_width* ['<FLOAT_SEL>']::
+*focus_ring_inner_stroke_width* ['<FLOAT_SEL>']::
     Stroke thickness in pixels, independent of the band width.
 
-*focus_ring_blur_stroke_color* ['0xAARRGGBB|inherit']::
+*focus_ring_inner_stroke_color* ['0xAARRGGBB|inherit']::
     Stroke color; 'inherit' follows *focus_ring_color*.
 
-*focus_ring_blur_stroke_opacity* ['<FLOAT_SEL>|inherit']::
-    Stroke alpha (0.0 - 1.0); 'inherit' follows *focus_ring_opacity*.
+*focus_ring_inner_stroke_opacity* ['<FLOAT_SEL>|inherit']::
+    Stroke alpha (0.0 - 1.0); 'inherit' follows *focus_ring_color_opacity*.
 
 *insert_feedback_color* ['0xAARRGGBB']::
     Color of the *window --insert* message and mouse_drag selection. +
