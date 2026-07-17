@@ -91,3 +91,7 @@
     case SA_OPCODE_SPACES_RECONFIG: {
         do_spaces_reconfig(message);
     } break;
+    case SA_OPCODE_WINDOW_SCALE_RECT: {
+        do_window_scale_rect(message);
+        break;
+    }

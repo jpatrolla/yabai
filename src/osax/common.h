@@ -10,7 +10,7 @@
 // 2.2.0: fork bump — the wire protocol is extended (common_experimental.h),
 // so an installed stock 2.1.x payload must fail the version check and be
 // replaced on `yabai --load-sa` instead of being silently kept.
-#define OSAX_VERSION                "2.2.0"
+#define OSAX_VERSION                "2.2.1"
 
 #define OSAX_ATTRIB_DOCK_SPACES     0x01
 #define OSAX_ATTRIB_DPPM            0x02

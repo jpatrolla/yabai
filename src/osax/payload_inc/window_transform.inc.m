@@ -123,6 +123,33 @@ static void do_window_scale_custom(char *message)
     }
 }
 
+// WM-12 pip drag-to-move: ABSOLUTE scale-to-rect. Unconditionally maps the
+// window's natural bounds onto the explicit target rect via the T3D slot —
+// no toggle oracle, no restore branch (do_window_scale owns the toggle;
+// do_window_scale_custom is the legacy 2D-affine toggle). Stateless per
+// call, safe to stream during a drag.
+// Wire: (uint32 wid, float tx, float ty, float tw, float th). No reply.
+static void do_window_scale_rect(char *message)
+{
+    uint32_t wid;
+    unpack(wid);
+    if (!wid) return;
+
+    float tx, ty, tw, th;
+    unpack(tx);
+    unpack(ty);
+    unpack(tw);
+    unpack(th);
+    if (tw <= 0 || th <= 0) return;
+
+    int cid = SLSMainConnectionID();
+    CGRect frame = {};
+    SLSGetWindowBounds(cid, wid, &frame);
+    if (frame.size.width <= 0 || frame.size.height <= 0) return;
+
+    window_commit_scale_rect_transform(cid, wid, frame, CGRectMake(tx, ty, tw, th));
+}
+
 static void do_window_lockedbounds_animation(char *message)
 {
     uint32_t wid;

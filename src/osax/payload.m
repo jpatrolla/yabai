@@ -1181,20 +1181,55 @@ uint32_t payload_focus_ring_adopt_for_exit(uint64_t out_sid);
 
 #include "payload_inc/space_animation.inc.m"
 
+// Stage-convention overlay matrix (identity = natural): scale > 1 shrinks,
+// translate = -scale * (target_origin - natural_origin). Writes the T3D slot
+// (the slot the native server-side drag path drives). Shared by the pip
+// toggle (do_window_scale) and the absolute-rect setter (do_window_scale_rect,
+// window_transform.inc.m). Natural bounds + target rect fully determine the
+// matrix, so callers stay stateless.
+static void window_commit_scale_rect_transform(int cid, uint32_t wid, CGRect natural, CGRect target)
+{
+    if (target.size.width <= 0 || target.size.height <= 0) return;
+
+    CFTypeRef transaction = SLSTransactionCreate(cid);
+    if (!transaction) return;
+
+    double xs = natural.size.width  / target.size.width;
+    double ys = natural.size.height / target.size.height;
+    double m[16] = {
+        xs,  0.0, 0.0, 0.0,
+        0.0, ys,  0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        -xs * (target.origin.x - natural.origin.x), -ys * (target.origin.y - natural.origin.y), 0.0, 1.0,
+    };
+    SLSTransactionSetWindowTransform3D(transaction, wid, m);
+    SLSTransactionCommit(transaction, 0);
+    CFRelease(transaction);
+}
+
 static void do_window_scale(char *message)
 {
     uint32_t wid;
     unpack(wid);
     if (!wid) return;
 
+    int cid = SLSMainConnectionID();
+
     CGRect frame = {};
-    SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame);
-    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
+    SLSGetWindowBounds(cid, wid, &frame);
+    if (frame.size.width <= 0 || frame.size.height <= 0) return;
 
-    CGAffineTransform current_transform;
-    SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
+    // Toggle-direction oracle: bounds rests at the natural frame while
+    // SLSGetScreenRectForWindow tracks the composed transform, so a pip'd
+    // window reads back smaller than natural. An SLSGetWindowTransform
+    // equality check can't serve here — it only sees the 2D affine slot and
+    // is blind to the 3D transform written below.
+    CGRect screen_rect = {};
+    SLSGetScreenRectForWindow(cid, wid, &screen_rect);
+    bool is_natural = fabs(screen_rect.size.width  - frame.size.width)  < 1.0 &&
+                      fabs(screen_rect.size.height - frame.size.height) < 1.0;
 
-    if (CGAffineTransformEqualToTransform(current_transform, original_transform)) {
+    if (is_natural) {
         float dx, dy, dw, dh;
         unpack(dx);
         unpack(dy);
@@ -1204,17 +1239,18 @@ static void do_window_scale(char *message)
         int target_width  = dw / 4;
         int target_height = target_width / (frame.size.width/frame.size.height);
 
-        float x_scale = frame.size.width/target_width;
-        float y_scale = frame.size.height/target_height;
-
-        CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
-        CGFloat transformed_y = -dy;
-
-        CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
-        CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
-        SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+        CGRect target = CGRectMake(dx + dw - target_width, dy, target_width, target_height);
+        window_commit_scale_rect_transform(cid, wid, frame, target);
     } else {
-        SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+        CFTypeRef transaction = SLSTransactionCreate(cid);
+        if (!transaction) return;
+        static const double IDENTITY3D[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        SLSTransactionSetWindowTransform3D(transaction, wid, (double *)IDENTITY3D);
+        // Also rest the 2D affine slot: restores windows still pip'd through
+        // the pre-T3D build of this function.
+        SLSSetWindowTransform(cid, wid, CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y));
+        SLSTransactionCommit(transaction, 0);
+        CFRelease(transaction);
     }
 }
 

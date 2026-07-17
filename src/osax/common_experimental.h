@@ -56,7 +56,8 @@
 #define SA_OPCODE_FOCUS_RING_MC_RIDE                0x56   // MC-exit ring ride: payload mirrors the target window's live CGSGetWindowTransform3D onto the ring band until the exit settles, fading the ring IN (0->1) in lockstep. Wire: (uint32 wid). No reply.
 #define SA_OPCODE_FOCUS_RING_MC_ENTER_RIDE          0x57   // MC-enter ring ride: inverse of 0x56 — rides the band full->thumbnail as the window enters Mission Control while fading the ring OUT (1->0), then parks it hidden. Wire: (uint32 wid). No reply.
 #define SA_OPCODE_SET_EXPOSE_ANIMATION_DURATION     0x58   // MC-5b: swizzle -[WVExpose animationDuration] (DockCore, injected payload). duration >= 0 overrides (0 = no MC enter/exit tween); < 0 = passthrough to native (~0.25). Zeroing it makes SLSGetScreenRectForWindow report MC's final layout in ~1 frame (layout oracle) and suppresses the native window animation for our own thumb->rect anim. Wire: (double duration). No reply.
-#define SA_OPCODE_SPACES_RECONFIG                   0x59   // rebuild Dock's MC strip via the named @objc -[Spaces handleDisplayReconfig] (NON-Mission-Control path). No wire payload, no reply.
+#define SA_OPCODE_SPACES_RECONFIG                   0x59   // rebuild Dock's MC strip via the named @objc -[Spaces handleDisplayReconfig] (NON-Mission-Control path). No wire payload, no reply. First slot free in BOTH trees is now 0x5a.
+#define SA_OPCODE_WINDOW_SCALE_RECT                 0x5A   // WM-12 pip drag-to-move: ABSOLUTE scale-to-rect. Wire: (uint32 wid, float tx, ty, tw, th). Unconditional T3D write mapping the window's natural bounds onto the target rect — no toggle oracle, no restore branch (do_window_scale keeps the toggle). Streamed by the daemon during a pip translate-follow drag. No reply. First slot free in BOTH trees is now 0x5b.
 
 // SPA-2 filmstrip: half-width of the centered space-id strip (origin at the
 // center slot). A single burst can span this many hops in either direction.
