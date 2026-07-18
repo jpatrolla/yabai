@@ -53,18 +53,12 @@ struct window_capture
 {
     struct window *window;
     float x, y, w, h;
-    // Wid-only visual rider (window == NULL, wid != 0): a surface with no
-    // struct window and no AX presence — payload-owned overlays (focus ring)
-    // riding a batch. The packer routes riders into a companion visual-only
-    // T3D context on the same pump, never into the AX context (rationale at
-    // window_manager_animate_windows_lockedbounds_t3d_async). Field appended
-    // so positional initializers `{ w, x, y, w, h }` stay valid (wid = 0).
+    // NOTE: wid-only visual rider (window == NULL, wid != 0) — see the packer in
+    // window_manager_animate_windows_lockedbounds_t3d_async. Appended LAST so
+    // positional initializers `{ w, x, y, w, h }` stay valid.
     uint32_t wid;
 };
 
-// Classify which axes a window's SLS min/max constraints pin (min==max>0).
-// Used by the animation constraint resolver to keep LB/T3D from skewing
-// fixed-size windows.
 struct axis_lock { bool width_fixed; bool height_fixed; };
 static inline struct axis_lock window_classify_axis_lock(CGSize min_size, CGSize max_size)
 {
@@ -232,7 +226,7 @@ struct view
     int right_padding;
     int window_gap;
     uint32_t auto_balance;
-    uint32_t last_focused_wid;   // per-space focus recall: last window focused on this space; SPACE_CHANGED restores it (incl. SA-driven slides)
+    uint32_t last_focused_wid;   // last window focused on this space; SPACE_CHANGED restores it
     uint64_t flags;
 };
 

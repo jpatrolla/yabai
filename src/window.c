@@ -870,12 +870,9 @@ err:
     return result;
 }
 
-// Live server-side pip oracle — the same check do_window_scale uses to pick
-// its toggle direction. SLSGetWindowBounds rests at the natural frame while
-// SLSGetScreenRectForWindow tracks the composed window transform, so a pip'd
-// window reads back smaller than natural. Derived state, no daemon flag: it
-// survives daemon restarts and Dock relaunches wiping the transform. A window
-// mid-animation reads as pip for the frames its shrink transform is live.
+// NOTE: derived pip oracle — SLSGetWindowBounds stays at the natural frame
+// while SLSGetScreenRectForWindow tracks the composed transform. Deliberately
+// no daemon flag: derived state survives daemon/Dock restarts. True mid-shrink.
 bool window_is_pip(uint32_t wid)
 {
     CGRect bounds = {};
@@ -1133,13 +1130,9 @@ struct window *window_create(struct application *application, AXUIElementRef win
     window->id = window_id;
     window->id_ptr = &window->id;
 
-    // EUI cache refresh. application_create reads kAXEnhancedUserInterface once at
-    // process-startup, which races against apps that set EUI lazily on first
-    // window (iTerm2-class) and the AX messaging timeout on cold launch — both
-    // leave a stuck `false` that disables AX_ENHANCED_UI_WORKAROUND_CACHED for the
-    // app's lifetime. By window_create AX is reliably responsive for this app, so
-    // re-read; the *checked* reader writes the cache only on a successful read, so
-    // a transient AX hiccup leaves the known-good value intact.
+    // NOTE: re-read EUI here — application_create's one-shot read races apps that
+    // set EUI on first window and AX timeouts on cold launch, sticking the cache
+    // false for the app's lifetime. Checked reader writes only on a good read.
     bool eui_now;
     if (ax_enhanced_userinterface_checked(application->ref, &eui_now)) {
         application->ax_eui_cached = eui_now;
@@ -1185,9 +1178,8 @@ void window_destroy(struct window *window)
     if (window->role) CFRelease(window->role);
     if (window->subrole) CFRelease(window->subrole);
     if (window->title) CFRelease(window->title);
-    // Role-window entries (window_manager_track_role_windows) carry a NULL AX
-    // ref by design — releasing it unguarded traps in CF when a display
-    // disconnect destroys the per-display desktop window.
+    // role-window entries (window_manager_track_role_windows) have a NULL AX ref —
+    // an unguarded CFRelease traps on display teardown.
     if (window->ref) CFRelease(window->ref);
     free(window);
 }

@@ -81,7 +81,6 @@ struct app_size_constraints {
     CGSize max;
 };
 
-// WM-9 instant-placement cover modes (window_animation_warp_cover).
 #define WM_WARP_COVER_OFF     0
 #define WM_WARP_COVER_PROXY   1
 #define WM_WARP_COVER_LB_WARP 2
@@ -91,13 +90,8 @@ static char *warp_cover_mode_str[] = {
     [WM_WARP_COVER_LB_WARP] = "lb_warp",
 };
 
-// WM-9 animated-path presentation policy (window_animation_policy).
-// true_resize = the production LB+T3D composition (no warp).
-// lb_only     = real rows animate via LockedBounds ONLY — no T3D transform.
-//               Crisp bounds-driven move+resize; app content reflows on the
-//               app's own re-render (no transform stretch). Visual-only riders
-//               keep their T3D_ONLY presentation (they have no LB/AX path), so
-//               the transform is stripped per-row, never globally.
+// TRUE_RESIZE = the LB+T3D composition; LB_ONLY = LockedBounds-only for real
+// rows — riders keep T3D (the transform is stripped per-row, never globally).
 #define WM_ANIM_POLICY_TRUE_RESIZE 0
 #define WM_ANIM_POLICY_LB_ONLY     1
 static char *anim_policy_str[] = {
@@ -105,11 +99,10 @@ static char *anim_policy_str[] = {
     [WM_ANIM_POLICY_LB_ONLY]     = "lb_only",
 };
 
-// Which display's space a *defaulted* `space --focus` (prev/next) walks.
 enum space_focus_target_display_mode
 {
-    SPACE_FOCUS_TARGET_DISPLAY_DEFAULT,   // active/menubar display (stock behavior)
-    SPACE_FOCUS_TARGET_DISPLAY_MOUSE,     // display under the live cursor
+    SPACE_FOCUS_TARGET_DISPLAY_DEFAULT,
+    SPACE_FOCUS_TARGET_DISPLAY_MOUSE,
     SPACE_FOCUS_TARGET_DISPLAY_SMART,     // cursor display iff last focus was mouse-driven
 };
 
@@ -120,9 +113,6 @@ static const char *space_focus_target_display_mode_str[] =
     "smart"
 };
 
-// Most recent input modality that drove a focus change. Used by the `smart`
-// space_focus_target_display mode to arbitrate between the active display
-// (keyboard) and the cursor's display (mouse). Defaults to keyboard.
 enum focus_method
 {
     FOCUS_METHOD_KEYBOARD,
@@ -138,31 +128,21 @@ struct window_manager
     struct table window_lost_focused_event;
     struct table application_lost_front_switched_event;
     struct table insert_feedback;
-    // Per-pid SLS size-constraint cache. Key: pid_t (as uint32_t).
-    // Value: struct app_size_constraints*.
-    struct table app_constraints;
-    // Untracked native-tab wids (AX-hidden, SLS-only). Held so their per-window
-    // notification subscription survives update_window_notifications()'s full-list
-    // rebuild; seed of the tab-group table. Key: wid. Value: (void*)(uintptr_t)wid.
+    struct table app_constraints;   // pid_t -> struct app_size_constraints*
+    // untracked native-tab wids (wid -> wid) — keeps their notification
+    // subscription alive across update_window_notifications() rebuilds.
     struct table tab_window;
     struct rule *rules;
     struct application **applications_to_refresh;
     uint32_t focused_window_id;
     ProcessSerialNumber focused_window_psn;
-    // Authoritative focus-display anchor. The weak SLS arms
-    // (refocus_ring) resolve the ring against THIS display's current space —
-    // never the event window's own space — so z-order/visibility churn on
-    // another display's visible space can't steal the ring. Stamped at every
-    // real focus landing (window_did_receive_focus), click-synchronously from
-    // MOUSE_DOWN geometry, on DISPLAY_CHANGED, and re-anchored by the 805
-    // crossing arm when the focused window changes displays. 0 = unstamped.
+    // NOTE: focus-display anchor the SLS refocus arms resolve against — never the
+    // event window's own space, so churn elsewhere can't steal the ring. 0 = unstamped.
     uint32_t focused_display_id;
     uint32_t last_window_id;
-    // mff dedupe anchor: the last window window_did_receive_focus actually warped
-    // the pointer to. Distinct from focused_window_id so a settle stamp
-    // (window_manager_update_focused_window) that moves
-    // focused_window_id ahead of the AX funnel can't suppress mouse-follows-focus.
-    // Written only by the funnel.
+    // NOTE: mff dedupe — last wid the AX funnel warped the pointer to. NOT
+    // focused_window_id: settle stamps move that ahead of the funnel and would
+    // suppress mouse-follows-focus.
     uint32_t last_centered_wid;
     bool enable_mff;
     enum ffm_mode ffm_mode;
@@ -174,22 +154,18 @@ struct window_manager
     float normal_window_opacity;
     float window_opacity_duration;
     float window_animation_duration;
-    // MC-5b: -[WVExpose animationDuration] override pushed to the Dock-side SA
-    // (config expose_animation_duration). < 0 = native passthrough. Daemon holds
-    // it only for read-back; the payload static is authoritative.
+    // expose duration override pushed to the SA; < 0 = native passthrough. Daemon
+    // copy is read-back only — the payload static is authoritative.
     float expose_animation_duration;
     int window_animation_easing;
     bool  window_animation_ax_wake;
     float window_animation_min_opacity;
-    int   window_animation_warp_cover;  // WM_WARP_COVER_OFF | _PROXY | _LB_WARP
+    int   window_animation_warp_cover;
     float window_animation_cover_fade;  // proxy cover fade-out (s); 0 = hard reveal
     float window_animation_warp_min_ms; // lb_warp: mesh tween length (ms, ease-out expo); 0 = instant snap
-    int   window_animation_policy;      // WM_ANIM_POLICY_TRUE_RESIZE | _LB_ONLY (duration>0 presentation recipe)
-    bool window_frame_verify_retry;     // config window_frame_verify_retry (default OFF): after a terminal AX setFrame, poll SLS bounds and re-fire resize->move (bounded, tolerance-gated) until the window lands on target or plateaus — fixes single-shot (duration 0.0) grid moves that land "half way" when macOS clamps the move/resize.
-    // Duration (s) of the payload space cross-fade/slide animator; 0 = off
-    // (instant native switch). Drives `space --focus` for adjacent same-display
-    // switches; the focus ring reads it to auto-time its fade against the slide.
-    float space_animation_duration;
+    int   window_animation_policy;
+    bool window_frame_verify_retry;     // re-fire a clamped terminal setFrame until it lands (default off)
+    float space_animation_duration;  // payload space-slide duration (s); 0 = off (instant native switch)
     // Wallpaper participation in the animated switch: on = each space's
     // wallpaper rides the slide with its windows, native-style (falls back to
     // a static backdrop when the two spaces share one picture window); off =
@@ -201,36 +177,28 @@ struct window_manager
     // control: with the master on, fade the incoming and/or outgoing windows
     // over the slide; turn one side off for a one-sided fade (e.g. exit-only).
     // Master default off = pure slide.
-    bool space_animation_fade;         // master: cross-fade windows during the slide (default off)
-    bool space_animation_fade_enter;   // when fade on: fade the INCOMING space's windows in (default on)
-    bool space_animation_fade_exit;    // when fade on: fade the OUTGOING space's windows out (default on)
+    bool space_animation_fade;
+    bool space_animation_fade_enter;
+    bool space_animation_fade_exit;
     // Slide stagger (seconds): delay each space's window SLIDE start within the
     // switch, so the exit can lead and the enter trail (a geometric hand-off).
     // Offsets the Transform3D motion, NOT the fade. Bounded by the slide — the
     // motion is compressed into the time left after the delay; raise
     // space_animation_duration to give a big stagger room. 0 = slide with no delay.
-    float space_animation_enter_delay;   // seconds before the incoming windows start sliding in
-    float space_animation_exit_delay;    // seconds before the outgoing windows start sliding out
-    // Fade sub-timeline (seconds): the cross-fade's OWN delay + duration per side,
-    // decoupled from the slide. <0 delay / <=0 dur = auto (track the slide: delay =
-    // the side's slide delay, duration = ramp to the slide end). Dial to time the
-    // fade independently of the Transform3D motion.
-    float space_animation_fade_enter_delay;   // incoming fade delay; <0 = auto
-    float space_animation_fade_exit_delay;    // outgoing fade delay; <0 = auto
-    float space_animation_fade_enter_dur;     // incoming fade duration; <=0 = auto
-    float space_animation_fade_exit_dur;      // outgoing fade duration; <=0 = auto
+    float space_animation_enter_delay;
+    float space_animation_exit_delay;
+    // fade sub-timeline; <0 delay / <=0 dur = auto (track the slide).
+    float space_animation_fade_enter_delay;
+    float space_animation_fade_exit_delay;
+    float space_animation_fade_enter_dur;
+    float space_animation_fade_exit_dur;
     // Edge-of-display guard: nudge the active space back and stop (never cross
     // displays) when `space --focus next/prev` would leave this display. On/off.
     bool contain_space_focus_per_display;
-    // Directional `window --focus DIR` fallback tiers past the stock BSP walk,
-    // one lever per tier. The floating tier defaults on; the cross-display and
-    // wrap tiers default off (all-off = stock managed-only behavior).
-    bool window_focus_for_floating_enabled;   // geometry fallback on the current space: floating windows / float+stack spaces (default on)
-    bool window_focus_inter_display;   // hop to a window on the display in that direction
-    bool window_focus_wrap;            // no target in direction: wrap to the farthest opposite
-    // Which display's space stack a *defaulted* `space --focus` prev/next walks.
+    bool window_focus_for_floating_enabled;
+    bool window_focus_inter_display;
+    bool window_focus_wrap;
     enum space_focus_target_display_mode space_focus_target_display;
-    // Last focus modality (keyboard/mouse); feeds the `smart` gate above.
     enum focus_method last_focus_method;
     struct rgba_color insert_feedback_color;
     struct scratchpad *scratchpad_window;
@@ -255,15 +223,11 @@ enum window_op_error window_manager_adjust_window_ratio(struct window_manager *w
 void window_manager_animate_window(struct window_capture capture);
 void window_manager_animate_window_list(struct window_capture *window_list, int window_count);
 
-// True while a LB+T3D animation is in flight for `wid` (CA animating-property
-// protocol). Gates the BSP feedback flush so a flush can't start an animation
-// that races a live one on the same wid.
+// true while a LB+T3D animation is in flight for wid; gates the BSP feedback flush.
 bool window_manager_is_animating(uint32_t wid);
-// True while a non-CA Transform3D writer (e.g. drag-follow) holds `wid`. Read
-// via the exported 2D affine getter. Gates the flush alongside is_animating.
+// true while a non-CA transform writer (drag-follow) holds wid — invisible to is_animating.
 bool window_manager_window_is_transformed(uint32_t wid);
 
-// Lever bits for window_manager_animate_windows_lockedbounds_t3d_async.
 #define WM_T3D_USE_AX     (1u << 0)
 #define WM_T3D_USE_LB     (1u << 1)
 #define WM_T3D_USE_T3     (1u << 2)
@@ -273,7 +237,6 @@ bool window_manager_window_is_transformed(uint32_t wid);
 #define WM_T3D_ENDPIN     (1u << 7)   // origin-fixed resize; T3D carries the positional delta
 #define WM_T3D_ENDPIN_RESIZE_ONLY (1u << 8) // with endpin, per-tick AX fire is resize-only
 // (bits 4 and 9-13 retired)
-// AX setFrame fire-decision modes (per-window, evaluated each callback).
 #define WM_AX_TH_NONE 0
 #define WM_AX_TH_PX   1
 #define WM_AX_TH_PCT  2
@@ -284,23 +247,17 @@ static char *ax_threshold_mode_str[] = {
 };
 #define WM_AX_TH_MODE_COUNT 3
 
-// Finalize mode for window_manager_animate_windows_lockedbounds_t3d_async.
-// CLEAR (default — production resize): at t=1, clear LB and reset T3 to identity.
-// LEAVE_TERMINAL: at t=1, leave LB + T3 at their last per-frame values.
 enum wm_finalize_mode {
     WM_FINALIZE_CLEAR = 0,
     WM_FINALIZE_LEAVE_TERMINAL,
 };
-// Optional finalize callback: fired once per batch when every wid's animating
-// property has cleared, or the death-safety expiry elapses. Runs on a background
-// poll thread (synchronously on registration-failure paths) — dispatch_async
-// non-trivial work. `wids` is dead after the callback returns — do not retain it;
-// failure paths may pass wids=NULL, count=0.
+// NOTE: fires once per batch when every wid's animating property clears or the
+// expiry elapses. Background poll thread (synchronous on failure paths) —
+// dispatch_async non-trivial work. `wids` dies after return; may be NULL,0.
 typedef void (*wm_finalize_callback)(uint32_t *wids, int count, void *user_data);
 
-// Returns true when the batch was handed to the SA (or there was nothing to
-// do); false when the SA was unreachable — the caller must land the frames
-// itself (instant set_window_frame), or the layout silently stalls.
+// NOTE: false = SA unreachable and NO animation is running — the caller must
+// land the frames itself or the layout silently stalls.
 bool window_manager_animate_windows_lockedbounds_t3d_async(struct window_capture *window_list, int window_count, uint32_t api_flags, float duration_override, int ax_th_mode, float ax_th_val, CGRect *start_override, uint32_t row_mode, enum wm_finalize_mode finalize_mode, wm_finalize_callback finalize_callback, void *finalize_user_data);
 void window_manager_animate_window_ax_only_async(struct window *window, CGRect target, float ax_hz);
 void window_manager_animate_set_window_frame(struct window *window, float x, float y, float width, float height);
