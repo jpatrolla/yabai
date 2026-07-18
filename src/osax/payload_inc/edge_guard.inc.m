@@ -1,14 +1,5 @@
-// edge_guard.inc.m — multi_display_edge_guard nudge animator.
-//
-// Drives the SA_OPCODE_SPACE_NUDGE opcode (scripting_addition_animate_edge_nudge,
-// sa_inc/sa_experimental). When `space --focus next/prev` hits a display edge,
-// the daemon (space_manager_multi_display_edge_guard) sends this op and the
-// active space's content springs out and back to signal the boundary.
-//
-// A 2D underdamped harmonic oscillator integrated at the display VBL rate via
-// CVDisplayLink; each kick applies a position impulse to live spring state
-// (velocity carries forward, so a kick mid-decay smoothly retargets).
-// Depends only on the SkyLight / CV / spring externs already in payload.m.
+// edge_guard.inc.m — SPACE_NUDGE spring animator (space transform springs out and back at
+// a display edge). Kicks COMPOSE: an impulse adds displacement, preserves velocity.
 
 struct sa_nudge_spring {
     CVDisplayLinkRef link;
@@ -47,7 +38,7 @@ static CVReturn payload_nudge_spring_tick(CVDisplayLinkRef link,
     double dt = (double)(now_mach - s->last_mach) * s->mach_to_s;
     s->last_mach = now_mach;
     if (dt > 0.05) dt = 0.05;   // clamp catastrophic gaps (sleep/wake)
-    if (dt < 0.0)  dt = 0.0;    // defensive
+    if (dt < 0.0)  dt = 0.0;
 
     // Semi-implicit Euler.
     double ax = -s->k * s->x - s->c * s->vx;
@@ -66,7 +57,6 @@ static CVReturn payload_nudge_spring_tick(CVDisplayLinkRef link,
         CFRelease(tx);
     }
 
-    // Settled? Stop the link and snap to identity with the state-clear flag.
     bool settled = (fabs(s->x)  < 0.5)  && (fabs(s->y)  < 0.5)
                 && (fabs(s->vx) < 1.0)  && (fabs(s->vy) < 1.0);
     if (settled) {
@@ -97,8 +87,7 @@ static void payload_nudge_spring_kick(int cid, uint64_t sid,
     if (!sid) return;
 
     if (!g_nudge_spring.initialized) {
-        // Lazy one-time setup. Nudges fire off a user keypress and never
-        // concurrently, so the first-kick race isn't guarded.
+        // lazy init unguarded: nudges fire off a keypress, never concurrently
         struct mach_timebase_info tb;
         mach_timebase_info(&tb);
         g_nudge_spring.mach_to_s = (double)tb.numer / ((double)tb.denom * 1e9);
@@ -112,8 +101,6 @@ static void payload_nudge_spring_kick(int cid, uint64_t sid,
 
     pthread_mutex_lock(&g_nudge_spring.mutex);
 
-    // Retargeting: if an animation is in flight on a different space, snap
-    // it home before redirecting state to the new sid.
     if (g_nudge_spring.sid != 0 && g_nudge_spring.sid != sid) {
         CGAffineTransform identity = CGAffineTransformIdentity;
         CFTypeRef tx = SLSTransactionCreate(cid);
@@ -129,9 +116,6 @@ static void payload_nudge_spring_kick(int cid, uint64_t sid,
     }
     g_nudge_spring.sid = sid;
 
-    // Symmetric spring tuned for "one bounce on the opposite side."
-    //   omega_n = 2*pi * cycles / duration_s ; k = omega_n^2 ; c = 2*zeta*omega_n
-    // zeta = 0.45 -> travel out, return, one small overshoot, done.
     double duration_s = (double)duration_ms / 1000.0;
     if (duration_s < 0.12) duration_s = 0.12;
     const double zeta   = 0.45;
@@ -140,8 +124,6 @@ static void payload_nudge_spring_kick(int cid, uint64_t sid,
     g_nudge_spring.k = omega_n * omega_n;
     g_nudge_spring.c = 2.0 * zeta * omega_n;
 
-    // Position impulse: add to current displacement, preserve velocity
-    // (compose mid-flight — a kick during decay retargets smoothly).
     g_nudge_spring.x += dx;
     g_nudge_spring.y += dy;
     g_nudge_spring.last_mach = mach_absolute_time();
@@ -154,9 +136,8 @@ static void payload_nudge_spring_kick(int cid, uint64_t sid,
     pthread_mutex_unlock(&g_nudge_spring.mutex);
 }
 
-// Wire format:
-//   { uint64_t sid; int32_t dx; int32_t dy; uint32_t duration_ms;
-//     uint32_t steps; }   // `steps` retained for wire compat; unused by spring
+// Wire: { u64 sid; i32 dx, dy; u32 duration_ms; u32 steps }. NOTE: `steps` kept for
+// wire compat — unused by the spring.
 static void do_animate_edge_guard_nudge(char *message)
 {
     uint64_t sid;          unpack(sid);

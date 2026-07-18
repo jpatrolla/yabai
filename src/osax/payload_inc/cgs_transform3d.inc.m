@@ -1,11 +1,7 @@
-// cgs_transform3d.inc.m — read a window's full 4x4 transform via the unexported
-// _CGSGetWindowTransform3D. That getter + its _CGSGetConnectionPortById port
-// helper are NOT exported (dlsym-null in-process, confirmed), so both are
-// resolved from the live SkyLight image by string-xref slide-off-anchor.
-// Each function is found by a unique C-string it references, then
-// verified to start with an arm64 pac*sp prologue before we ever call it, so a
-// SkyLight build whose internal layout differs bails safely (returns -1) instead
-// of crashing. Used by the MC-exit focus-ring T3D ride.
+// cgs_transform3d.inc.m — read the full 4x4 window transform via _CGSGetWindowTransform3D.
+// NOTE: that getter and its _CGSGetConnectionPortById port helper are NOT exported
+// (dlsym-null) — resolved from the live SkyLight image by string-xref, prologue-verified
+// so an unknown SkyLight layout bails to -1 instead of crashing.
 
 #include <mach-o/dyld.h>
 #include <mach-o/getsect.h>
@@ -20,7 +16,6 @@
 typedef int (*frt3d_get_conn_port_fn)(int cid);
 typedef int (*frt3d_get_tf3d_fn)(int port, uint32_t wid, float *out16);
 
-// Locate SkyLight's in-memory mach header + slide.
 static const struct mach_header_64 *frt3d_image(intptr_t *slide_out)
 {
     for (uint32_t i = 0; i < _dyld_image_count(); i++) {
@@ -33,7 +28,6 @@ static const struct mach_header_64 *frt3d_image(intptr_t *slide_out)
     return NULL;
 }
 
-// Find a literal C-string anywhere in the image.
 static uintptr_t frt3d_find_string(const struct mach_header_64 *mh, intptr_t slide, const char *marker)
 {
     size_t len = strlen(marker);
@@ -57,8 +51,6 @@ static uintptr_t frt3d_find_string(const struct mach_header_64 *mh, intptr_t sli
     return 0;
 }
 
-// Scan __text for the ADRP(+ADD|LDR) pair that materialises `want`; return the
-// address of the ADRP (inside the referencing function), else 0.
 static uintptr_t frt3d_find_xref(const uint32_t *text, size_t count, uintptr_t base, uintptr_t want)
 {
     for (size_t i = 0; i + 1 < count; i++) {
@@ -82,8 +74,6 @@ static uintptr_t frt3d_find_xref(const uint32_t *text, size_t count, uintptr_t b
     return 0;
 }
 
-// Resolve a function by the unique string it references; returns a pointer
-// verified to start with a pac*sp prologue, else NULL.
 static void *frt3d_resolve_by_string(const struct mach_header_64 *mh, intptr_t slide, const char *marker)
 {
     uintptr_t str = frt3d_find_string(mh, slide, marker);
@@ -114,9 +104,8 @@ static void *frt3d_pac_sign(void *raw)
     return raw ? ptrauth_sign_unauthenticated(raw, ptrauth_key_asia, 0) : NULL;
 }
 
-// Resolve both unexported fns once (cached in file statics). Returns 1 iff both
-// resolved. Called from payload_focus_mirror_init before the ca_step registers,
-// so the per-VBL reader never races the first resolve.
+// resolved once from payload_focus_mirror_init BEFORE the ca_step registers — the
+// per-VBL reader never races the first resolve
 static int fr_cgs_t3d_resolve(void)
 {
     if (!g_frt3d_tried) {

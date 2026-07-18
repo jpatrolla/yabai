@@ -61,22 +61,6 @@
 // because source tracking walks the mesh to identity before finish's
 // atomic warp+LB clear.
 //
-// Live-verified foundation:
-// immediate-path warp works on foreign windows from this cid; non-uniform
-// src grids honored; hit-test follows the warp; kCGSMeshedWindowTagBit is
-// NOT a signal (rc + geometry only). Drag/resize regions and the shadow do
-// NOT follow the warp — acceptable because covers are transient; that is
-// WHY the clear must be reliable (generation guard, hard cap).
-//
-// Orphan safety net (live-verified via kill -9 Dock with a live mesh):
-// WindowServer WIPES cid-owned warps when the owning connection dies — the
-// window snaps back instantly. A Dock crash mid-cover therefore self-heals
-// server-side; no daemon-side recovery sweep is needed. The guards above
-// are for the LIVE payload's lifecycle, not crash recovery.
-
-// The transactional-warp extern, the WARP_SNAP_BAND_* chrome bands, and the
-// warp_mesh_9slice builder live in warp_mesh.inc.m (shared with the
-// jello-policy animator in anim.inc.m — included earlier in the TU).
 
 #define WARP_SNAP_MAX         16
 #define WARP_SNAP_SETTLE_PX   1.0   // match SA_ANIM_SETTLE_PX
@@ -98,10 +82,6 @@ struct warp_snap_cover {
 static struct warp_snap_cover g_warp_snap[WARP_SNAP_MAX];
 static pthread_mutex_t g_warp_snap_lock = PTHREAD_MUTEX_INITIALIZER;
 
-// Clear the warp (+ LockedBounds pin) + drop the animating property for slot
-// i IF gen still matches (a newer cover for the same wid invalidates us).
-// Takes g_warp_snap_lock for the slot mutation; SLS calls made outside the
-// lock.
 static void warp_snap_finish(int i, uint64_t gen)
 {
     uint32_t wid = 0;
@@ -127,15 +107,10 @@ static void warp_snap_finish(int i, uint64_t gen)
             logpf("WARP", "warp_snap: tx create failed at release — LB pin on wid=%u leaks until the next cover", wid);
         }
     }
-    // Non-LB path clear; for LB it is insurance for the tx-encoded warp
-    // clear (server-side decode of the empty tx mesh is unverified live) —
-    // a no-op when the tx clear worked.
+    // NOTE: keep — insurance for the tx-encoded clear (empty-mesh tx decode unverified live).
     SLSSetWindowWarp(cid, wid, 0, 0, NULL);
 
-    // animating=FALSE after the cooldown — but only if no NEWER cover for
-    // this wid is live by then (a begin during the cooldown re-arms the
-    // property, possibly in a different slot). Scan-under-lock is the
-    // slot-table analogue of anim.inc.m's wid+gen currency check.
+    // NOTE: scan by wid, not slot-gen — a begin during the cooldown can re-arm in a DIFFERENT slot.
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
                                  (int64_t)(WARP_SNAP_COOLDOWN_S * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
@@ -149,16 +124,6 @@ static void warp_snap_finish(int i, uint64_t gen)
     });
 }
 
-// Source-tracking tween + settle poll: reschedules itself every
-// WARP_SNAP_TICK_S until finish. Every tick reads the REAL frame once
-// (settle oracle AND mesh source) and rebuilds the mesh: source = the real
-// backing's dims (cur0 until the read says otherwise), target = the fixed
-// cur0->dst trajectory, eased while the tween runs, dst after. The AX
-// landing flips the forward warp into the genie-style reverse envelope
-// continuously; at tween-end + settle the mesh is the identity mapping, so
-// finish's clear is a visual no-op. Settle is not consulted until the
-// tween completes (warp_min_ms is a floor). gen captured by value — a
-// superseding cover orphan-kills this chain.
 static void warp_snap_tick(int i, uint64_t gen)
 {
     uint32_t wid = 0; CGRect cur = {0}, dst = {0};
@@ -171,7 +136,7 @@ static void warp_snap_tick(int i, uint64_t gen)
         t0 = g_warp_snap[i].t0; warp_s = g_warp_snap[i].warp_s;
     }
     pthread_mutex_unlock(&g_warp_snap_lock);
-    if (!wid) return;                                  // superseded/finished
+    if (!wid) return;
 
     int cid = SLSMainConnectionID();
     double now = (double)mach_absolute_time() * dl_mach_to_s();
@@ -214,8 +179,7 @@ static void warp_snap_tick(int i, uint64_t gen)
                    dispatch_get_main_queue(), ^{ warp_snap_tick(i, gen); });
 }
 
-// Wire handler. Struct must stay byte-identical with the daemon packer
-// scripting_addition_warp_snap in sa_inc/sa_experimental.inc.m.
+// NOTE: must stay byte-identical with the daemon packer (sa_inc/sa_experimental.inc.m).
 struct __attribute__((packed)) sa_warp_snap {
     uint32_t wid;
     float    dst_x, dst_y, dst_w, dst_h;
@@ -237,9 +201,6 @@ static void payload_warp_snap_begin(char *message)
 
     CGRect dst = CGRectMake(p.dst_x, p.dst_y, p.dst_w, p.dst_h);
     double warp_s = (double)p.warp_ms / 1000.0;
-    // Instant snap: full cur->dst mesh now. Tween: frame 0 is an identity
-    // mesh (cur->cur) — visually nothing yet — and the tick chain drives the
-    // target toward dst. Either way this first set is the rc gate.
     float mesh[4 * 4 * 4];
     warp_mesh_9slice(cur.size.width, cur.size.height,
                      (warp_s > 0.0) ? cur : dst,
@@ -247,21 +208,13 @@ static void payload_warp_snap_begin(char *message)
                      WARP_SNAP_BAND_T, WARP_SNAP_BAND_B, mesh);
     CGError rc = SLSSetWindowWarp(cid, p.wid, 4, 4, mesh);
     if (rc != kCGErrorSuccess) {
-        // No cover — behavior degrades to today's bare AX. Log once-ish.
         logpf("WARP", "warp_snap: SLSSetWindowWarp wid=%u rc=%d (no cover)", p.wid, rc);
         return;
     }
 
-    // Move-first, fused with the LB pin and the pin mesh (see header:
-    // "double animation" fix + fused-LB experiment). ONE transaction, buffer
-    // order move -> LockedBounds(cur) -> warp: even if a geometry op
-    // invalidates a standing mesh, the warp op (last) re-establishes it in
-    // the same server frame; there is no presentable state where the window
-    // sits at dst unwarped or unpinned. The re-set mesh is the SAME initial
-    // mesh: after the move it is non-identity (frame at dst.origin,
-    // presented on the cur0->dst trajectory), so the server can't drop it
-    // as a no-op. sync=1 so everything is server-applied before our
-    // connection closes — the daemon's AX fire strictly follows.
+    // NOTE: one tx, order move -> LB(cur) -> warp (warp last re-establishes the mesh a geometry
+    // op invalidates, same server frame). sync=1: server-applied before our connection closes,
+    // so the daemon's AX fire strictly follows.
     bool lb = (p.flags & WARP_SNAP_FLAG_LB) != 0;
     bool needs_move = fabs(dst.origin.x - cur.origin.x) > 0.5 ||
                       fabs(dst.origin.y - cur.origin.y) > 0.5;
@@ -274,8 +227,6 @@ static void payload_warp_snap_begin(char *message)
             SLSTransactionCommit(mtx, 1);
             CFRelease(mtx);
         } else {
-            // No tx = no move and no pin went out; finish must not try to
-            // clear a pin that was never applied. Bare warp still covers.
             lb = false;
             logpf("WARP", "warp_snap: tx create failed at begin — wid=%u covers as bare warp", p.wid);
         }
@@ -286,15 +237,13 @@ static void payload_warp_snap_begin(char *message)
     int slot = -1; uint64_t gen = 0;
     double now = (double)mach_absolute_time() * dl_mach_to_s();
     pthread_mutex_lock(&g_warp_snap_lock);
-    for (int i = 0; i < WARP_SNAP_MAX; i++)            // reuse wid slot (supersede)
+    for (int i = 0; i < WARP_SNAP_MAX; i++)
         if (g_warp_snap[i].active && g_warp_snap[i].wid == p.wid) { slot = i; break; }
     if (slot < 0)
         for (int i = 0; i < WARP_SNAP_MAX; i++)
             if (!g_warp_snap[i].active) { slot = i; break; }
     if (slot >= 0) {
-        // Inherit a superseded cover's live LB pin: our finish must clear it
-        // even if THIS cover didn't ask for one (mixed-flag supersede would
-        // otherwise leak the pin).
+        // NOTE: inherit a superseded cover's live LB pin — mixed-flag supersede would leak it.
         bool inherited_lb = g_warp_snap[slot].active && g_warp_snap[slot].lb;
         g_warp_snap[slot].wid = p.wid;
         g_warp_snap[slot].gen++;                        // orphans any pending chain
@@ -308,9 +257,7 @@ static void payload_warp_snap_begin(char *message)
         gen = g_warp_snap[slot].gen;
     }
     pthread_mutex_unlock(&g_warp_snap_lock);
-    if (slot < 0) {                                     // table full: no watcher
-        // Never leave an unwatched warp/pin behind. The pin (if any) went
-        // out in the begin tx above, so mirror finish's atomic clear idiom.
+    if (slot < 0) {
         if (lb) {
             CFTypeRef tx = SLSTransactionCreate(cid);
             if (tx) {
@@ -324,8 +271,6 @@ static void payload_warp_snap_begin(char *message)
         return;
     }
 
-    // arm the animating property — mirrors lb_set_animating_prop(wid, true)
-    // from anim.inc.m (same property string, same value type).
     lb_set_animating_prop(p.wid, true);
     int s = slot; uint64_t g = gen;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,
