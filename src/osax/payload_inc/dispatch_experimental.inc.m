@@ -1,13 +1,6 @@
-// dispatch_experimental.inc.m — case arms for the animation + focus-ring
-// opcodes.
-//
-// #included INSIDE the big switch(opcode) at the bottom of payload.m. Each arm
-// dispatches to a handler defined in one of the payload_inc/*.inc.m engine
-// files (window_transform / anim / space_animation / focus_ring / edge_guard /
-// warp_cover). Retired experiments have no opcodes in this tree — see the
-// numbering-gaps note in common_experimental.h.
+// Experimental opcode case arms — #included inside handle_message's switch
+// (payload.m); handlers live in the payload_inc/*.inc.m engine files.
 
-    // --- window_transform.inc.m: LockedBounds + Transform3D geometry ---
     case SA_OPCODE_WINDOW_SCALE_CUSTOM: {
         do_window_scale_custom(message);
     } break;
@@ -39,7 +32,6 @@
         do_border_lockedbounds_set(message);
     } break;
 
-    // --- anim.inc.m: payload-CA LB+T3D+AX animator ---
     case SA_OPCODE_ANIM_AX_BEGIN: {
         do_anim_ax_begin(message);
     } break;
@@ -50,17 +42,14 @@
         payload_warp_snap_begin(message);
     } break;
 
-    // --- space_animation.inc.m: cross-fade / slide space focus ---
     case SA_OPCODE_SPACE_ANIMATE: {
         do_space_focus_animated(message);
     } break;
 
-    // --- edge_guard.inc.m: multi_display_edge_guard nudge ---
     case SA_OPCODE_SPACE_NUDGE: {
         do_animate_edge_guard_nudge(message);
     } break;
 
-    // --- focus_ring.inc.m: focus-ring overlay ---
     case SA_OPCODE_FOCUS_RING_SHOW: {
         do_focus_ring_show(message);
     } break;

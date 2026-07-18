@@ -1,14 +1,6 @@
-// =========================================================================
-// payload_ax.inc.m — AX client driver for the payload (Branch B).
-// =========================================================================
-// Dock holds Accessibility (TCC) so the payload can drive foreign windows via
-// the AX *client* API directly (live-verified). dlsym the client fns once (Dock
-// loads HIServices for its own provider-side AX, so RTLD_DEFAULT resolves
-// them); cache the app element per pid; re-resolve the window element per call
-// (windows come and go). Used by the LB+T3D animator's in-payload AX fires —
-// always called off the CA tick thread (AX setFrame is synchronous and can
-// block).
-// =========================================================================
+// AX client driver — Dock's Accessibility grant lets the payload drive foreign
+// windows via the AX client API (dlsym'd at first use). NOTE: AX calls are
+// synchronous cross-process IPC — never on the CA tick thread or under the animator lock.
 
 #include <dlfcn.h>
 
@@ -17,7 +9,7 @@ static AXRef     (*g_AXCreateApp)(pid_t);
 static int       (*g_AXCopyAttr)(AXRef, CFStringRef, CFTypeRef *);
 static int       (*g_AXSetAttr)(AXRef, CFStringRef, CFTypeRef);
 static CFTypeRef (*g_AXValMake)(uint32_t, const void *);
-static bool      (*g_AXValGet)(CFTypeRef, uint32_t, void *);  // AXValueGetValue — read counterpart of AXValueCreate
+static bool      (*g_AXValGet)(CFTypeRef, uint32_t, void *);
 static int       (*g_AXGetWindow)(AXRef, uint32_t *);
 static bool      g_ax_ready;
 static const uint32_t kAXValueCGPointType_ = 1;
@@ -70,7 +62,6 @@ static AXRef payload_ax_window(AXRef app, uint32_t wid)
     return target;
 }
 
-// Set a window's frame via AX (position + size). Returns true when both rc==0.
 static bool payload_ax_set_frame(int32_t pid, uint32_t wid, CGRect rect)
 {
     payload_ax_init();
@@ -89,9 +80,6 @@ static bool payload_ax_set_frame(int32_t pid, uint32_t wid, CGRect rect)
     return rp == 0 && rs == 0;
 }
 
-// Resize-only AX commit (AXSize). The origin is held by the top-left-anchored
-// resize semantics, so endpin's seated end origin stays put. For
-// ENDPIN_RESIZE_ONLY mid fires — one AX IPC instead of two.
 static bool payload_ax_set_size(int32_t pid, uint32_t wid, float w, float h)
 {
     payload_ax_init();
@@ -106,13 +94,9 @@ static bool payload_ax_set_size(int32_t pid, uint32_t wid, float w, float h)
     return rs == 0;
 }
 
-// Position-only AX commit (kAXPosition). The mover half of the MOVE-FIRST
-// recipe (anim.inc.m endpin / jello warp rows): get the origin to the end
-// FIRST so the subsequent kAXSize resize lands at the on-screen origin where
-// AppKit's edge-resize clamp (__NSWindowComputeMaxAllowedMovement — not
-// constrainFrameRect) has nothing to cut. payload_ax_set_frame CANNOT be
-// the mover — it sets AXSize BEFORE AXPosition, so a combined setFrame
-// resizes at the OLD origin (the clamp). One AX IPC, position only.
+// NOTE: mover half of the move-first recipe — position must land before the
+// resize, or AppKit's edge-resize clamp cuts the frame at the OLD origin
+// (a combined AX setFrame does exactly that: it sets AXSize first).
 static bool payload_ax_set_position(int32_t pid, uint32_t wid, float x, float y)
 {
     payload_ax_init();
@@ -127,13 +111,6 @@ static bool payload_ax_set_position(int32_t pid, uint32_t wid, float x, float y)
     return rp == 0;
 }
 
-// READ a window's frame via AX (kAXPosition + kAXSize). The read counterpart of
-// payload_ax_set_frame — lets a caller compare what AX reports against the SLS
-// getters (stale AX tree vs real constraint-clamp). Both AXCopyAttributeValue
-// calls are synchronous cross-process IPC into the owning app — so this must
-// NEVER run under g_anim_lock (AC-4). Returns true when both reads + both
-// AXValueGetValue extracts succeed; writes the frame to *out. Gated separately
-// on g_AXValGet, which payload_ax_init resolves but g_ax_ready does not require.
 static bool payload_ax_get_frame(int32_t pid, uint32_t wid, CGRect *out)
 {
     payload_ax_init();
@@ -155,21 +132,9 @@ static bool payload_ax_get_frame(int32_t pid, uint32_t wid, CGRect *out)
     return ok;
 }
 
-// Wake a Chromium/Electron app's lazy accessibility tree. Chromium-based apps
-// only BUILD their AX tree once an assistive client signals intent — until then
-// AXWindows is empty and every AXPosition/AXSize read+write silently no-ops.
-// Chromium watches two attributes for that signal: AXEnhancedUserInterface —
-// which ALSO makes AppKit animate every NSWindow resize (the jank the
-// animator's EUI-off dance exists to suppress) — and the Chromium-specific
-// AXManualAccessibility, which enables the a11y engine with NO AppKit
-// side-effect. So we set the latter, not EUI. Non-Chromium apps return
-// kAXErrorAttributeUnsupported → harmless no-op. The build is async, so a
-// stone-cold app may still miss the first frame or two; the animation's later
-// frames + the terminal end fire then land. Caller gates this on the daemon's
-// `config window_animation_ax_wake` (SA_T3D_FLAG_AX_WAKE). NOTE: a window on an
-// INACTIVE/hidden space has an empty AXWindows regardless (normal AX scoping,
-// affects native apps too) — this only helps the genuine lazy-Chromium case,
-// and that case remains unverified live.
+// NOTE: wakes Chromium's lazy AX tree. Deliberately AXManualAccessibility,
+// not AXEnhancedUserInterface — EUI also makes AppKit animate every resize.
+// Non-Chromium apps return attribute-unsupported (harmless).
 static void payload_ax_enable_manual_a11y(int32_t pid)
 {
     payload_ax_init();
@@ -179,8 +144,6 @@ static void payload_ax_enable_manual_a11y(int32_t pid)
         g_AXSetAttr(app, CFSTR("AXManualAccessibility"), (CFTypeRef)kCFBooleanTrue);
 }
 
-// EUI off during the animation → the app commits atomic (non-reflowing) resizes;
-// LB+T3D do the visual smoothing. Restore at finalize.
 static void payload_ax_set_eui(int32_t pid, bool on)
 {
     payload_ax_init();
@@ -190,11 +153,8 @@ static void payload_ax_set_eui(int32_t pid, bool on)
                          on ? (CFTypeRef)kCFBooleanTrue : (CFTypeRef)kCFBooleanFalse);
 }
 
-// Read the app-level AXEnhancedUserInterface. Returns true if the attribute is
-// present (writing its bool value to *out_on); false if unsupported/unreadable.
-// Used at hold time to capture the app's PRIOR EUI so release restores it
-// instead of forcing true — Chrome's baseline is false, and restore-to-true
-// would leave it permanently EUI-on (AppKit-animated resizes).
+// NOTE: reports presence + value so release restores the app's PRIOR EUI —
+// forcing true would leave EUI-off-baseline apps (Chrome) permanently animated.
 static bool payload_ax_get_eui(int32_t pid, bool *out_on)
 {
     payload_ax_init();

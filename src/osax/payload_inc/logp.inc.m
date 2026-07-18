@@ -1,9 +1,6 @@
-// Payload-side dev log: file-only append so Dock-side lines interleave with
-// the daemon's by timestamp (the payload has neither stdout nor g_verbose).
-// COMPILED OUT by default — an injected payload must never write to /tmp on a
-// user's machine. Re-enable for development with
+// Payload-side dev log. Compiled out by default — an injected payload must not
+// write to /tmp on user machines; re-enable for development with
 //   make PAYLOAD_EXTRA_FLAGS='-DYB_PAYLOAD_LOG=1'
-// logpf() mirrors the daemon's LOGFT().
 #include <stdarg.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -14,9 +11,6 @@
 #define YB_PAYLOAD_LOG 0
 #endif
 
-// Per-tree log dir so the payload's Dock-side lines land beside the daemon of the
-// same tree (YB_LOG_TREE baked in by the makefile). Fallback keeps a hand build
-// compiling. Load the SA from the SAME tree as the running daemon for one file.
 #ifndef YB_LOG_TREE
 #define YB_LOG_TREE "unknown"
 #endif
@@ -25,8 +19,7 @@
 
 #if !YB_PAYLOAD_LOG
 
-// No-op body (not a macro): call-site args keep compiling and format strings
-// keep being checked, but nothing is opened or written.
+// NOTE: real function, not a macro — call sites keep their format-string checking.
 static inline __attribute__((format(printf, 2, 3)))
 void logpf(const char *tag, const char *fmt, ...) {
     (void)tag;
@@ -61,8 +54,8 @@ void logpf(const char *tag, const char *fmt, ...) {
     size_t mlen = ((size_t)mn < sizeof msg) ? (size_t)mn : sizeof msg - 1;
     while (mlen && msg[mlen - 1] == '\n') msg[--mlen] = '\0';
 
-    int taglen = (int)strlen(tag) + 1;                  // +1 for ':'
-    int pad = taglen < 30 ? 30 - taglen : 0;            // match YB_TAG_WIDTH
+    int taglen = (int)strlen(tag) + 1;
+    int pad = taglen < 30 ? 30 - taglen : 0;
 
     char line[1024];
     int ln = snprintf(line, sizeof line, "%02d:%02d:%02d.%03d  %s:%*s %s\n",

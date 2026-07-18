@@ -1,24 +1,7 @@
-// payload_inc/deathwatch.inc.m
-//
-// Deathwatch — resets BSP sub-level demotions when the yabai daemon dies.
-//
-// yabai demotes managed windows to a non-zero sub-level via do_window_layer
-// (SLSSetWindowSubLevel). Nothing un-demotes them when the daemon quits or
-// crashes, so they stay stranded below their peers. A daemon-side handler
-// cannot cover SIGKILL or crashes (SLS calls are not async-signal-safe), so
-// detection lives here in the payload (inside Dock), which sees the death
-// externally and uniformly regardless of signal.
-//
-// Mechanism:
-//   - do_window_layer calls deathwatch_record(wid, sublevel) on every layer
-//     change, maintaining the EXACT set of wids currently at a non-zero
-//     sub-level. No sub-level READ is ever needed — this sidesteps the Tahoe
-//     SLSGetWindowSubLevel fragility (the daemon needs a raw-mach-message
-//     workaround for reads; the payload never reads).
-//   - The SA accept loop reads the daemon pid (LOCAL_PEERPID) and arms a
-//     kqueue EVFILT_PROC/NOTE_EXIT watch.
-//   - A dedicated watcher thread fires on process exit (TERM, KILL, crash)
-//     and resets the recorded set to sub-level 0.
+// Deathwatch — when the yabai daemon dies, reset the sub-level demotions it
+// left behind. Lives payload-side because a daemon-side handler cannot cover
+// SIGKILL or crashes. NOTE: the tracked set is maintained from writes only —
+// sub-level read-backs are deliberately never issued (unreliable on Tahoe).
 
 #include <sys/event.h>
 
@@ -30,12 +13,10 @@ static pthread_mutex_t g_dw_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t        g_dw_wids[DW_MAX];
 static int             g_dw_count;
 
-static int             g_dw_kq = -1;       // kqueue fd
-static pid_t           g_dw_pid;           // currently-armed daemon pid (0 = none)
-static pthread_t       g_dw_thread;        // watcher thread
+static int             g_dw_kq = -1;
+static pid_t           g_dw_pid;
+static pthread_t       g_dw_thread;
 
-// --- tracked set -----------------------------------------------------------
-// Add wid when it lands at a non-zero sub-level; drop it when reset to 0.
 static void deathwatch_record(uint32_t wid, int sublevel)
 {
     if (!wid) return;
@@ -49,16 +30,12 @@ static void deathwatch_record(uint32_t wid, int sublevel)
     if (sublevel != 0) {
         if (idx == -1 && g_dw_count < DW_MAX) g_dw_wids[g_dw_count++] = wid;
     } else if (idx != -1) {
-        g_dw_wids[idx] = g_dw_wids[--g_dw_count];   // swap-remove
+        g_dw_wids[idx] = g_dw_wids[--g_dw_count];
     }
 
     pthread_mutex_unlock(&g_dw_lock);
 }
 
-// --- death action ----------------------------------------------------------
-// Returns the number of windows reset — the tracked set is exactly the wids
-// yabai demoted to a non-zero sub-level (BSP LAYER_BELOW = -20), so this count
-// is "how many stranded windows the death restored".
 static int deathwatch_reset_sublevels(void)
 {
     int cid = SLSMainConnectionID();
@@ -67,15 +44,13 @@ static int deathwatch_reset_sublevels(void)
     for (int i = 0; i < n; ++i) {
         SLSSetWindowSubLevel(cid, g_dw_wids[i], 0);
     }
-    g_dw_count = 0;                          // idempotent: clears the set
+    g_dw_count = 0;
     pthread_mutex_unlock(&g_dw_lock);
     logpf("DEATHWATCH", "reset %d window(s) to sub-level 0", n);
     return n;
 }
 
-// Git branch + short SHA of the tree this payload was built from, baked in by
-// the Makefile (-DPAYLOAD_BRANCH / -DPAYLOAD_SHA); surfaces in the dev log so a
-// stale or foreign payload is identifiable. Empty inject -> "unknown"/"nogit".
+// Baked in by the Makefile (-DPAYLOAD_BRANCH/-DPAYLOAD_SHA); identifies a stale payload in the log.
 #ifndef PAYLOAD_BRANCH
 #define PAYLOAD_BRANCH "unknown"
 #endif
@@ -87,19 +62,11 @@ static void deathwatch_fire(void)
 {
     logpf("DEATHWATCH", "yabai death detected — running teardown");
 
-    // Tear down the focus_ring overlay windows before touching the user's
-    // windows. Daemon's gone, nobody will drive these surfaces — releasing
-    // them returns the wids to WindowServer and removes the alpha-0 overlay
-    // ghosts from the active spaces.
     payload_focus_ring_destroy_all();
 
     deathwatch_reset_sublevels();
 }
 
-// --- detector --------------------------------------------------------------
-// Re-arm the kqueue watch when the observed daemon pid changes. g_dw_pid only
-// advances on a SUCCESSFUL arm, so an early call before deathwatch_init (kq
-// == -1) is a clean no-op that still re-arms once the kq exists.
 static void deathwatch_arm(pid_t pid)
 {
     if (pid <= 0 || g_dw_kq == -1) return;
@@ -118,9 +85,6 @@ static void deathwatch_arm(pid_t pid)
     pthread_mutex_unlock(&g_dw_lock);
 }
 
-// Read the daemon pid off an accepted SA connection and (re)arm. The SA socket
-// is chmod 0600 on a fixed path and only the daemon's scripting-addition layer
-// connects to it, so LOCAL_PEERPID here is the yabai daemon.
 static void deathwatch_observe_peer(int sockfd)
 {
     pid_t peer = 0;
@@ -139,15 +103,14 @@ static void *deathwatch_thread_proc(void *unused)
         if (out.filter == EVFILT_PROC && (out.fflags & NOTE_EXIT)) {
             deathwatch_fire();
             pthread_mutex_lock(&g_dw_lock);
-            g_dw_pid = 0;                    // allow re-arm on next yabai launch
+            g_dw_pid = 0;
             pthread_mutex_unlock(&g_dw_lock);
         }
     }
     return NULL;
 }
 
-// Create the kqueue and spawn the watcher thread. MUST run before the SA
-// accept loop starts, so g_dw_kq is set before any deathwatch_arm call.
+// NOTE: must run before the SA accept loop so the first connection can arm the watch.
 static void deathwatch_init(void)
 {
     g_dw_kq = kqueue();
