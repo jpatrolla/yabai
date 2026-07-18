@@ -3667,7 +3667,30 @@ void window_manager_toggle_window_pip(struct space_manager *sm, struct window *w
         bounds.size.height -= (dview->top_padding + dview->bottom_padding);
     }
 
+    // Read the pre-toggle state through the same oracle do_window_scale uses to
+    // pick its direction, so the ring lands on the side the transform lands on.
+    bool entering = !window_is_pip(window->id);
+
     scripting_addition_scale_window(window->id, bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+
+    // Pip is transform-only: the window's real frame never changes, so no 806/807
+    // geometry event fires and the ring won't re-sync on its own.
+    if (focus_ring_get_enabled() && focus_ring_get_target_wid() == window->id) {
+        CGRect frame = {};
+        SLSGetWindowBounds(g_connection, window->id, &frame);
+        if (frame.size.width <= 0 || frame.size.height <= 0) return;
+
+        CGRect ring_rect = frame;
+        if (entering) {
+            // Mirror do_window_scale's pip rect: top-right corner of the padded
+            // display bounds, width = bounds/4, aspect-preserving, int-truncated.
+            int target_width  = bounds.size.width / 4;
+            int target_height = target_width / (frame.size.width / frame.size.height);
+            ring_rect = CGRectMake(bounds.origin.x + bounds.size.width - target_width,
+                                   bounds.origin.y, target_width, target_height);
+        }
+        focus_ring_show_for_wid_rect(window->id, ring_rect);
+    }
 }
 
 static inline struct window *window_manager_find_scratchpad_window(struct window_manager *wm, char *label)
