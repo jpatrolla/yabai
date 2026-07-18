@@ -339,21 +339,14 @@ int main(int argc, char **argv)
     // the wid and posts SLS_WINDOW_CREATED for the tab-window set and the keyboard
     // tab-follow. 1327/1328 (space create/destroy) are already registered above.
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
-    // Focus-ring live-follow: subscribe to kCGSWindowDidMove (806) / kCGSWindowDidResize
-    // (807) via the GLOBAL notify proc (the mechanism JankyBorders rides) — window
-    // events are NOT delivered to per-connection procs. Handler: focus_ring_geometry_notify.
-    SLSRegisterNotifyProc((void *) focus_ring_geometry_notify, 806, NULL);
-    SLSRegisterNotifyProc((void *) focus_ring_geometry_notify, 807, NULL);
-    // Window VISIBILITY (815/816): the post-settle focus signal. Global proc only
-    // (per-connection never delivers window events). 815 fires after a reorder
-    // settles, so refocus_ring lands on the correct window even when AX is silent and
-    // the 808 burst re-resolved one focus behind. Handler: focus_ring_visibility_notify.
-    SLSRegisterNotifyProc((void *) focus_ring_visibility_notify, 815, NULL);
-    SLSRegisterNotifyProc((void *) focus_ring_visibility_notify, 816, NULL);
-    // Window CROSSING (805): re-anchor focused_display_id when the focused window
-    // changes displays (user drag / --display), so refocus_ring resolves against
-    // the DESTINATION display's space. Handler: focus_ring_crossing_notify.
-    SLSRegisterNotifyProc((void *) focus_ring_crossing_notify, 805, NULL);
+    // NOTE: 805-816 are per-wid gated server-side like 804/808 -- events arrive
+    // only for wids declared via update_window_notifications(); registration
+    // alone delivers nothing.
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 805, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 806, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 807, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 815, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1329, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1202, NULL);
 

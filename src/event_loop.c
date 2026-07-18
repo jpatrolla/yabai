@@ -1273,18 +1273,36 @@ static EVENT_HANDLER(SLS_WINDOW_INVISIBLE)
     refocus_ring(wid, true);
 }
 
-// SLS-driven focus-ring live-follow. kCGSWindowDidMove (806) / kCGSWindowDidResize
-// (807) fire on the g_connection notify runloop at compositor frequency -- far
-// denser and lower-latency than the app-mediated AX kAXWindowMovedNotification that
-// EVENT_HANDLER(WINDOW_MOVED) rides. connection_handler already source-filters to
-// the ring's committed target, so this only fires for the framed window. Runs in
-// ADDITION to the AX path; the per-VBL throttle in focus_ring_show_for_wid dedupes
-// the overlap (latest rect wins).
+// NOTE: 806 arrives for EVERY subscribed wid -- the ring-target filter lives here,
+// not at intake. Runs alongside the AX WINDOW_MOVED path; the per-VBL throttle in
+// focus_ring_show_for_wid dedupes the overlap.
 static EVENT_HANDLER(SLS_WINDOW_MOVED)
 {
     uint32_t wid = (uint64_t)(intptr_t) context;
+    if (!wid || wid != focus_ring_get_target_wid()) return;
     debug("%s: %d\n", __FUNCTION__, wid);
     focus_ring_reposition_for_wid(wid);
+}
+
+// NOTE: intentionally distinct from SLS_WINDOW_MOVED -- resize (807) and move (806)
+// must stay separable downstream; do not re-funnel.
+static EVENT_HANDLER(SLS_WINDOW_RESIZED)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    if (!wid || wid != focus_ring_get_target_wid()) return;
+    debug("%s: %d\n", __FUNCTION__, wid);
+    focus_ring_reposition_for_wid(wid);
+}
+
+// NOTE: queue order runs this ahead of the same-move 806/808/815 burst, so
+// refocus_ring resolves the DESTINATION display's space, not the source's.
+static EVENT_HANDLER(SLS_WINDOW_DISPLAY_CHANGED)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    if (!wid || wid != g_window_manager.focused_window_id) return;
+    uint32_t did = window_display_id(wid);
+    debug("%s: %d -> did=%d\n", __FUNCTION__, wid, did);
+    if (did) g_window_manager.focused_display_id = did;
 }
 
 // kCGSWindowDidCreate (1325). A native-tab switch silently (to AX) materializes the

@@ -2,8 +2,6 @@ extern struct event_loop g_event_loop;
 extern enum mission_control_mode g_mission_control_mode;
 extern volatile uint64_t __last_cmd_tab_time;
 extern int g_connection;
-extern struct window_manager g_window_manager;
-extern uint32_t focus_ring_get_target_wid(void);
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-parameter"
@@ -23,6 +21,17 @@ static CONNECTION_CALLBACK(connection_handler)
     } else if (type == 804) {
         uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
         event_loop_post(&g_event_loop, SLS_WINDOW_DESTROYED, (void *) (intptr_t) wid, 0);
+    } else if (type == 805) {
+        uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
+        if (wid) event_loop_post(&g_event_loop, SLS_WINDOW_DISPLAY_CHANGED, (void *) (intptr_t) wid, 0);
+    } else if (type == 806 || type == 807) {
+        uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
+        if (wid) event_loop_post(&g_event_loop, type == 807 ? SLS_WINDOW_RESIZED : SLS_WINDOW_MOVED,
+                                 (void *) (intptr_t) wid, 0);
+    } else if (type == 815 || type == 816) {
+        uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
+        if (wid) event_loop_post(&g_event_loop, type == 816 ? SLS_WINDOW_INVISIBLE : SLS_WINDOW_VISIBLE,
+                                 (void *) (intptr_t) wid, 0);
     } else if (type == 1325) {
         // kCGSWindowDidCreate. Confirmed layout (len=12): { uint64_t sid; uint32_t wid }.
         // w0/w1 are the space id; the newly-materialized window's wid is at offset 8.
@@ -50,53 +59,6 @@ static CONNECTION_CALLBACK(connection_handler)
             event_loop_post(&g_event_loop, SPACE_CHANGED, NULL, 0);
         }
     }
-}
-
-// Global SLS notify proc (SLSRegisterNotifyProc -- NOT per-connection) for window
-// geometry: kCGSWindowDidMove (806) / kCGSWindowDidResize (807). These window
-// events are delivered ONLY through the global notify mechanism; a per-connection
-// proc never receives them. Same signal JankyBorders rides for border-follow.
-// `data` points to the wid. Source-filter to the ring's committed target so we
-// only wake the event loop for the framed window; the main-thread
-// SLS_WINDOW_MOVED handler repositions.
-static void focus_ring_geometry_notify(uint32_t event, void *data, size_t data_length, void *context)
-{
-    if (!data) return;
-    uint32_t wid = *(uint32_t *)data;
-    if (wid && wid == focus_ring_get_target_wid())
-        event_loop_post(&g_event_loop, SLS_WINDOW_MOVED, (void *) (intptr_t) wid, 0);
-}
-
-// Global SLS notify proc for window VISIBILITY: kCGSWindowIsVisible (815) /
-// kCGSWindowIsInvisible (816). Like 806/807, these window events reach ONLY the
-// global notify proc (per-connection procs never see them). 815 fires AFTER a reorder
-// settles -- later than the 808 order-change burst -- so it is the post-settle signal
-// the ring needs for same-app focus: AX goes silent for multi-tab windows, and 808
-// alone re-resolves mid-burst and lands one focus behind. `data` points to the wid;
-// refocus_ring re-resolves the topmost itself, so this is only a wake hint. Unfiltered
-// (any wid) -- Dock-overlay / off-space noise is rejected by refocus_ring's
-// visible-space + topmost-normal-window resolve.
-static void focus_ring_visibility_notify(uint32_t event, void *data, size_t data_length, void *context)
-{
-    if (!data) return;
-    uint32_t wid = *(uint32_t *)data;
-    if (!wid) return;
-    event_loop_post(&g_event_loop, event == 816 ? SLS_WINDOW_INVISIBLE : SLS_WINDOW_VISIBLE,
-                    (void *) (intptr_t) wid, 0);
-}
-
-// kCGSWindowIsChangingScreens (805): the focused window crossing displays IS the
-// focus moving displays. Re-anchor focused_display_id immediately, or refocus_ring
-// keeps resolving the SOURCE display's space and the next 808/815 burst re-points
-// the ring at that display's next-top window (mid-drag steal). A single word
-// write off the notify runloop, same cross-thread contract as the other weak arms.
-static void focus_ring_crossing_notify(uint32_t event, void *data, size_t data_length, void *context)
-{
-    if (!data) return;
-    uint32_t wid = *(uint32_t *)data;
-    if (!wid || wid != g_window_manager.focused_window_id) return;
-    uint32_t did = window_display_id(wid);
-    if (did) g_window_manager.focused_display_id = did;
 }
 #pragma clang diagnostic pop
 
