@@ -1,20 +1,7 @@
-// focus_ring_shims.c — inert carve-local definitions of daemon services
-// focus_ring.m depends on whose full implementations live outside the
-// animations-core showcase.
-//
-//   • space_nav_observer_get_enabled() — reports whether the native
-//     space-navigation *anticipation* observer is armed. Not carried here →
-//     false (the ring just follows focus normally).
-//
-//   • focus_ring_settle_arm_public() — arms a self-reposting "settle poll"
-//     that re-shows the ring once a display stops animating. Out of scope
-//     here, so a no-op: the ring shows immediately when the display is idle
-//     (the common case); a focus landing mid native-space-animation loses the
-//     deferred auto-re-show and recovers on the next focus change. The return
-//     value (a generation id) is unused by the caller.
-//
-// The focus-follow path (event_loop.c → focus_ring_show_for_wid) depends on
-// neither, so the inert values are correct for this branch.
+// Carve-local inert shims for daemon services not carried in this tree.
+//   space_nav_observer_get_enabled() → false: the ring just follows focus.
+//   focus_ring_settle_arm_public()  → no-op: no deferred settle re-show; a
+//   focus landing mid native-space-animation recovers on the next focus change.
 
 #include <stdbool.h>
 #include <stdint.h>
