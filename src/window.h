@@ -61,7 +61,8 @@ static CFStringRef ax_window_notification[] =
     WINDOW_PROPERTY_ENTRY("is-hidden",            WINDOW_PROPERTY_IS_HIDDEN,           0x020000000) \
     WINDOW_PROPERTY_ENTRY("is-floating",          WINDOW_PROPERTY_IS_FLOATING,         0x040000000) \
     WINDOW_PROPERTY_ENTRY("is-sticky",            WINDOW_PROPERTY_IS_STICKY,           0x080000000) \
-    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000)
+    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000) \
+    WINDOW_PROPERTY_ENTRY("is-pip",               WINDOW_PROPERTY_IS_PIP,              0x200000000)
 
 enum window_property
 {
@@ -149,6 +150,7 @@ int window_level(uint32_t wid);
 int window_sub_level(uint32_t wid);
 uint64_t window_tags(uint32_t wid);
 bool window_is_sticky(uint32_t wid);
+bool window_is_pip(uint32_t wid);
 CGPoint window_ax_origin(struct window *window);
 CGRect window_ax_frame(struct window *window);
 CFStringRef window_ax_role(struct window *window);

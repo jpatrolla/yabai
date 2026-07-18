@@ -401,6 +401,13 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
         if (did_output) fprintf(rsp, ",\n");
 
         fprintf(rsp, "\t\"is-grabbed\":%s", json_bool(false));
+        did_output = true;
+    }
+
+    if (flags & WINDOW_PROPERTY_IS_PIP) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"is-pip\":%s", json_bool(window_is_pip(wid)));
     }
 
     fprintf(rsp, "\n}");
@@ -705,6 +712,13 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
 
         bool grabbed = window == g_mouse_state.window;
         fprintf(rsp, "\t\"is-grabbed\":%s", json_bool(grabbed));
+        did_output = true;
+    }
+
+    if (flags & WINDOW_PROPERTY_IS_PIP) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"is-pip\":%s", json_bool(window_is_pip(window->id)));
     }
 
     fprintf(rsp, "\n}");
@@ -854,6 +868,25 @@ bool window_is_sticky(uint32_t wid)
 err:
     CFRelease(window_list_ref);
     return result;
+}
+
+// Live server-side pip oracle — the same check do_window_scale uses to pick
+// its toggle direction. SLSGetWindowBounds rests at the natural frame while
+// SLSGetScreenRectForWindow tracks the composed window transform, so a pip'd
+// window reads back smaller than natural. Derived state, no daemon flag: it
+// survives daemon restarts and Dock relaunches wiping the transform. A window
+// mid-animation reads as pip for the frames its shrink transform is live.
+bool window_is_pip(uint32_t wid)
+{
+    CGRect bounds = {};
+    SLSGetWindowBounds(g_connection, wid, &bounds);
+    if (bounds.size.width <= 0 || bounds.size.height <= 0) return false;
+
+    CGRect screen_rect = {};
+    SLSGetScreenRectForWindow(g_connection, wid, &screen_rect);
+
+    return (bounds.size.width  - screen_rect.size.width  > 1.0f) ||
+           (bounds.size.height - screen_rect.size.height > 1.0f);
 }
 
 bool window_shadow(uint32_t wid)
