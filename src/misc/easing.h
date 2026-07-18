@@ -3,9 +3,7 @@
 
 #include <math.h>
 
-// Easing curves + apply_easing(): split from misc/helpers.h (SPA-5) so the
-// daemon and the SA payload share one easing implementation without the
-// payload pulling helpers.h's SLS/socket/application surface.
+// NOTE: shared by daemon + SA payload — keep free of helpers.h's SLS/socket surface.
 
 #define ANIMATION_EASING_TYPE_LIST \
     ANIMATION_EASING_TYPE_ENTRY(linear) \
@@ -177,7 +175,6 @@ static inline float ease_out_elastic(float t)
       : powf(2.0f, -10.0f * t) * sinf((t * 10.0f - 0.75f) * c4) + 1.0f;
 }
 
-// Dispatch a normalized t in [0,1] through the configured easing curve.
 static inline float apply_easing(float t, int easing_type)
 {
     switch (easing_type) {

@@ -49,9 +49,6 @@ static CFTypeRef query_windows_with_window_pad(int cid, CFArrayRef wids, uint32_
             CFRelease(zero_ref);
             padded = tmp;
         }
-        // flags must be a fixed flag value, NOT the array length (that would
-        // ride titles on count parity and set stray bits). de_window passes
-        // 0x1: titles on; attached (bit 1) + spaces (bit 2) clear.
         CFTypeRef q = SLSWindowQueryWindows(cid, padded, flags);
         if (tmp) CFRelease(tmp);
         if (q && SLSWindowQueryResultGetWindowCount(q) > 0) return q;
@@ -60,7 +57,6 @@ static CFTypeRef query_windows_with_window_pad(int cid, CFArrayRef wids, uint32_
     return NULL;
 }
 
-// Shared tail: WID array → window iterator (with pad-sweep applied).
 static bool window_iterator_from_wids(int cid, CFArrayRef wids, uint32_t flags, CFTypeRef *out_iterator) {
     CFTypeRef query = query_windows_with_window_pad(cid, wids, flags);
     if (!query) return false;
@@ -88,8 +84,6 @@ bool window_iterator_de_window(int cid, uint32_t wid, CFTypeRef *out_iterator) {
     return ok;
 }
 
-// Contract in window_iterator.h: pad-swept iterator + GetConstraints;
-// all-zeros decode = unconstrained / not yet published.
 bool window_iterator_get_constraints(int cid, uint32_t wid, CGSize *out_min,
                                      CGSize *out_max, CGSize *out_cur) {
     CFTypeRef iterator = NULL;

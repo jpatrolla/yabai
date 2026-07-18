@@ -1,15 +1,7 @@
-// window_query.c — rich _SLSWindowQuery builder, the by-FILTER arm of the SLS
-// window-query subsystem. Sibling of window_iterator.c's by-ID arm
-// (SLSWindowQueryWindows): instead of shipping an explicit wid list to the
-// server, the filter (owner / spaces / include+exclude tags) is evaluated
-// server-side and the matches come back as a z-ordered window iterator in one
-// round-trip.
-
 #include <dlfcn.h>
 
-// dlsym a SkyLight exported CFString* key slot (name without leading '_').
-// The query-key symbols are const CFStringRef DATA globals, so dlsym returns
-// the address of the variable — deref once to get the CFStringRef itself.
+// NOTE: the query-key symbols are CFStringRef DATA slots — dlsym returns the variable's
+// address; deref once.
 static CFStringRef wq_resolve_key(const char *name)
 {
     void *slot = dlsym(RTLD_DEFAULT, name);
@@ -48,9 +40,6 @@ CFTypeRef window_query_run(int cid, const struct window_query_filter *filter)
     SLSWindowQuerySetValue(q, kInc, nInc);
     SLSWindowQuerySetValue(q, kExc, nExc);
 
-    // Window-list options (the `options` arg of SLSCopyWindowsWithOptionsAndTags
-    // — 0x2 visible/standard, 0x7 incl. minimized/extended). Best-effort: only
-    // set when the key resolves, so a missing symbol degrades to the prior path.
     CFNumberRef nWinOpts = NULL;
     if (kWinOpts) {
         int32_t wopts = filter->window_list_options;
@@ -58,8 +47,6 @@ CFTypeRef window_query_run(int cid, const struct window_query_filter *filter)
         SLSWindowQuerySetValue(q, kWinOpts, nWinOpts);
     }
 
-    // Scope by explicit space list, or by SpaceListOptions (all spaces) when no
-    // list is given.
     CFArrayRef aSpaces = NULL;
     CFNumberRef nSpaceOpts = NULL;
     if (use_explicit_spaces) {
@@ -73,9 +60,7 @@ CFTypeRef window_query_run(int cid, const struct window_query_filter *filter)
     }
 
     CFTypeRef result = SLSWindowQueryRun(cid, q, filter->query_flags);
-    // The CopyWindows iterator retains its backing result (same lifetime rule as
-    // the SLSWindowQueryWindows path), so releasing `result` here is safe — only
-    // the iterator must outlive the getters.
+    // NOTE: the iterator CFRetains its backing result — releasing result here is safe.
     CFTypeRef iterator = result ? SLSWindowQueryResultCopyWindows(result) : NULL;
 
     if (result)    CFRelease(result);

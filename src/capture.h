@@ -5,17 +5,13 @@
 #include <stdint.h>
 #include <stddef.h>
 
-// Policy when an output file already exists. Zero default = rename (never clobber,
-// never block); the directory itself is always reused, this governs files only.
+// NOTE: governs files only — directories are always reused.
 enum capture_if_exists {
     CAPTURE_IF_EXISTS_RENAME    = 0, // write <stem>-N.<ext> (first free N)
     CAPTURE_IF_EXISTS_OVERWRITE = 1, // delete the existing file and reuse the name
     CAPTURE_IF_EXISTS_FAIL      = 2, // error out, write nothing
 };
 
-// Output container. Zero default = mp4 (the portable, near-universal target);
-// mov is QuickTime, useful only for Apple-only track types. HEVC is written into
-// either container with no quality difference (same encoder, just the wrapper).
 enum capture_container {
     CAPTURE_CONTAINER_MP4 = 0, // .mp4 (AVFileTypeMPEG4)
     CAPTURE_CONTAINER_MOV = 1, // .mov (AVFileTypeQuickTimeMovie)

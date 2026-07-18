@@ -14,8 +14,8 @@
 
 #include "capture.h"
 
-// SCK / AVFoundation are weak-linked; capture_start has a runtime @available(macOS 12.3) gate
-// so references at file scope are safe. Silence the noisy unguarded-availability warnings.
+// NOTE: SCK/AVFoundation are weak-linked + runtime-gated in capture_start; file-scope
+// references are safe — silence the unguarded-availability noise.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunguarded-availability-new"
 
@@ -47,12 +47,8 @@ API_AVAILABLE(macos(12.3))
 @property (nonatomic, assign) double                   backingScale;   // px/pt for this display
 @end
 
-// All active capture sessions. A single capture is just an array of one; a
-// `display:all` capture holds one YBCapture per display. Guarded by g_capture_lock.
 static NSMutableArray<YBCapture *> *g_captures = nil;
 static os_unfair_lock g_capture_lock = OS_UNFAIR_LOCK_INIT;
-
-// ─── helpers ─────────────────────────────────────────────────────────────────
 
 static void
 capture_err(char *err, size_t err_len, const char *fmt, ...)
@@ -88,8 +84,6 @@ build_timestamp(void)
     return [df stringFromDate:[NSDate date]];
 }
 
-// Container (enum capture_container) -> file extension / AVFoundation file type.
-// Both wrap the same HEVC bitstream; mp4 is the portable default.
 static NSString *
 container_ext(int container)
 {
@@ -115,9 +109,6 @@ build_output_path(const char *name_opt, NSString *ext)
     return [default_output_dir() stringByAppendingPathComponent:base];
 }
 
-// ~/Movies/<group>/ — the per-capture directory for a display:all run. Created if
-// missing; reused as-is if it already exists (files inside follow the usual
-// overwrite-at-target-path rule).
 static NSString *
 group_output_dir(NSString *group)
 {
@@ -129,9 +120,7 @@ group_output_dir(NSString *group)
     return dir;
 }
 
-// Multi-display file: <group-dir>/yabai-capture-<ts>_<group>_did<DID>.<ext>. `group`
-// and `ts` are shared across one display:all capture so a stitch can re-pair the
-// files; `dir` is the group directory.
+// NOTE: name schema is parsed by capture_stitch's group scan — keep in sync.
 static NSString *
 build_output_path_multi(NSString *dir, NSString *ts, NSString *group, uint32_t did, NSString *ext)
 {
@@ -139,9 +128,6 @@ build_output_path_multi(NSString *dir, NSString *ts, NSString *group, uint32_t d
     return [dir stringByAppendingPathComponent:base];
 }
 
-// Apply the if-exists policy to an output path. Returns the path to actually write
-// (possibly renamed to a free <stem>-N.<ext>), or nil + err for FAIL on collision.
-// OVERWRITE deletes the existing file in place. No collision -> returns path as-is.
 static NSString *
 resolve_output_path(NSString *path, int if_exists, char *err, size_t err_len)
 {
@@ -158,7 +144,6 @@ resolve_output_path(NSString *path, int if_exists, char *err, size_t err_len)
         return nil;
     }
 
-    // CAPTURE_IF_EXISTS_RENAME (default): first free <stem>-N.<ext>.
     NSString *dir  = [path stringByDeletingLastPathComponent];
     NSString *ext  = [path pathExtension];
     NSString *stem = [[path lastPathComponent] stringByDeletingPathExtension];
@@ -172,8 +157,6 @@ resolve_output_path(NSString *path, int if_exists, char *err, size_t err_len)
     return nil;
 }
 
-// Write <file>.json next to a finished multi-display capture so a later stitch can
-// sync (first-frame PTS on the host clock) and lay out (global rect / pixel dims).
 static void
 write_sidecar(YBCapture *cap)
 {
@@ -209,9 +192,6 @@ find_sc_display(NSArray<SCDisplay *> *displays, uint32_t did)
     return nil;
 }
 
-// finalize_region: common tail — given the resolved global region and its display
-// bounds, fill the display-relative source rect (points) and the final encoded
-// pixel size (after backing scale + user scale, forced even for HEVC).
 static bool
 finalize_region(uint32_t did, CGRect region_global, CGRect display_global,
                 struct capture_options *o, CGRect *out_display_pts,
@@ -222,7 +202,6 @@ finalize_region(uint32_t did, CGRect region_global, CGRect display_global,
     out_display_pts->origin.y = region_global.origin.y - display_global.origin.y;
     out_display_pts->size     = region_global.size;
 
-    // Backing scale via CG (SCDisplay.frame is points; CGDisplayPixelsWide is pixels).
     double pix_w = (double)CGDisplayPixelsWide(did);
     double pt_w  = CGDisplayBounds(did).size.width;
     double bs    = (pt_w > 0.0) ? (pix_w / pt_w) : 2.0;
@@ -244,7 +223,6 @@ finalize_region(uint32_t did, CGRect region_global, CGRect display_global,
     return true;
 }
 
-// resolve_display_region: full-bounds capture for an explicit display id.
 static bool
 resolve_display_region(uint32_t did, struct capture_options *o, CGRect *out_display_pts,
                        int *out_pix_w, int *out_pix_h, CGRect *out_display_global,
@@ -257,9 +235,6 @@ resolve_display_region(uint32_t did, struct capture_options *o, CGRect *out_disp
                            out_pix_w, out_pix_h, out_backing_scale, err, err_len);
 }
 
-// resolve_region: returns true on success; fills out_did, out_display_pts (display-relative,
-// in points), out_pix_w/h (final encoded pixel size after scale). For a wid it crops to the
-// window bounds; otherwise it captures the full bounds of o->display (or the active display).
 static bool
 resolve_region(struct capture_options *o, uint32_t *out_did, CGRect *out_display_pts,
                int *out_pix_w, int *out_pix_h, CGRect *out_display_global,
@@ -278,7 +253,6 @@ resolve_region(struct capture_options *o, uint32_t *out_did, CGRect *out_display
         }
         CGRect disp = CGDisplayBounds(did);
 
-        // Straddle check: bare wid bounds must lie within its display.
         if (!CGRectContainsRect(disp, b)) {
             capture_err(err, err_len,
                 "capture: window %u straddles display boundary "
@@ -317,8 +291,6 @@ bitrate_for(int w, int h, int fps, double bpp)
     return (int)br;
 }
 
-// ─── YBCapture ───────────────────────────────────────────────────────────────
-
 @implementation YBCapture
 
 - (void)dealloc
@@ -337,7 +309,6 @@ bitrate_for(int w, int h, int fps, double bpp)
     [super dealloc];
 }
 
-// SCStreamDelegate: stream stopped (error path).
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error
 {
     if (error) {
@@ -345,7 +316,6 @@ bitrate_for(int w, int h, int fps, double bpp)
     }
 }
 
-// SCStreamOutput: hot path.
 - (void)stream:(SCStream *)stream
     didOutputSampleBuffer:(CMSampleBufferRef)sb
                    ofType:(SCStreamOutputType)type
@@ -353,7 +323,6 @@ bitrate_for(int w, int h, int fps, double bpp)
     if (type != SCStreamOutputTypeScreen) return;
     if (!sb || !CMSampleBufferIsValid(sb) || !CMSampleBufferDataIsReady(sb)) return;
 
-    // Drop idle/blank frames so we only record real updates.
     CFArrayRef att = CMSampleBufferGetSampleAttachmentsArray(sb, false);
     if (att && CFArrayGetCount(att) > 0) {
         CFDictionaryRef d = (CFDictionaryRef)CFArrayGetValueAtIndex(att, 0);
@@ -399,10 +368,7 @@ bitrate_for(int w, int h, int fps, double bpp)
 
 @end
 
-// ─── session lifecycle helpers ─────────────────────────────────────────────────
-
-// Build, configure and start one SCStream -> AVAssetWriter session for a single
-// display/region. Returns a +1 YBCapture on success (caller owns it), nil on error.
+// NOTE: returns a +1 YBCapture (caller owns), nil on error.
 API_AVAILABLE(macos(12.3))
 static YBCapture *
 start_one_display(SCDisplay *sc_disp, uint32_t did, NSString *out_path,
@@ -513,9 +479,6 @@ start_one_display(SCDisplay *sc_disp, uint32_t did, NSString *out_path,
     return cap;
 }
 
-// Stop one session's stream and writer. If keep, finalize the file (and write the
-// sidecar for a multi-display capture); otherwise discard the partial file. Best
-// effort — never throws.
 API_AVAILABLE(macos(12.3))
 static void
 finalize_session(YBCapture *cap, bool keep)
@@ -541,9 +504,8 @@ finalize_session(YBCapture *cap, bool keep)
             dispatch_semaphore_signal(finish_sem);
         }];
         dispatch_semaphore_wait(finish_sem, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC));
-        write_sidecar(cap);   // no-op when group == nil (single-display capture)
+        write_sidecar(cap);
     } else {
-        // No samples written, or aborting a partial start: drop the file + sidecar.
         if (cap.writer && cap.writer.status == AVAssetWriterStatusWriting) {
             [cap.writer cancelWriting];
         }
@@ -555,8 +517,6 @@ finalize_session(YBCapture *cap, bool keep)
     NSLog(@"[yabai-capture] %s: %@ (frames=%llu dropped=%llu)",
           keep ? "stopped" : "aborted", cap.path, cap.framesWritten, cap.framesDropped);
 }
-
-// ─── public C API ────────────────────────────────────────────────────────────
 
 bool
 capture_is_active(void)
@@ -591,7 +551,6 @@ capture_start(struct capture_options *o, char *err, size_t err_len)
     if (o->scale <= 0.0f) o->scale = 0.25f;
     if (o->bpp   <= 0.0f) o->bpp   = 0.6f;
 
-    // Enumerate all shareable displays once (shared by single + all paths).
     __block SCShareableContent *content = nil;
     __block NSError            *content_err = nil;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -622,7 +581,7 @@ capture_start(struct capture_options *o, char *err, size_t err_len)
         NSString *ts    = build_timestamp();
         NSString *group = (o->name && *o->name)
             ? [NSString stringWithUTF8String:o->name] : ts;
-        NSString *dir   = group_output_dir(group);   // ~/Movies/<group>/
+        NSString *dir   = group_output_dir(group);
 
         for (SCDisplay *sc_disp in content.displays) {
             uint32_t did = sc_disp.displayID;
@@ -667,7 +626,6 @@ capture_start(struct capture_options *o, char *err, size_t err_len)
         [cap release];
     }
 
-    // One duration timer drives capture_stop, which finalizes every session.
     if (o->duration > 0) {
         dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
                                                      dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0));
@@ -699,8 +657,8 @@ fail:
 bool
 capture_stop(char *err, size_t err_len)
 {
-    // Detach the whole set atomically so a concurrent stop / duration-timer fire is
-    // idempotent (the loser sees an empty set -> "not active").
+    // NOTE: detach the set atomically — a concurrent stop/duration-timer fire must see an
+    // empty set ("not active"), never finalize twice.
     os_unfair_lock_lock(&g_capture_lock);
     NSArray<YBCapture *> *caps = g_captures ? [g_captures copy] : nil;
     [g_captures removeAllObjects];
@@ -748,8 +706,6 @@ capture_status(char *out, size_t out_len)
     [caps release];
 }
 
-// ─── stitch ────────────────────────────────────────────────────────────────────
-
 #define STITCH_MAX_PANELS 16
 #define STITCH_TIMESCALE  600
 
@@ -774,8 +730,6 @@ stitch_cmp_x(const void *a, const void *b)
     return 0;
 }
 
-// Load a .mov into a panel: open the asset, grab its first video track + dims/fps.
-// `pts`/`rect` come from the caller (sidecar for a group, defaults for explicit files).
 static bool
 stitch_load_panel(NSString *mov_path, double first_pts, CGRect global_rect,
                   struct stitch_panel *out, char *err, size_t err_len)
@@ -813,7 +767,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
     bool ok = false;
     NSString *out_path = nil;
 
-    // ── 1. resolve inputs ──────────────────────────────────────────────────────
     if (o->group && *o->group) {
         NSString *group = [NSString stringWithUTF8String:o->group];
         NSString *dir   = [default_output_dir() stringByAppendingPathComponent:group]; // ~/Movies/<group>/
@@ -826,12 +779,9 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
         NSArray<NSString *> *entries =
             [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
 
-        // The directory may hold sidecars from several display:all runs (each shares
-        // a <ts> prefix). Pick the most recent run so we never mix panels across runs.
+        // NOTE: a group dir can hold several runs; take only the latest <ts> so panels never mix runs.
         NSString *latest_ts = nil;
         for (NSString *e in entries) {
-            // Sidecars are named <videofile>.<ext>.json, so the extension tracks the
-            // recorded container (mp4 or mov); match on the .json tail, not the container.
             if (![e hasPrefix:@"yabai-capture-"] || ![e hasSuffix:@".json"]) continue;
             NSString *rest = [e substringFromIndex:[@"yabai-capture-" length]];
             NSRange us = [rest rangeOfString:@"_"];
@@ -866,7 +816,7 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
             double pts_v  = [m[@"first_pts_value"] doubleValue];
             double pts_ts = [m[@"first_pts_timescale"] doubleValue];
             double first_pts = (pts_ts > 0) ? (pts_v / pts_ts) : 0.0;
-            NSString *video = [sc stringByDeletingPathExtension]; // strip ".json" -> the .mp4/.mov
+            NSString *video = [sc stringByDeletingPathExtension];
             if (stitch_load_panel(video, first_pts, rect, &panels[n], err, err_len)) n++;
         }
         out_path = o->out && *o->out
@@ -899,13 +849,10 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
         goto cleanup;
     }
 
-    // ── 2. order (left-to-right by global-x; explicit files keep input order) ──
     qsort(panels, n, sizeof(struct stitch_panel), stitch_cmp_x);
 
-    // ── 3. sync window: align every panel to the LATEST first-frame instant, so
-    // composition-time 0 is the same wall-clock moment on all displays. A panel
-    // whose stream started earlier has extra head footage, so it is trimmed by
-    // (t_latest - its first_pts); the latest-starting panel is trimmed by 0.
+    // NOTE: sync aligns all panels to the LATEST first-frame PTS (host clock) — earlier-
+    // starting panels are trimmed by the difference; composition t=0 = same wall-clock instant.
     double t_latest = panels[0].first_pts;
     for (int i = 1; i < n; i++) if (panels[i].first_pts > t_latest) t_latest = panels[i].first_pts;
     double overlap = INFINITY;
@@ -922,7 +869,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
         goto cleanup;
     }
 
-    // ── 4/5. compute per-panel scale + offset and the render canvas ────────────
     int    border = o->border > 0 ? o->border : 0;
     int    gap    = o->gap    > 0 ? o->gap    : border;
     bool   match  = o->match_height;
@@ -931,8 +877,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
     double renderW = 0, renderH = 0;
 
     if (o->layout == CAPTURE_STITCH_FAITHFUL) {
-        // Reproduce the real arrangement: union of global rects (points) -> pixels at
-        // the lowest panel density k, each panel drawn at its rect, black fills gaps.
         double minx = panels[0].global_rect.origin.x, miny = panels[0].global_rect.origin.y;
         double maxx = minx, maxy = miny, k = INFINITY;
         for (int i = 0; i < n; i++) {
@@ -954,7 +898,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
             ty[i] = border + (r.origin.y - miny) * k; // global coords are top-left, y-down
         }
     } else {
-        // side-by-side: equal-height columns (scale higher-res down to the smallest).
         double H = panels[0].th;
         for (int i = 1; i < n; i++) H = match ? fmin(H, panels[i].th) : fmax(H, panels[i].th);
         double x = border;
@@ -974,7 +917,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
     NSInteger rw = (NSInteger)llround(renderW); if (rw & 1) rw += 1;
     NSInteger rh = (NSInteger)llround(renderH); if (rh & 1) rh += 1;
 
-    // ── 6. build composition + video composition ───────────────────────────────
     AVMutableComposition *comp = [AVMutableComposition composition];
     NSMutableArray<AVMutableVideoCompositionLayerInstruction *> *lis = [NSMutableArray array];
     CMTime overlap_t = CMTimeMakeWithSeconds(overlap, STITCH_TIMESCALE);
@@ -1002,7 +944,7 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
 
     AVMutableVideoCompositionInstruction *vci = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
     vci.timeRange         = CMTimeRangeMake(kCMTimeZero, overlap_t);
-    vci.backgroundColor   = CGColorGetConstantColor(kCGColorBlack); // black matte for border/gap
+    vci.backgroundColor   = CGColorGetConstantColor(kCGColorBlack);
     vci.layerInstructions = lis;
 
     AVMutableVideoComposition *vc = [AVMutableVideoComposition videoComposition];
@@ -1010,7 +952,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
     vc.frameDuration = CMTimeMake(1, target_fps);
     vc.instructions  = @[vci];
 
-    // ── 7. export ──────────────────────────────────────────────────────────────
     out_path = resolve_output_path(out_path, o->if_exists, err, err_len);
     if (!out_path) goto cleanup;
     NSString *preset = AVAssetExportPresetHEVCHighestQuality;
@@ -1038,7 +979,6 @@ capture_stitch(struct capture_stitch_options *o, char *err, size_t err_len)
     NSLog(@"[yabai-capture] stitched %d panels -> %@ (%ldx%ld @ %dfps, %.2fs)",
           n, out_path, (long)rw, (long)rh, target_fps, overlap);
 
-    // ── 8. optional cleanup of source files + sidecars ─────────────────────────
     if (o->cleanup && o->group && *o->group) {
         for (int i = 0; i < n; i++) {
             NSString *p = panels[i].asset.URL.path;
