@@ -81,10 +81,9 @@ struct event_loop
 bool event_loop_begin(struct event_loop *event_loop);
 void event_loop_post(struct event_loop *event_loop, enum event_type type, void *context, int param1);
 
-// Space-transition gate for yabai-driven animated slides (FR-4). begin() at the
-// slide seed (synchronous — the gate must be live before the first frame),
-// finish() at the slide's nominal end; active() is read by focus_ring's show
-// choke point to suppress mid-slide paints.
+// Space-transition gate for animated slides: begin() synchronously at the slide seed
+// (the gate must be live before the first frame); finish() at the slide's nominal end.
+// active()/on_display() are read by focus_ring's show choke point to gate mid-slide paints.
 void space_transition_begin(int expected_ms, uint32_t did);
 bool space_transition_on_display(uint32_t did);
 void space_transition_finish(void);

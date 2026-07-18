@@ -33,25 +33,17 @@ static CONNECTION_CALLBACK(connection_handler)
         if (wid) event_loop_post(&g_event_loop, type == 816 ? SLS_WINDOW_INVISIBLE : SLS_WINDOW_VISIBLE,
                                  (void *) (intptr_t) wid, 0);
     } else if (type == 1325) {
-        // kCGSWindowDidCreate. Confirmed layout (len=12): { uint64_t sid; uint32_t wid }.
-        // w0/w1 are the space id; the newly-materialized window's wid is at offset 8.
-        // A native tab switch fires ONLY this event for the incoming tab (no 808/815/816
-        // /WINDOW_FOCUSED), so it is the sole focus signal for a silent tab swap.
+        // NOTE: kCGSWindowDidCreate payload (len 12) = { u64 sid; u32 wid at offset 8 }.
+        // A native-tab switch fires ONLY this event (no 808/815/816, AX silent).
         uint32_t wid = 0;
         if (data && data_length >= 12) memcpy(&wid, (char *) data + 8, sizeof(uint32_t));
         if (wid) event_loop_post(&g_event_loop, SLS_WINDOW_CREATED, (void *) (intptr_t) wid, 0);
     } else if (type == 1202) {
         __atomic_store_n(&__last_cmd_tab_time, read_os_timer(), __ATOMIC_RELEASE);
     } else if (type == 1329) {
-        // kCGSSpaceChange: the SLS-level space commit. Native switches also fire
-        // NSWorkspace.activeSpaceDidChange (-> SPACE_CHANGED via workspace.m), but
-        // an SA-driven animated slide commits the active space inside a raw SLS
-        // transaction and does NOT fire that notification -- without this leg the
-        // daemon never hears its own slide commit and SPACE_CHANGED's
-        // reconcile/drain/focus-recall never run. kCGSSpaceChange fires twice per
-        // switch (leave+enter); post only when the active space actually changes.
-        // Runs on the g_connection notify runloop (single thread), so a plain
-        // static is safe.
+        // NOTE: an SA-driven slide commits the space in a raw SLS transaction and fires NO
+        // NSWorkspace.activeSpaceDidChange — this 1329 (kCGSSpaceChange) leg is how the daemon
+        // hears its own commit. Fires leave+enter per switch; post only on a real change.
         static uint64_t s_last_space_change_sid;
         uint64_t active = SLSGetActiveSpace(g_connection);
         if (active && active != s_last_space_change_sid) {
@@ -146,18 +138,9 @@ static inline bool mission_control_is_active(void)
     return g_mission_control_mode != MISSION_CONTROL_MODE_INACTIVE;
 }
 
-// ============================================================================
-// OSLog Mission-Control enter/exit observer
-// ----------------------------------------------------------------------------
-// Dock emits a unified-log line "Changing from mode <a> to <b>" the instant it
-// begins an MC transition: ".none -> .showAllWindows" on enter, ".show* -> .none"
-// on exit. A tight `log stream` predicate delivers those lines with ~0.2-4ms lag
-// -- earlier than the AX observer, early enough to drive the focus-ring
-// hide/restore. The in-process live-stream SPI (os_activity_stream_for_pid) is
-// entitlement-gated (com.apple.private.logging.stream, Apple-signed only), so we
-// shell out to the already-entitled /usr/bin/log and parse its stdout on a
-// dedicated reader thread. On a match we post MISSION_CONTROL_OSL_ENTER /
-// _OSL_EXIT; the event-loop handlers perform the ring hide / restore.
+// NOTE: Dock logs "Changing from mode <a> to <b>" as an MC transition starts; `log
+// stream` delivers it in ~0.2-4ms, ahead of the AX observer. The in-process stream SPI
+// is entitlement-gated (com.apple.private.logging.stream) — hence the /usr/bin/log child.
 extern char **environ;
 
 static struct {
@@ -173,12 +156,6 @@ static void *mission_control_osl_reader(void *unused)
     FILE *stream = fdopen(g_mc_osl_observer.read_fd, "r");
     if (!stream) return NULL;
 
-    // ndjson: one JSON object per line. The predicate matches every Dock MC mode
-    // transition; classify by the ".<from> to .<to>" endpoints into the three
-    // expose modes (posted as param1):
-    // 0=showAllWindows (Mission Control), 1=showFrontWindows (app-Exposé),
-    // 2=showDesktop. Endpoint matching naturally ignores the ".show* to .show* with
-    // fluid gesture" ticks and the ".none to .none" transient (they match no pattern).
     static const struct { const char *pat; enum event_type ev; int mode; } MC_MODES[] = {
         { ".none to .showAllWindows",   MISSION_CONTROL_OSL_ENTER, 0 },  // Mission Control
         { ".none to .showFrontWindows", MISSION_CONTROL_OSL_ENTER, 1 },  // app-Exposé
