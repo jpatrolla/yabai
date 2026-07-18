@@ -19,19 +19,26 @@ volatile bool __pending_gesture;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
 
+// NOTE: SLSRequestNotificationsForWindows hard-fails (subscribes NOTHING) at
+// count >= 1024, it does not truncate — so cap every loop at 1023, not the array
+// size, or an overflowing rebuild silently drops all subscriptions.
+#define WINDOW_NOTIFICATION_CAP 1023
+
 static void update_window_notifications(void)
 {
     int window_count = 0;
-    uint32_t window_list[1024] = {0};
+    uint32_t window_list[WINDOW_NOTIFICATION_CAP];
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         // NOTE(asmvik): Subscribe to all windows because of window_destroyed (and ordered) notifications
         table_for (struct window *window, g_window_manager.window, {
+            if (window_count >= WINDOW_NOTIFICATION_CAP) break;
             window_list[window_count++] = window->id;
         })
     } else {
         // NOTE(asmvik): Subscribe to windows that have a feedback_border because of window_ordered notifications
         table_for (struct window_node *node, g_window_manager.insert_feedback, {
+            if (window_count >= WINDOW_NOTIFICATION_CAP) break;
             window_list[window_count++] = node->window_order[0];
         })
     }
@@ -42,7 +49,7 @@ static void update_window_notifications(void)
     // switches would go silent. Deduped vs tracked (belt-and-braces; the set is
     // untracked-only by construction) and bounds-guarded against the fixed array.
     table_for (void *tab_ptr, g_window_manager.tab_window, {
-        if (window_count >= 1024) break;
+        if (window_count >= WINDOW_NOTIFICATION_CAP) break;
         uint32_t tab_wid = (uint32_t)(uintptr_t) tab_ptr;
         if (window_manager_find_window(&g_window_manager, tab_wid)) continue;
         window_list[window_count++] = tab_wid;
@@ -1260,6 +1267,13 @@ static EVENT_HANDLER(SLS_WINDOW_VISIBLE)
 {
     uint32_t wid = (uint64_t)(intptr_t) context;
     debug("%s: %d\n", __FUNCTION__, wid);
+    // Retry cold-tab AX adoption: 815 settles after the 1325 that may have raced
+    // the app's AX window list (click switches only; keyboard fires no 815).
+    // No-op once tracked (guarded in the helper).
+    if (window_manager_adopt_tab_window(&g_space_manager, &g_window_manager, wid)) {
+        debug("%s: adopted tab wid=%d into AX tracking\n", __FUNCTION__, wid);
+        update_window_notifications();
+    }
     refocus_ring(wid, true);
 }
 
@@ -1357,7 +1371,12 @@ static EVENT_HANDLER(SLS_WINDOW_CREATED)
         if (wlevel == 0) {
             bool is_new = window_manager_add_tab_window(&g_window_manager, wid);
             debug("%s: %s tab wid=%d owner=%d\n", __FUNCTION__, is_new ? "NEW" : "re-materialized", wid, owner);
-            if (is_new) update_window_notifications();
+            // The selected tab is no longer AX-hidden -> promote it to full AX
+            // tracking so it emits AX move/resize. A first-time set-add or a
+            // successful adopt both mutate the subscription list -> one rebuild.
+            bool adopted = window_manager_adopt_tab_window(&g_space_manager, &g_window_manager, wid);
+            if (adopted) debug("%s: adopted tab wid=%d into AX tracking\n", __FUNCTION__, wid);
+            if (is_new || adopted) update_window_notifications();
         } else {
             debug("%s: skipping tab-set add for wid=%d (level=%d)\n", __FUNCTION__, wid, wlevel);
         }

@@ -2340,6 +2340,46 @@ bool window_manager_remove_tab_window(struct window_manager *wm, uint32_t wid)
     return true;
 }
 
+// Promote a selected native tab from the SLS-only tab set into full AX tracking.
+// A tab hidden at daemon start is AX-invisible (absent from kAXWindowsAttribute)
+// and only ever gets seed-subscribed, so it emits no AX move/resize. On selection
+// it re-enters the app's window list and window_observe can attach here. The list
+// can lag a keyboard/cold switch — the caller retries on a later event. Returns
+// true on adopt; the caller (event_loop TU) then rebuilds notifications, which
+// this TU can't reach (update_window_notifications is static there).
+bool window_manager_adopt_tab_window(struct space_manager *sm, struct window_manager *wm, uint32_t wid)
+{
+    if (!wid) return false;
+    if (window_manager_find_window(wm, wid)) return false;
+    if (!window_manager_is_tab_window(wm, wid)) return false;
+
+    int owner = 0; SLSGetWindowOwner(g_connection, wid, &owner);
+    if (!owner) return false;
+    pid_t pid = 0; SLSConnectionGetPID(owner, &pid);
+    if (!pid) return false;
+
+    struct application *application = window_manager_find_application(wm, pid);
+    if (!application) return false;
+
+    CFArrayRef window_list = application_window_list(application);
+    if (!window_list) return false;
+
+    bool adopted = false;
+    int window_count = CFArrayGetCount(window_list);
+    for (int i = 0; i < window_count; ++i) {
+        AXUIElementRef window_ref = CFArrayGetValueAtIndex(window_list, i);
+        if (ax_window_id(window_ref) != wid) continue;
+        if (window_manager_create_and_add_window(sm, wm, application, CFRetain(window_ref), wid, false)) {
+            window_manager_remove_tab_window(wm, wid);
+            adopted = true;
+        }
+        break;
+    }
+
+    CFRelease(window_list);
+    return adopted;
+}
+
 // Startup seed: enumerate ALL of `application`'s SLS windows — including ordered-out,
 // no-space native tabs that neither AX (kAXWindowsAttribute) nor the space-scoped
 // window list can see — and add the untracked ones to the tab set. The reach comes

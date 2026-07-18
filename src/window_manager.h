@@ -343,6 +343,7 @@ void window_manager_stamp_focused_window(struct window_manager *wm, uint32_t wid
 bool window_manager_is_tab_window(struct window_manager *wm, uint32_t wid);
 bool window_manager_add_tab_window(struct window_manager *wm, uint32_t wid);
 bool window_manager_remove_tab_window(struct window_manager *wm, uint32_t wid);
+bool window_manager_adopt_tab_window(struct space_manager *sm, struct window_manager *wm, uint32_t wid);
 void window_manager_seed_tab_windows(struct window_manager *wm, struct application *application);
 uint32_t window_manager_space_topmost_window(struct window_manager *wm, uint64_t sid);
 uint32_t window_manager_space_next_to_front_window(struct window_manager *wm, uint64_t sid);
