@@ -534,12 +534,6 @@ static uint8_t parse_value_type(char *type)
     }
 }
 
-// Resolve one --move coordinate field: a number, or the literal "center", which
-// centers the window on its display's usable area along that axis (same bounds
-// --grid uses, so it clears the menu bar / Dock). "center" is absolute-only — it
-// has no meaning against a rel delta. Returns false for a non-numeric field,
-// "center" with a non-abs type, or a window/display that can't be resolved; the
-// caller then reports the usual "unknown value" failure.
 static bool parse_move_coord(struct window *window, uint8_t type, char *field, bool is_x, float *value)
 {
     if (string_equals(field, "center")) {
@@ -1232,9 +1226,8 @@ static struct selector parse_insert_selector(FILE *rsp, char **message)
     return result;
 }
 
-// focus_ring config string tables. Index MUST match the matching enum in
-// focus_ring.h (the ordinal is the payload wire contract — append at the end,
-// never reorder).
+// NOTE: order must match the enums in focus_ring.h — the ordinal is the
+// payload wire contract; append only.
 static char *focus_ring_blend_mode_str[] = {
     "normal", "multiply", "screen", "overlay", "darken", "lighten",
     "color-dodge", "color-burn", "soft-light", "hard-light", "difference",
@@ -1242,11 +1235,6 @@ static char *focus_ring_blend_mode_str[] = {
 };
 static char *focus_ring_inner_stroke_position_str[] = { "above", "below" };
 
-// focus_ring config helpers. The ring exposes ~20 knobs sharing a handful of
-// parse shapes; each helper takes the matching getter/setter instead of
-// repeating the read-token / print-current / dispatch-or-fail sequence per key.
-// All focus_ring setters clamp and self-repaint internally (see focus_ring.m),
-// so message.c only has to parse the value.
 static void fr_config_bool(FILE *rsp, char **message, struct token command, struct token domain, bool (*get)(void), void (*set)(bool))
 {
     struct token value = get_token(message);
@@ -1303,7 +1291,6 @@ static void fr_config_enum(FILE *rsp, char **message, struct token command, stru
     }
 }
 
-// Band color: 0xAARRGGBB | a named accent preset | auto|system (live accent).
 static void fr_config_color_base(FILE *rsp, char **message, struct token command, struct token domain, uint32_t (*get)(void), bool (*is_auto)(void), void (*set)(uint32_t), void (*set_auto)(void))
 {
     struct token value = get_token(message);
@@ -1322,7 +1309,6 @@ static void fr_config_color_base(FILE *rsp, char **message, struct token command
     }
 }
 
-// Inner-stroke color: 0xRRGGBB | a named accent preset | inherit (follow the band).
 static void fr_config_color_inherit(FILE *rsp, char **message, struct token command, struct token domain, uint32_t (*get)(void), bool (*is_set)(void), void (*set)(uint32_t), void (*set_inherit)(void))
 {
     struct token value = get_token(message);
@@ -1341,7 +1327,6 @@ static void fr_config_color_inherit(FILE *rsp, char **message, struct token comm
     }
 }
 
-// Inner-stroke opacity: 0.0..1.0 | inherit (sentinel FOCUS_RING_OPACITY_INHERIT).
 static void fr_config_opacity_inherit(FILE *rsp, char **message, struct token command, struct token domain, float (*get)(void), void (*set)(float))
 {
     struct token value = get_token(message);
@@ -1648,9 +1633,6 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
         } else if (token_equals(command, COMMAND_CONFIG_EXPOSE_ANIMATION_DURATION)) {
-            // MC-5b: push -[WVExpose animationDuration] to the Dock-side SA swizzle
-            // (opcode 0x58). 0 zeroes MC's enter/exit tween; < 0 = passthrough to
-            // the native ~0.25s.
             struct token_value value = token_to_value(get_token(&message));
             if (value.type == TOKEN_TYPE_INVALID) {
                 fprintf(rsp, "%f\n", g_window_manager.expose_animation_duration);
@@ -2257,9 +2239,6 @@ static void handle_domain_display(FILE *rsp, struct token domain, char *message)
         struct selector selector = parse_display_selector(rsp, &message, acting_did, false);
         if (selector.did_parse && selector.did) {
             if (acting_did != selector.did) {
-                // Keyboard-driven display focus: `smart`
-                // space_focus_target_display should follow this display on
-                // the next defaulted space --focus.
                 g_window_manager.last_focus_method = FOCUS_METHOD_KEYBOARD;
                 display_manager_focus_display(selector.did, display_space_id(selector.did));
             } else {
@@ -2303,9 +2282,6 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
     struct token command;
     uint64_t acting_sid = space_manager_active_space();
     struct selector selector = parse_space_selector(NULL, &message, acting_sid, true);
-    // Whether the acting space was given as an explicit selector (e.g.
-    // `space 3 --focus next`). When it wasn't, a defaulted prev/next routes
-    // through the space_focus_target_display gate.
     bool acting_explicit = selector.did_parse;
 
     if (selector.did_parse) {
@@ -2322,14 +2298,9 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
 
     for (; token_is_valid(command); command = get_token(&message)) {
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
-            // Relative prev/next routes through the edge-guard-aware path so a
-            // hop that would leave this display nudges (contain_space_focus_per_display
-            // on) instead of silently crossing to another display. Peek the
-            // selector token BEFORE parsing: at an outer extreme (globally
-            // first/last space) prev/next resolves to no space at all and the
-            // parse would fail before the guard could fire — so route on the
-            // token itself and suppress the parse's own "could not locate"
-            // failure (NULL rsp); the relative path owns the edge semantics.
+            // NOTE: peek prev/next before parsing — at the global first/last space the
+            // parse fails before the edge guard could fire; route on the raw token and
+            // pass NULL rsp so the relative path owns the edge semantics.
             char *peek = message;
             struct token selector_token = get_token(&peek);
             bool relative = token_equals(selector_token, ARGUMENT_COMMON_SEL_NEXT) ||
@@ -2655,9 +2626,6 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             }
 
             if (acting_window) {
-                // Keyboard-driven focus: `smart` space_focus_target_display
-                // should follow the active window's display on the next defaulted
-                // space --focus.
                 g_window_manager.last_focus_method = FOCUS_METHOD_KEYBOARD;
                 window_manager_focus_window_with_raise(&acting_window->application->psn, acting_window->id, acting_window->ref);
             } else {
@@ -3703,8 +3671,6 @@ static void handle_domain_capture(FILE *rsp, struct token domain, char *message)
                 else { daemon_fail(rsp, "capture stitch: bad format '%s' (mp4|mov)\n", v); return; }
             }
             else if (file_count < 16) {
-                // bare token -> an explicit input .mov path (token text is
-                // null-terminated in place, so it is usable as a C string).
                 files[file_count++] = t.text;
             } else {
                 daemon_fail(rsp, "capture stitch: too many file arguments\n");

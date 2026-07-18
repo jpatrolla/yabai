@@ -134,10 +134,6 @@ struct application *application_create(struct process *process)
     application->is_hidden = application_is_hidden(application);
     SLSGetConnectionIDForPSN(g_connection, &application->psn, &application->connection);
 
-    // Cache kAXEnhancedUserInterface once. Avoids a per-call AX read inside
-    // AX_ENHANCED_UI_WORKAROUND_CACHED on the move/resize commit path. Apps
-    // typically set EUI once at launch; the cache is refreshed at window_create
-    // to catch apps that set it lazily or a stale-false from the AX timeout.
     application->ax_eui_cached = ax_enhanced_userinterface(application->ref);
 
     return application;

@@ -77,10 +77,8 @@ struct application
     bool is_observing;
     bool is_hidden;
     bool ax_retry;
-    // Cached kAXEnhancedUserInterface flag, read by AX_ENHANCED_UI_WORKAROUND_CACHED
-    // (helpers.h) to skip the per-call AX read on the move/resize commit path.
-    // Written at application_create (initial read) and refreshed at window_create
-    // (covers apps that set EUI lazily, or a 1.0s AX-timeout stale-false at launch).
+    // NOTE: EUI cache for AX_ENHANCED_UI_WORKAROUND_CACHED (helpers.h); refreshed
+    // at window_create — apps set EUI lazily / a launch AX timeout reads stale false.
     bool ax_eui_cached;
 };
 

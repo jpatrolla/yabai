@@ -334,10 +334,7 @@ int main(int argc, char **argv)
     }
 
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 808, NULL);
-    // Native-tab tracking: kCGSWindowDidCreate (1325) is the only signal a native
-    // tab switch emits (no 808/815/816, silent to AX) — connection_handler decodes
-    // the wid and posts SLS_WINDOW_CREATED for the tab-window set and the keyboard
-    // tab-follow. 1327/1328 (space create/destroy) are already registered above.
+    // NOTE: 1325 is the only signal a native tab switch emits (AX-silent).
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
     // NOTE: 805-816 are per-wid gated server-side like 804/808 -- events arrive
     // only for wids declared via update_window_notifications(); registration

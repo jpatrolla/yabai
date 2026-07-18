@@ -99,7 +99,6 @@ extern CFArrayRef SLSHWCaptureWindowList(int cid, uint32_t *window_list, int win
 extern CGError SLSSpaceSetCompatID(int cid, uint64_t sid, int workspace);
 extern CGError SLSSetWindowListWorkspace(int cid, uint32_t *window_list, int window_count, int workspace);
 
-// ── non-upstream SPIs: animation engine + dependencies ──
 extern void mig_dealloc_special_reply_port(mach_port_t port);
 extern uint64_t SLSGetActiveSpace(int cid);
 extern int _CGSDefaultConnection(void);
@@ -156,8 +155,8 @@ extern CGAffineTransform SLSSpaceGetTransform(int cid, uint64_t sid, int *option
 extern uint64_t   SLSSpaceWithName(int cid, CFStringRef name);
 extern float      SLSSpaceGetAlpha(int cid, uint64_t sid);
 extern int        SLSSpaceGetAbsoluteLevel(int cid, uint64_t sid);
-extern int        SLSSpaceGetCompatID(int cid, uint64_t sid);         /* dead stub — always returns 0 */
-extern CFArrayRef SLSSpaceCopyOwners(int cid, uint64_t sid);          /* CFArray<NSNumber*> of owning pids; caller releases */
+extern int        SLSSpaceGetCompatID(int cid, uint64_t sid);
+extern CFArrayRef SLSSpaceCopyOwners(int cid, uint64_t sid);
 
 extern CFArrayRef SLSCopyManagedDisplaySpaces(int cid);
 extern int SLSCopyWindowGroup(int cid, uint32_t wid, CFStringRef groupKind, void **outBuf, int32_t *outCount);

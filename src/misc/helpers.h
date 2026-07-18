@@ -388,11 +388,8 @@ static inline bool ax_enhanced_userinterface(AXUIElementRef ref)
     if (eui) AXUIElementSetAttributeValue(r, kAXEnhancedUserInterface, kCFBooleanTrue); \
 }
 
-// Tri-state EUI read: distinguishes a successful read (returns true, writes
-// *out) from an AX failure (returns false, leaves *out untouched). The plain
-// ax_enhanced_userinterface() above folds "read failed" into "false", so it
-// can't drive a cache that wants to update without a transient AX hiccup
-// clobbering a known-good value. The EUI-cache refresh (window.c) uses this.
+// NOTE: tri-state on purpose — a failed AX read leaves *out untouched so a
+// transient hiccup cannot clobber the cached EUI value (window.c refresh).
 static inline bool ax_enhanced_userinterface_checked(AXUIElementRef ref, bool *out)
 {
     CFTypeRef value;
@@ -405,13 +402,8 @@ static inline bool ax_enhanced_userinterface_checked(AXUIElementRef ref, bool *o
     return true;
 }
 
-// Same semantics as AX_ENHANCED_UI_WORKAROUND but reads the EUI flag from the
-// per-application cache (application->ax_eui_cached) instead of round-tripping
-// AX every call. The uncached macro pays one kAXEnhancedUserInterface READ per
-// invocation — ~0.5-1ms for responsive apps, 10-50ms for sluggish ones (iTerm2)
-// — which, on the hot move/resize commit path, stalls the single event loop.
-// The cache is populated at application_create and refreshed at window_create
-// (see window.c). Takes `struct application *` (not the AXUIElementRef).
+// NOTE: reads the cached EUI flag — the uncached macro's per-call AX read
+// can stall the event loop for tens of ms on the move/resize commit path.
 #define AX_ENHANCED_UI_WORKAROUND_CACHED(app, c) \
 {\
     bool eui = (app)->ax_eui_cached; \

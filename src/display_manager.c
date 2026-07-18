@@ -455,9 +455,6 @@ out:
 void display_manager_set_active_display_id(uint32_t did)
 {
     CFStringRef uuid = display_uuid(did);
-    // The 3rd arg is an event timestamp; ~0ULL makes the server clamp it to the
-    // current event time. Upstream passes the uuid pointer here, which can read
-    // as a stale stamp and be rejected — silently dropping the switch.
     SLSSetActiveMenuBarDisplayIdentifier(g_connection, uuid, ~0ULL);
     CFRelease(uuid);
 }
@@ -470,9 +467,6 @@ static bool display_manager_window_resides_on_display(uint32_t did, uint32_t wid
     return CGRectContainsPoint(CGDisplayBounds(did), mid);
 }
 
-// Fallback desktop-window hunt: scan `sid`'s full window list (options 0x7 —
-// chrome included) for a Finder-owned window in the desktop band (negative
-// window level; Finder owns no other sub-zero windows) that resides on `did`.
 static uint32_t display_manager_desktop_window_on_space(uint32_t did, uint64_t sid)
 {
     uint32_t result = 0;
@@ -513,14 +507,8 @@ static uint32_t display_manager_desktop_window_on_space(uint32_t did, uint64_t s
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-// Last-resort desktop-window hunt via PUBLIC CGWindowList. Finder's
-// desktop-icon windows are join-all-spaces chrome with NO per-space
-// association — sid-scoped SLS window lists miss them entirely
-// (live-verified: `debug desktop_residency` shows only WindowServer strips
-// and wallpaper windows in the desktop band of a space's list) — but
-// CGWindowListCopyWindowInfo enumerates them with owner pid, layer, and
-// bounds regardless of space. Runs only on the (rare) empty-display focus
-// path, so the heavier copy is acceptable.
+// NOTE: Finder desktop windows are join-all-spaces chrome — absent from
+// sid-scoped SLS lists; this public CGWindowList tier is the one that finds them.
 static uint32_t display_manager_desktop_window_via_cgwindowlist(uint32_t did)
 {
     pid_t finder_pid = 0;
@@ -557,16 +545,9 @@ static uint32_t display_manager_desktop_window_via_cgwindowlist(uint32_t did)
 }
 #pragma clang diagnostic pop
 
-// The Finder desktop ("role-1") window that actually RESIDES on `did`.
-// SLSManagedDisplaysCopyRoleWindows is not display-faithful: it can answer a
-// display's UUID with the OTHER display's desktop window (live-verified —
-// display 1's UUID returning display 2's desktop, the stale one-shot
-// registration; see documentation in the main tree), and keying that window
-// yanks focus to the wrong display. Accept an SPI candidate only if its
-// bounds sit on `did`; otherwise fall back to the space-scoped desktop-band
-// scan, then to the CGWindowList hunt (the space scan misses Finder's
-// desktop windows on builds where they are join-all-spaces chrome — the
-// CGWindowList tier is the one that actually fires there).
+// NOTE: SLSManagedDisplaysCopyRoleWindows can answer with the OTHER display's
+// desktop window (stale registration); the residency check is load-bearing —
+// keying a non-resident window yanks focus to its display.
 uint32_t display_manager_resident_desktop_window(uint32_t did, uint64_t sid)
 {
     uint32_t result = 0;
@@ -608,22 +589,14 @@ void display_manager_focus_display(uint32_t did, uint64_t sid)
         window_manager_center_mouse(&g_window_manager, window);
         display_manager_set_active_display_id(did);
     } else {
-        // No app window on the target display (desktop only). Key the display's
-        // OWN Finder desktop window (role-1) via the SLPS front + make-key idiom.
-        // A bare front-process call or cursor warp does NOT land focus on an
-        // empty display — keying the RESIDENT desktop window + the
-        // active-display switch does. Resident is the operative word: the raw
-        // role-windows SPI can answer with the other display's desktop (see
-        // display_manager_resident_desktop_window), and keying that window
-        // yanks focus to THAT display instead of this one.
+        // NOTE: an empty display takes focus only by keying its resident desktop
+        // window — a bare front-process call does not land, and desktop windows have no AX ref.
         uint32_t role_wid = display_manager_resident_desktop_window(did, sid);
         if (role_wid) {
             int wcid = 0;
             ProcessSerialNumber psn = {0};
             SLSGetWindowOwner(g_connection, role_wid, &wcid);
             SLSGetConnectionPSN(wcid, &psn);
-            // Pure SLPS idiom (no raise): desktop windows have no AX ref, and
-            // the sls focus method's Dock hand-off does not land on them.
             window_manager_focus_window_without_raise(&psn, role_wid);
         }
         display_manager_set_active_display_id(did);

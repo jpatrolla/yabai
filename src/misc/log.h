@@ -15,25 +15,18 @@
 
 extern bool g_verbose;
 
-// ============================================================================
-// UNIFIED LOG (shared file + stdout tee, family color + filter)
-// ============================================================================
-// One line per call: "HH:MM:SS.mmm  TAG: message". Daemon tees to stdout
-// (colorized on a TTY) and to the shared file (plain). Family = the token
-// before the first '_' in TAG; it drives color and the YABAI_LOG filter.
-
-// Per-tree log dir so parallel dev checkouts don't clobber one shared file.
-// YB_LOG_TREE is baked in by the makefile (-DYB_LOG_TREE, derived from the
-// checkout path); the fallback keeps a hand/tarball build compiling.
+// NOTE: "HH:MM:SS.mmm  TAG: message", teed to stdout and YB_LOG_PATH. The
+// token before the first '_' in TAG is the family — it keys the YABAI_LOG
+// filter. YB_LOG_TREE is injected by the makefile (-DYB_LOG_TREE).
 #ifndef YB_LOG_TREE
 #define YB_LOG_TREE "unknown"
 #endif
 #define YB_LOG_DIR         "/tmp/logs/yabai/" YB_LOG_TREE
 #define YB_LOG_PATH        YB_LOG_DIR "/yabai.log"
-#define YB_TAG_WIDTH 30   // pad "TAG:" to this column so messages align
+#define YB_TAG_WIDTH 30
 
-static int  g_yb_log_fd = -1;          // shared file, O_APPEND; one fd per process
-static char g_yb_log_filter[256] = ""; // ",fam1,fam2," lowercased; "" = allow all
+static int  g_yb_log_fd = -1;
+static char g_yb_log_filter[256] = "";
 
 static inline void yb_log_lower(char *s) {
     for (; *s; ++s) if (*s >= 'A' && *s <= 'Z') *s += 32;
@@ -41,7 +34,7 @@ static inline void yb_log_lower(char *s) {
 
 static inline void yb_log_init(void) {
     if (g_yb_log_fd != -1) return;
-    mkdir("/tmp/logs", 0755);        // ignore EEXIST; create the nested tree
+    mkdir("/tmp/logs", 0755);
     mkdir("/tmp/logs/yabai", 0755);
     mkdir(YB_LOG_DIR, 0755);
     g_yb_log_fd = open(YB_LOG_PATH, O_WRONLY | O_APPEND | O_CREAT, 0644);
@@ -52,8 +45,6 @@ static inline void yb_log_init(void) {
     }
 }
 
-// Case-insensitive prefix test (pfx must be UPPERCASE). Used to color SLS
-// sub-sources below — finer-grained than the family token.
 static inline bool yb_tag_has_prefix(const char *tag, const char *pfx) {
     for (size_t i = 0; pfx[i]; ++i) {
         char a = tag[i]; if (a >= 'a' && a <= 'z') a -= 32;
@@ -63,13 +54,6 @@ static inline bool yb_tag_has_prefix(const char *tag, const char *pfx) {
 }
 
 static inline const char *yb_family_color(const char *tag, size_t fam_len) {
-    // SLS sub-source coloring. The whole SLS family is magenta for filtering,
-    // but the live stream is far more scannable when each *event source* reads
-    // as its own color. (Filtering by family "sls" is unaffected — only color.)
-    //   SLS_WIN_*  direct off our pump      (event_watcher)   -> bright green
-    //   SLS_PL_*   relayed by the Dock payload (forward_cb)   -> bright magenta
-    // Plain SLS_* (e.g. SLS_ORDER_CHANGED) falls through to base SLS magenta.
-    // (connection-notify space events log as EVENT_HANDLER_SLS_SPACE_* = cyan.)
     if (yb_tag_has_prefix(tag, "SLS_WIN_")) return "\x1b[92m";
     if (yb_tag_has_prefix(tag, "SLS_PL_"))  return "\x1b[95m";
 
@@ -85,7 +69,7 @@ static inline const char *yb_family_color(const char *tag, size_t fam_len) {
         if (strlen(T[i].name) != fam_len) continue;
         bool eq = true;
         for (size_t k = 0; k < fam_len; ++k) {
-            char a = tag[k]; if (a >= 'a' && a <= 'z') a -= 32; // ASCII upper
+            char a = tag[k]; if (a >= 'a' && a <= 'z') a -= 32;
             if (a != T[i].name[k]) { eq = false; break; }
         }
         if (eq) return T[i].ansi;
@@ -105,9 +89,6 @@ static inline bool yb_family_enabled(const char *tag, size_t fam_len) {
     return strstr(g_yb_log_filter, needle) != NULL;
 }
 
-// Copy `msg` into `dst`, turning each embedded '\n' into '\n' + `indent`
-// spaces so continuation lines fall under the message column. Returns bytes
-// written. Used to support two-line "TAG: header \n metadata" log entries.
 static inline int yb_indent_copy(char *dst, int cap, const char *msg, int indent) {
     int o = 0;
     for (const char *s = msg; *s && o < cap - 1; ++s) {
@@ -120,10 +101,6 @@ static inline int yb_indent_copy(char *dst, int cap, const char *msg, int indent
     return o;
 }
 
-// Emit `s` (may contain '\n') to stdout. When `bg` is non-empty, wrap each
-// physical line in the background color and fill to EOL (\x1b[K) so the whole
-// entry gets a subtle band, re-applied after each newline. Used for the
-// per-entry alternating background that separates adjacent log entries.
 static inline void yb_emit_bg(const char *s, const char *bg) {
     if (!bg[0]) { fputs(s, stdout); fputc('\n', stdout); return; }
     fputs(bg, stdout);
@@ -152,13 +129,9 @@ void yb_logf(const char *tag, const char *fmt, ...) {
     va_end(args);
     if (mn < 0) return;
     size_t mlen = ((size_t)mn < sizeof msg) ? (size_t)mn : sizeof msg - 1;
-    while (mlen && msg[mlen - 1] == '\n') msg[--mlen] = '\0'; // we add our own newline
+    while (mlen && msg[mlen - 1] == '\n') msg[--mlen] = '\0';
 
-    // Pad "TAG:" to a fixed width so the message column lines up. Padding is
-    // computed from the plain tag length (ANSI color is added after, so it
-    // never counts toward the column). `tagfield` is the full "TAG:<pad> "
-    // visible width — also the indent for continuation lines (embedded '\n').
-    int taglen = (int)strlen(tag) + 1;                 // +1 for ':'
+    int taglen = (int)strlen(tag) + 1;
     int pad = taglen < YB_TAG_WIDTH ? YB_TAG_WIDTH - taglen : 0;
     int tagfield = (taglen < YB_TAG_WIDTH ? YB_TAG_WIDTH : taglen) + 1;
 
@@ -168,18 +141,14 @@ void yb_logf(const char *tag, const char *fmt, ...) {
 
     char body[1536];
 
-    // File: "TS  TAG:<pad> msg" — one atomic O_APPEND write. Continuation lines
-    // indent under the message column (timestamp width + tagfield).
+    // NOTE: single write() per entry — the O_APPEND log file is shared, so a
+    // split write interleaves entries.
     int o = snprintf(body, sizeof body, "%s  %s:%*s ", ts, tag, pad, "");
     o += yb_indent_copy(body + o, (int)sizeof body - o, msg, tslen + 2 + tagfield);
     if (o < (int)sizeof body - 1) body[o++] = '\n';
     if (g_yb_log_fd != -1) write(g_yb_log_fd, body, o);
 
-    // Stdout: NO timestamp (saves space in the live view), padded tag colored.
-    // The tag's color is closed with \x1b[39m (reset FG only) so a per-entry
-    // background band survives across it. Continuation lines indent under the
-    // message column (tagfield).
-    static int tty = 0; // 0 uninit, 1 tty, 2 not-tty
+    static int tty = 0;
     if (tty == 0) tty = isatty(fileno(stdout)) ? 1 : 2;
     const char *c = (tty == 1) ? yb_family_color(tag, fam) : "";
     o = c[0] ? snprintf(body, sizeof body, "%s%s:\x1b[39m%*s ", c, tag, pad, "")
@@ -187,9 +156,6 @@ void yb_logf(const char *tag, const char *fmt, ...) {
     o += yb_indent_copy(body + o, (int)sizeof body - o, msg, tagfield);
 
     if (tty == 1) {
-        // Subtle alternating background per ENTRY (not per line) so adjacent
-        // entries — including multi-line ones and consecutive same-tag ones —
-        // are visually separable.
         static unsigned s_entry = 0;
         const char *bg = (s_entry++ & 1u) ? "\x1b[48;5;236m" : "";
         yb_emit_bg(body, bg);

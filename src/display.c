@@ -251,9 +251,6 @@ out:
     return space_list;
 }
 
-// Per-display refresh-timing cache. Reads the CG display mode (no SLS chain)
-// and defaults to 60Hz — all the animation engine needs to pace the payload
-// pump. Lazy-initialized on first get.
 static struct display_timing g_display_timing[DISPLAY_TIMING_MAX];
 static int g_display_timing_count = 0;
 static pthread_mutex_t g_display_timing_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -293,7 +290,7 @@ void display_timing_table_refresh_force(void)     { display_timing_table_init();
 struct display_timing *display_timing_get(uint32_t did)
 {
     pthread_mutex_lock(&g_display_timing_lock);
-    if (g_display_timing_count == 0) display_timing_populate_locked();   // lazy init
+    if (g_display_timing_count == 0) display_timing_populate_locked();
     struct display_timing *result = NULL;
     for (int i = 0; i < g_display_timing_count; ++i) {
         if (g_display_timing[i].did == did) { result = &g_display_timing[i]; break; }
