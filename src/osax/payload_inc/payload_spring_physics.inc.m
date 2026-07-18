@@ -1,29 +1,10 @@
-// =========================================================================
-// payload_spring_physics.inc.m — reusable 1-D damped-spring integrator.
-// =========================================================================
-// Factored out so any animated payload feature (hover scale, focus ring,
-// strip cards) can drive a scalar toward a moving target with natural motion.
-//
+// NOTE: 1-D damped spring, semi-implicit Euler — the {response, damping_ratio}
+// model CASpringAnimation/SwiftUI .spring use. Pure math (no SLS, no
+// allocation): safe from any thread, target may move every frame.
 // The model matches Stage Manager's SpringParameters {response, dampingRatio}
 // (disasm-verified in WindowManagerAgent) — the same formulation Core
 // Animation's CASpringAnimation and SwiftUI's .spring(response:dampingFraction:)
 // use:
-//
-//   omega = 2*pi / response                 // undamped natural frequency
-//   a     = -omega^2 * (x - target)         // Hooke restoring force
-//           - 2 * zeta * omega * v          // viscous damping (zeta = ratio)
-//   v    += a * dt;   x += v * dt           // semi-implicit Euler (stable)
-//
-//   response      ~ seconds for one oscillation. Smaller => snappier.
-//   damping_ratio   < 1 underdamped (overshoots/bounces),
-//                   = 1 critical (fastest settle, no overshoot),
-//                   > 1 overdamped (sluggish, no overshoot).
-//
-// Pure math: no SLS, no window refs, no allocation — safe to step from any
-// thread. The intended use is stepping with a target that may change every
-// frame (that is exactly how hover-in / hover-out works): the spring chases
-// whatever the current target is.
-// =========================================================================
 #ifndef PAYLOAD_SPRING_PHYSICS_INC_M
 #define PAYLOAD_SPRING_PHYSICS_INC_M
 
@@ -40,9 +21,7 @@ struct spring_state {
     double velocity;        // current rate of change, in units/second
 };
 
-// Advance `s` toward `target` by `dt` real seconds. `dt` is measured elapsed
-// time, so jitter in the frame clock changes only smoothness, not the shape
-// of the motion.
+// dt is measured elapsed time — clock jitter changes smoothness, not shape.
 static inline void spring_step(struct spring_state *s, double target,
                                struct spring_params p, double dt)
 {
