@@ -1,50 +1,11 @@
-// payload_inc/anim_owner.inc.m
-//
-// Per-wid animation ownership registry (AC-14) — cross-animator arbitration.
-//
-// Every continuous animator in this payload (anim, g_xfade, drag_warp,
-// g_focus_fade, the upstream window_fade threads) hand-rolls its own
-// interrupt mechanism, and none of them can see each other: any two that
-// touch the same wid fight — last writer into the shared per-VBL transaction
-// wins per frame, and whoever settles last stomps the other's terminal state.
-// This registry centralizes the one idiom they all already use ("generation
-// check at write time") so the checks work ACROSS animators, not just within
-// one.
-//
-// Model: two channels per wid —
-//   GEO   = T3D + LockedBounds + AX as ONE channel; the composed resize
-//           recipe is non-substitutable, so its parts are never owned
-//           separately.
-//   ALPHA = window alpha.
-// Each channel has a monotonic generation (never reset → no ABA) and an
-// owner tag. The row additionally records GEO terminal intent (deathwatch
-// reads this in AC-17 instead of inferring from matrix shape) and the
-// steady-state alpha captured at the FIRST alpha claim (what settles restore
-// to instead of a hardcoded 1.0 — SPA-9).
-//
-// Threading / lock discipline:
-//   - g_anim_owner_lock is a strict LEAF: never call SLS and never take an
-//     animator lock while holding it.
-//   - anim_claim / anim_set_terminal run on the SA handler thread (animator
-//     begin paths), where every begin already serializes. NEVER call them on
-//     the ca_clock pump. anim_claim is a pure table op (no SLS), so calling
-//     it while holding an animator lock (anim begin holds g_anim_lock)
-//     is fine under the leaf discipline.
-//   - anim_release may run from any context EXCEPT the pump hot path: the SA
-//     handler thread inline, dispatched-off-pump blocks, or the main queue
-//     (xfade's settle block). A stale release (a newer claim took the
-//     channel) is a no-op, so racing a concurrent claim is safe.
-//   - anim_owns is the per-frame write gate: lock-free (atomic wid + gen
-//     loads), safe on the pump hot path at xfade scale (~512 wids/frame).
-//     Every transient race resolves to `false` = "you don't own it" = the
-//     caller skips its write — always the conservative outcome.
-//   - anim_baseline_alpha / anim_terminal_intent take the leaf lock; they
-//     are one-shot settle/sweep reads, not per-frame.
-//
-// Tag map: AC-14 = this table; AC-15 gates xfade <-> anim on it; SPA-9 =
-// baseline-alpha capture (anim_baseline_capture below — claims themselves
-// never call SLS); AC-16 folds anim's `superseded` + g_lb_wid_gen into it;
-// AC-17 wires terminal intent.
+// anim_owner.inc.m — per-wid animation ownership registry: cross-animator
+// arbitration via generation tokens (claim -> gated per-frame writes -> release).
+// NOTE: GEO = T3D + LockedBounds + AX as ONE channel — the composed resize
+// recipe is non-substitutable, so its parts are never owned separately.
+// Generations are monotonic and never reset (no ABA). g_anim_owner_lock is a
+// strict leaf: no SLS calls and no animator lock while held. anim_claim /
+// anim_set_terminal: SA handler thread only, never the pump; anim_release: any
+// context except the pump hot path; anim_owns: lock-free, pump-safe.
 
 #define ANIM_OWNER_MAX 1024
 
@@ -96,13 +57,9 @@ static const char *anim_owner_tag_name(uint8_t tag)
     }
 }
 
-// Caller holds g_anim_owner_lock. Find the wid's row; if absent, key a new
-// slot at the high-water mark, or — table full — re-key a fully released row
-// (both owners NONE: its begins are long done, so no live token can refer to
-// it through this wid). Re-keying keeps the row's gens (monotonic per ROW,
-// not per wid) so a token from the slot's previous life can never match.
-// Falls back to row 0 only past 1024 distinct wids with live owners, which
-// realistic concurrent-animation counts never approach.
+// Caller holds g_anim_owner_lock. NOTE: re-key only fully released rows, and
+// keep the row's gens across a re-key (monotonic per ROW, not per wid) so a
+// token from the slot's previous life can never match.
 static struct anim_claim_row *anim_row_find_or_create(uint32_t wid)
 {
     int hwm = atomic_load_explicit(&g_anim_owner_hwm, memory_order_relaxed);
@@ -130,15 +87,9 @@ static struct anim_claim_row *anim_row_find_or_create(uint32_t wid)
     return r;
 }
 
-// Claim a channel of a wid. SA handler thread only — never on the pump.
-// Returns the generation token the caller must present to anim_owns on every
-// per-frame write and to anim_release when it cedes. A claim over a live
-// owner is a TAKEOVER: the old owner's token goes stale and its gated writes
-// stop landing; eviction courtesies (e.g. xfade seed calling
-// anim_skip_all_to_end) stay explicit and per-owner.
-// Pure table op — no SLS — so it's safe while holding an animator lock and
-// cheap at xfade seed scale (2 claims x 512 wids). Baseline-alpha capture is
-// SPA-9's job, at a call site where an SLS read per wid is affordable.
+// Claim a channel; returns the token presented to anim_owns on every write and
+// to anim_release. A claim over a live owner is a TAKEOVER — the old token goes
+// stale. Pure table op, no SLS.
 static uint64_t anim_claim(uint32_t wid, enum anim_channel ch, enum anim_owner_tag owner)
 {
     pthread_mutex_lock(&g_anim_owner_lock);
@@ -150,9 +101,8 @@ static uint64_t anim_claim(uint32_t wid, enum anim_channel ch, enum anim_owner_t
     return gen;
 }
 
-// The per-frame write gate: does `gen` still own the channel? Lock-free —
-// safe on the pump hot path. Any race with a concurrent claim/re-key
-// resolves to false (skip the write), never to a stale write landing.
+// Per-frame write gate, lock-free. Races resolve to false (skip the write) —
+// never to a stale write landing.
 static bool anim_owns(uint32_t wid, enum anim_channel ch, uint64_t gen)
 {
     int hwm = atomic_load_explicit(&g_anim_owner_hwm, memory_order_acquire);
@@ -163,10 +113,8 @@ static bool anim_owns(uint32_t wid, enum anim_channel ch, uint64_t gen)
     return false;
 }
 
-// Owner cedes a channel. Bumps the generation so any in-flight async work
-// still holding this token (dispatched-off-pump AX completions, stale
-// settle resets) fails its anim_owns check. A stale release (a newer claim
-// already took the channel) is a no-op. Row keeps baseline + terminal.
+// Cede a channel: bump the gen so in-flight async holders of this token fail
+// anim_owns. A stale release (newer claim took the channel) is a no-op.
 static void anim_release(uint32_t wid, enum anim_channel ch, uint64_t gen)
 {
     pthread_mutex_lock(&g_anim_owner_lock);
@@ -183,9 +131,7 @@ static void anim_release(uint32_t wid, enum anim_channel ch, uint64_t gen)
     pthread_mutex_unlock(&g_anim_owner_lock);
 }
 
-// Record GEO terminal intent (stage-thumb apply marks PERSIST) so settle
-// paths and the deathwatch sweep read intent instead of inferring it from
-// matrix shape.
+// GEO terminal intent — settles/deathwatch read intent, not matrix shape.
 static void anim_set_terminal(uint32_t wid, enum anim_terminal terminal)
 {
     pthread_mutex_lock(&g_anim_owner_lock);
@@ -208,23 +154,15 @@ static enum anim_terminal anim_terminal_intent(uint32_t wid)
     return terminal;
 }
 
-// AC-18: the smallest alpha trusted as a steady state. A real config never
-// parks a window near 0 (yabai's --opacity 0.0 means "reset to default"), but
-// a stranded animation residue is exactly near-0 (a slide's final frame leaves
-// 1-ease ≈ 0.001). Recording one bakes invisibility into the restore target —
-// every later slide then fades the window 0→0 ("stuck invisible"). Sub-epsilon
-// reads and stored baselines are distrusted; capture falls back to 1.0, which
-// actively HEALS an already-stranded window on its next slide.
+// NOTE: smallest alpha trusted as a steady state. Near-0 is stranded animation
+// residue, not config (--opacity 0.0 means "reset"); recording it bakes "stuck
+// invisible" into the restore target. Distrust it and fall back to 1.0 (heals).
 #define ANIM_BASELINE_MIN_ALPHA 0.01f
 
-// SPA-9: capture a wid's steady-state alpha into its row and return the
-// baseline. Call BEFORE claiming the ALPHA channel: while the channel is
-// owned, the live alpha is a mid-fade transient, so an owned row returns the
-// stored baseline untouched; an unowned row re-reads — a --opacity change
-// between animations refreshes the restore target instead of going stale.
-// The SLS read happens OFF the leaf lock; it's a server round-trip, so call
-// from seed/begin paths only (never the pump, never while holding an animator
-// lock). Returns 1.0 when nothing was ever recorded and the read fails.
+// Capture steady-state alpha. NOTE: call BEFORE claiming ALPHA — an owned
+// channel returns the stored baseline (live alpha is a mid-fade transient); an
+// unowned row re-reads so --opacity changes refresh. SLS read runs off the
+// leaf lock: seed/begin paths only, never the pump or under an animator lock.
 static float anim_baseline_capture(uint32_t wid)
 {
     pthread_mutex_lock(&g_anim_owner_lock);
@@ -233,7 +171,7 @@ static float anim_baseline_capture(uint32_t wid)
         if (atomic_load_explicit(&g_anim_owner[i].wid, memory_order_relaxed) != wid) continue;
         if (g_anim_owner[i].owner[ANIM_CH_ALPHA] != ANIM_OWNER_NONE && g_anim_owner[i].baseline_known
             && g_anim_owner[i].baseline_alpha >= ANIM_BASELINE_MIN_ALPHA) {
-            float alpha = g_anim_owner[i].baseline_alpha;   // mid-animation: live alpha is transient
+            float alpha = g_anim_owner[i].baseline_alpha;
             pthread_mutex_unlock(&g_anim_owner_lock);
             return alpha;
         }
@@ -243,26 +181,19 @@ static float anim_baseline_capture(uint32_t wid)
 
     float cur = 1.0f;
     bool have = (SLSGetWindowAlpha(SLSMainConnectionID(), wid, &cur) == kCGErrorSuccess);
-    if (have && cur < ANIM_BASELINE_MIN_ALPHA) have = false;   // AC-18: stranded residue, not a steady state
+    if (have && cur < ANIM_BASELINE_MIN_ALPHA) have = false;
 
     pthread_mutex_lock(&g_anim_owner_lock);
     struct anim_claim_row *r = anim_row_find_or_create(wid);
-    // Re-check under the lock: a claim landing in the read gap makes `cur`
-    // suspect — only overwrite a known baseline if the channel is still free.
     if (have && (r->owner[ANIM_CH_ALPHA] == ANIM_OWNER_NONE || !r->baseline_known)) {
         r->baseline_alpha = cur;
         r->baseline_known = true;
     }
-    // Sub-epsilon stored baselines are distrusted the same way — restore to
-    // 1.0 heals them.
     cur = (r->baseline_known && r->baseline_alpha >= ANIM_BASELINE_MIN_ALPHA) ? r->baseline_alpha : 1.0f;
     pthread_mutex_unlock(&g_anim_owner_lock);
     return cur;
 }
 
-// Steady-state alpha to restore at settle/handoff; 1.0 when no alpha claim
-// ever recorded one. One-shot settle read — takes the leaf lock, fine off
-// the per-frame path.
 static float anim_baseline_alpha(uint32_t wid)
 {
     float alpha = 1.0f;
@@ -271,15 +202,13 @@ static float anim_baseline_alpha(uint32_t wid)
     for (int i = 0; i < hwm; ++i) {
         if (atomic_load_explicit(&g_anim_owner[i].wid, memory_order_relaxed) != wid) continue;
         if (g_anim_owner[i].baseline_known && g_anim_owner[i].baseline_alpha >= ANIM_BASELINE_MIN_ALPHA)
-            alpha = g_anim_owner[i].baseline_alpha;   // AC-18: sub-epsilon = poisoned, fall back to 1.0
+            alpha = g_anim_owner[i].baseline_alpha;
         break;
     }
     pthread_mutex_unlock(&g_anim_owner_lock);
     return alpha;
 }
 
-// Format the registry for the anim_owner_dump SA probe. Snapshots under the
-// leaf lock; truncates gracefully when the response buffer fills.
 static void anim_owner_dump(char *buf, size_t len)
 {
     size_t off = 0;
