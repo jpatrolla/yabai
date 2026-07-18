@@ -7,8 +7,6 @@ struct space_label
     char *label;
 };
 
-// Bounded-stack depth for deferred (mid-slide) space focus. Hops queue up to
-// this many; further presses collapse the tail to latest-wins.
 #define SPACE_PENDING_FOCUS_CAP 3
 
 struct space_manager
@@ -33,12 +31,9 @@ struct space_manager
     bool skip_window_focus_animation;
     bool mission_control_always_show_spaces_strip_enabled;
 
-    // Bounded stack — deferred (mid-slide) space focus. A yabai-driven space
-    // change fired while a previous slide is still in flight queues here (FIFO)
-    // and is seeded one hop at a time off each slide's commit (SPACE_CHANGED),
-    // so rapid `space --focus next/prev` chains continuously instead of
-    // re-seeding the same first hop. Capped: pushes past the cap collapse the
-    // tail to latest-wins so a held key can't build an unbounded backlog.
+    // NOTE: deferred mid-slide space-focus queue — drained one hop per SPACE_CHANGED
+    // commit; pushes past the cap collapse the tail (latest-wins) so a held key
+    // can't build a backlog. Event-loop thread only.
     uint64_t pending_focus_fifo[SPACE_PENDING_FOCUS_CAP];
     int      pending_focus_count;
 };
@@ -90,9 +85,6 @@ bool space_manager_set_gap_for_space(struct space_manager *sm, uint64_t sid, int
 bool space_manager_toggle_gap_for_space(struct space_manager *sm, uint64_t sid);
 void space_manager_toggle_mission_control(uint64_t sid, bool thumbnails_enabled);
 void space_manager_toggle_show_desktop(uint64_t sid);
-// Rebuild the MC strip after a byte-pattern-free server-side space op (create/move/swap/display/
-// destroy) via the named @objc -[Spaces handleDisplayReconfig] — a non-MC path: no expose cycle,
-// no scale nudge.
 void space_manager_dock_rebuild_strip(void);
 void space_manager_set_layout_for_all_spaces(struct space_manager *sm, enum view_type layout);
 void space_manager_set_window_gap_for_all_spaces(struct space_manager *sm, int window_gap);
@@ -131,9 +123,6 @@ bool space_manager_refresh_application_windows(struct space_manager *sm);
 void space_manager_handle_display_add(struct space_manager *sm, uint32_t did);
 void space_manager_begin(struct space_manager *sm);
 
-// Resolve the window the focus ring should target on `sid`. Returns 0 when the
-// space has no yabai-tracked window. MUST run on the event thread (the window
-// list comes from the single-threaded ts_alloc arena).
 uint32_t space_manager_preferred_focus_wid(uint64_t sid, const char **out_source, uint32_t *out_view_last);
 
 #endif

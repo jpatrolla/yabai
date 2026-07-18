@@ -421,10 +421,8 @@ static pid_t scripting_addition_dock_pid(void)
     return [dock count] > 0 ? [(NSRunningApplication *)[dock firstObject] processIdentifier] : 0;
 }
 
-// scripting_addition_install() terminates Dock asynchronously to clear the old
-// payload from memory; injecting before the replacement Dock is up has no
-// target. Block until a Dock with a different pid than the one we terminated is
-// running, plus a short settle for its run loop.
+// NOTE: install() restarts Dock asynchronously — wait for a Dock with a new pid
+// (plus a run-loop settle) or the inject has no target.
 static void scripting_addition_wait_for_dock_restart(pid_t old_pid)
 {
     for (int i = 0; i < 200; ++i) {          // ~10s ceiling
@@ -437,13 +435,8 @@ static void scripting_addition_wait_for_dock_restart(pid_t old_pid)
     }
 }
 
-// --reload-sa: one-shot dev reload. A bare --load-sa is install-OR-inject
-// (it `goto`s out after install, never injecting in the same call) AND it skips
-// install entirely when the installed CFBundleVersion matches the compile-time
-// OSAX_VERSION — so iterating on payload code otherwise needs --uninstall-sa
-// followed by TWO --load-sa runs. This forces a clean reinstall (install()
-// removes + rewrites the bundle and restarts Dock to drop the old mapped
-// payload) and then injects the fresh payload, in one command.
+// NOTE: forced reinstall + inject in one shot — a bare --load-sa never installs
+// AND injects in the same run, and version-skips install entirely.
 int scripting_addition_reload(void)
 {
     int result = 0;
@@ -474,7 +467,7 @@ int scripting_addition_reload(void)
 
     pid_t old_dock = scripting_addition_dock_pid();
 
-    result = scripting_addition_install();       // remove + write fresh bundle + restart Dock
+    result = scripting_addition_install();
     if (result != 0) goto out;
 
     scripting_addition_wait_for_dock_restart(old_dock);
@@ -486,9 +479,7 @@ int scripting_addition_reload(void)
         goto out;
     }
 
-    // Best-effort version notification. The inject already succeeded, so a
-    // transient handshake race (payload socket not up yet) must NOT fail the
-    // reload — keep result == 0.
+    // NOTE: best-effort — a handshake race must not fail a successful inject.
     if (scripting_addition_set_socket_path()) {
         scripting_addition_perform_validation();
     }
@@ -498,12 +489,8 @@ out:
     return result;
 }
 
-// pack() bounds-checks against the socket buffer: an oversized message sets
-// pack_overflow and sa_payload_send returns false instead of memcpy'ing past
-// the stack buffer (the payload's read_message would reject a message >=
-// SA_SOCKET_BUFF_LEN anyway, so failing the send loses nothing). The LB+T3D
-// begin opcode is additionally static-assert'ed to fit at its max row count
-// (common_experimental.h); this guard is the runtime backstop for every opcode.
+// NOTE: pack() bounds-checks the socket buffer — an oversized message trips
+// pack_overflow and sa_payload_send fails instead of smashing the stack.
 #define sa_payload_init() char bytes[SA_SOCKET_BUFF_LEN]; int16_t length = 1+sizeof(length); __attribute__((unused)) bool pack_overflow = false
 #define pack(v) do { \
         if (length + (int16_t)sizeof(v) > SA_SOCKET_BUFF_LEN) pack_overflow = true; \
@@ -715,9 +702,7 @@ bool scripting_addition_move_window_to_space(uint64_t sid, uint32_t wid)
     return sa_payload_send(SA_OPCODE_WINDOW_TO_SPACE);
 }
 
-// Experimental wrappers — see sa_inc/sa_experimental.inc.m for the categories.
-// Included BEFORE the #undef block so the sa_payload_init/pack/sa_payload_send
-// macros are still live for the experimental wrappers.
+// NOTE: must stay above the #undef block — the wrappers use these macros.
 #include "sa_inc/sa_experimental.inc.m"
 
 #undef sa_payload_init

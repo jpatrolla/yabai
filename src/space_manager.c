@@ -251,9 +251,7 @@ void space_manager_toggle_mission_control(uint64_t sid, bool thumbnails_enabled)
 
     if (!is_in_mc) {
         if (thumbnails_enabled) {
-            // Reveal the spaces thumbnail strip: store the cursor, nudge it to
-            // the top-center of the active display as Mission Control opens (which
-            // expands the strip), then restore it.
+            // NOTE: warping the cursor to the top edge as MC opens expands the spaces strip.
             CGEventRef event = CGEventCreate(NULL);
             saved_mouse_position = CGEventGetLocation(event);
             CFRelease(event);
@@ -271,7 +269,6 @@ void space_manager_toggle_mission_control(uint64_t sid, bool thumbnails_enabled)
             usleep(10000);
             CGWarpMouseCursorPosition(saved_mouse_position);
         } else {
-            // Activate Mission Control without revealing the thumbnail strip.
             CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
         }
     } else {
@@ -876,7 +873,7 @@ enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uin
     }
 
     if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
-    space_manager_dock_rebuild_strip();   // rebuild the MC strip after the byte-pattern-free reorder
+    space_manager_dock_rebuild_strip();
     return SPACE_OP_ERROR_SUCCESS;
 }
 
@@ -918,7 +915,7 @@ enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint6
     }
 
     if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
-    space_manager_dock_rebuild_strip();   // rebuild the MC strip after the byte-pattern-free reorder
+    space_manager_dock_rebuild_strip();
     return SPACE_OP_ERROR_SUCCESS;
 }
 
@@ -950,7 +947,7 @@ enum space_op_error space_manager_move_space_to_display(struct space_manager *sm
         if (focus_space) {
             space_manager_focus_space(sid);
         }
-        space_manager_dock_rebuild_strip();   // rebuild the MC strip after the byte-pattern-free cross-display move
+        space_manager_dock_rebuild_strip();
         return SPACE_OP_ERROR_SUCCESS;
     }
 
@@ -1017,39 +1014,24 @@ bool space_manager_focus_space_using_gesture(uint32_t new_did, uint64_t new_sid)
 }
 #pragma clang diagnostic pop
 
-// --- Quick consecutive space-focus stacking (SPA-2) -------------------------
-// Rapid `space --focus next/prev` must chain S1->S2->S3->... as one continuous
-// slide-burst. The catch: while a slide is in flight the SLS-committed active
-// space is FROZEN at the burst origin (the payload commits the switch only at
-// the slide's midpoint), so relative nav can't walk from the live active space
-// — it would re-resolve the SAME first hop every press. We track an OPTIMISTIC
-// logical target instead and walk from it, sending each next hop straight
-// through to the (interruptible) payload animator, which snaps the running slide
-// to its end and retargets.
-//
-// NB: display_manager_display_is_animating() cannot gate "slide active" here —
-// that SLS read is a constant false on modern macOS — so the slide is bracketed
-// purely by this optimistic state: set at seed, cleared at commit (reconcile)
-// or by the seed's teardown safety timer.
-static uint64_t g_anim_logical_sid;    // in-flight slide's optimistic target
-static uint64_t g_anim_origin_sid;     // its start space (committed or prior target)
-static uint32_t g_anim_did;            // display the burst is scoped to
-static uint64_t g_slide_animating_gen; // bumped per seed; gen-guards the teardown timer
+// NOTE: while a slide is in flight the committed active space stays frozen at
+// the burst origin (the payload commits mid-slide) — relative nav walks this
+// optimistic state, cleared at commit (reconcile) or the seed's safety timer.
+// display_manager_display_is_animating() is a constant false here — cannot gate.
+static uint64_t g_anim_logical_sid;
+static uint64_t g_anim_origin_sid;
+static uint32_t g_anim_did;
+static uint64_t g_slide_animating_gen;
 
-// Slack past the nominal slide end before the teardown safety timer fires.
 #define SPACE_ANIM_TIMER_TAIL_S 0.10
 
-// Forward decl — definition lives further down this file.
 static enum space_op_error space_manager_focus_space_ex(uint64_t sid, bool allow_animate);
 
-// True while one of OUR slides is mid-flight on `did`.
 static inline bool space_slide_active_on(uint32_t did)
 {
     return g_anim_did == did && g_anim_logical_sid != 0;
 }
 
-// Walk cursor for relative/adjacency math during a burst: the last hop already
-// queued (FIFO tail) if any, else the in-flight slide's optimistic target.
 static inline uint64_t space_pending_cursor_sid(void)
 {
     struct space_manager *sm = &g_space_manager;
@@ -1058,9 +1040,6 @@ static inline uint64_t space_pending_cursor_sid(void)
          : g_anim_logical_sid;
 }
 
-// True while hops are still queued for `did` — keeps presses "in the burst"
-// during the one-frame gap after a hop commits (reconcile clears the optimistic
-// target) but before the next slide seeds.
 static inline bool space_pending_has_hops_for(uint32_t did)
 {
     struct space_manager *sm = &g_space_manager;
@@ -1072,14 +1051,11 @@ static void space_pending_focus_push(uint64_t sid)
 {
     struct space_manager *sm = &g_space_manager;
     if (sid == 0) return;
-    // Drop a push identical to the current tail — it would be a zero-distance hop.
     if (sm->pending_focus_count > 0 &&
         sm->pending_focus_fifo[sm->pending_focus_count - 1] == sid) return;
     if (sm->pending_focus_count < SPACE_PENDING_FOCUS_CAP) {
         sm->pending_focus_fifo[sm->pending_focus_count++] = sid;
     } else {
-        // Bounded — collapse the tail to latest-wins. The final landing target is
-        // preserved; only the last queued hop may become a multi-space jump.
         sm->pending_focus_fifo[SPACE_PENDING_FOCUS_CAP - 1] = sid;
     }
 }
@@ -1096,11 +1072,8 @@ static uint64_t space_pending_focus_pop(void)
     return sid;
 }
 
-// Called on every committed space change (SPACE_CHANGED). If the commit matches
-// our optimistic target the burst landed -> clear. If it is neither the target
-// nor the origin, an external/Mission-Control switch superseded us -> abort so
-// the next press starts fresh. commit == origin is a mid-burst intermediate
-// (the interruptible snap of the prior hop) -> leave state intact.
+// NOTE: commit == origin is the interruptible snap of the prior hop — keep the
+// optimistic state; any other non-target commit means superseded: clear.
 void space_manager_reconcile_optimistic_target(uint64_t committed_sid)
 {
     if (g_anim_logical_sid == 0) return;
@@ -1111,18 +1084,9 @@ void space_manager_reconcile_optimistic_target(uint64_t committed_sid)
     }
 }
 
-// Space-slide seed. The vendored payload animator
-// (osax/payload_inc/space_animation.inc.m) commits the active-space change at
-// its own midpoint, so we DON'T call scripting_addition_focus_space here — we
-// just hand it the geometry and let it slide. It is interruptible: a second
-// seed snaps the in-flight slide to its end and retargets.
-//
-// out/in_active_stage = -1 (no per-stage thumbnail filtering); ring_wid is
-// resolved from the destination's focused window (FR-9 geo-rider) when the
-// ring is enabled, else 0. gap/menubar use conservative defaults; easing
-// reuses the window-animation curve so one config lever governs both.
-// direction: +1 toward the previous space, -1 toward the next (mirrors the
-// caller's geometry).
+// NOTE: the payload commits the space change itself mid-slide — do not call
+// scripting_addition_focus_space here. A reseed mid-flight snaps the running
+// slide to its end and retargets. direction: +1 toward prev, -1 toward next.
 static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
                                                               uint64_t in_sid,
                                                               int direction)
@@ -1134,51 +1098,29 @@ static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
     double width = bounds.size.width;
     if (width <= 0.0) return SPACE_OP_ERROR_INVALID_SRC;
 
-    // Track the optimistic origin/target so rapid relative nav can walk from the
-    // in-flight slide instead of the frozen committed space. On a retarget (a
-    // seed while a slide is already active) out_sid is the prior hop's target
-    // (the cursor); the payload snaps to it before starting this one, so the snap
-    // commits out_sid -> reconcile sees committed==origin -> "in-progress", then
-    // this hop's commit lands on in_sid==logical. See space_slide_active_on.
     g_anim_origin_sid  = out_sid;
     g_anim_did         = did;
     g_anim_logical_sid = in_sid;
 
-    // Teardown safety net. Normally reconcile (SPACE_CHANGED) clears the
-    // optimistic state at the slide's commit; if that commit is ever missed, drop
-    // it here so a stale cursor can't wedge the burst path. gen-guarded so a newer
-    // seed (which bumps the gen) invalidates this timer.
     uint64_t gen = ++g_slide_animating_gen;
     double hold_s = (double)g_window_manager.space_animation_duration + SPACE_ANIM_TIMER_TAIL_S;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(hold_s * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        if (gen != g_slide_animating_gen) return;   // superseded by a newer slide
+        if (gen != g_slide_animating_gen) return;
         if (g_anim_did == did) { g_anim_logical_sid = 0; g_anim_origin_sid = 0; g_anim_did = 0; }
-        // FR-4: the slide reached its nominal end — close the transition window
-        // and reveal the settled focus (a pending deferred fade owns the reveal
-        // instead when focus_ring_fade is on).
         space_transition_finish();
     });
 
-    // Ship the panel rate so the payload cross-fade rides this display's ca_clock
-    // pump at its native cadence (60Hz fallback when timing is unknown).
     struct display_timing *dt = display_timing_get(did);
     float refresh_hz = (dt && dt->valid) ? (float)dt->refresh_rate_hz : 60.0f;
 
-    // SPA fade lever (SPACE_FADE_* bitmask): master gate + independent per-side
-    // control. Master off → 0 (pure slide). On → set the enabled sides so the
-    // payload fades only the incoming (ENTER) and/or outgoing (EXIT) windows.
     uint8_t fade = 0;
     if (g_window_manager.space_animation_fade) {
         if (g_window_manager.space_animation_fade_exit)  fade |= SPACE_FADE_EXIT;
         if (g_window_manager.space_animation_fade_enter) fade |= SPACE_FADE_ENTER;
     }
 
-    // FR-9 geo-rider: resolve the destination space's focused-window ring so the
-    // payload parks a ring there and rides it IN with the entering windows (GEO
-    // only; the focus_ring fade owns ALPHA). ring_wid==0 (ring disabled / dest
-    // has no window) keeps the plain no-rider slide. MUST run on this (event)
-    // thread — focus_ring_resolve_dest uses the single-thread ts_alloc arena.
+    // NOTE: focus_ring_resolve_dest must run on the event thread (ts_alloc arena).
     uint32_t ring_wid = 0; CGRect ring_rect = CGRectZero; float ring_radius = 0.0f;
     if (focus_ring_get_enabled()) {
         focus_ring_resolve_dest(in_sid, &ring_wid, &ring_rect, &ring_radius);
@@ -1188,22 +1130,21 @@ static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
                                                g_window_manager.space_animation_duration,
                                                width,
                                                0.0,        // gap
-                                               (uint8_t)g_window_manager.space_animation_background,   // wallpaper rides the slide (off = static backdrop)
+                                               (uint8_t)g_window_manager.space_animation_background,   // wallpaper
                                                0,          // animate_menubar
                                                did, refresh_hz,
-                                               -1, -1,     // out/in active stage: no filtering
+                                               -1, -1,     // out/in active stage
                                                (uint8_t)g_window_manager.window_animation_easing,
-                                               fade,       // SPACE_FADE_* bitmask (enter/exit cross-fade)
-                                               ring_wid,   // FR-9: focus-ring geo-rider dest (0 = none)
+                                               fade,       // fade
+                                               ring_wid,   // ring_wid
                                                (float)ring_rect.origin.x,    (float)ring_rect.origin.y,
                                                (float)ring_rect.size.width,  (float)ring_rect.size.height,
                                                ring_radius,
-                                               // SPA-20 fullscreen-abyss levers — no config keys wired;
-                                               // hardcoded defaults:
+                                               // fullscreen-abyss levers (hardcoded):
                                                1,          // fs_enabled
-                                               0.0f,       // fs_scale: shrink to a point
-                                               0,          // fs_easing: linear
-                                               -1.0f,      // fs_duration: track the slide
+                                               0.0f,       // fs_scale
+                                               0,          // fs_easing
+                                               -1.0f,      // fs_duration
                                                0.0f,       // fs_delay
                                                1,          // fs_fade
                                                g_window_manager.space_animation_enter_delay,  // slide stagger (s)
@@ -1213,31 +1154,16 @@ static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
                                                g_window_manager.space_animation_fade_enter_dur,
                                                g_window_manager.space_animation_fade_exit_dur);
 
-    // FR-9: drive the focus ring across the slide — hide the outgoing space's
-    // ring now, then park + fade the incoming space's ring on its focused
-    // window. Gated on the ring master-enable ONLY — space_nav_observer_get_enabled()
-    // is stubbed false here, so adding it to the gate would dead-code this path.
-    // Only fire on a seeded slide (ok).
     if (ok && focus_ring_get_enabled()) {
         focus_ring_space_switch(out_sid, in_sid, /*animated=*/true);
-        // FR-4: open the space-transition window for our own animated slide.
-        // The space COMMITS while the payload slide is still playing, so the
-        // recall's WINDOW_FOCUSED lands mid-slide and would paint a stationary
-        // ring at the target's final frame; the gate suppresses those shows
-        // until the finish (hold_s timer above) reveals the settled focus.
         space_transition_begin((int)((hold_s + 0.15) * 1000.0), did);
     }
 
     return ok ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
 }
 
-// Fixed duration (seconds) of the multi_display_edge_guard spring-back nudge.
 #define MULTI_DISPLAY_EDGE_GUARD_DURATION_S 0.4f
 
-// Edge-of-display guard nudge: translate the active space's content by (dx, dy)
-// and spring back. Feedback for `space --focus next/prev` at a display boundary
-// (the next/prev space lives on another display). Sends SA_OPCODE_SPACE_NUDGE to
-// the payload (edge_guard.inc.m). Returns false if the SA call failed.
 bool space_manager_multi_display_edge_guard(int dx, int dy)
 {
     float dur_s = MULTI_DISPLAY_EDGE_GUARD_DURATION_S;
@@ -1257,12 +1183,6 @@ bool space_manager_multi_display_edge_guard(int dx, int dy)
     return scripting_addition_animate_edge_nudge(sid, dx, dy, duration_ms, (uint32_t)steps);
 }
 
-// Resolves which space a *defaulted* `space --focus` (prev/next) should act on,
-// per the space_focus_target_display config gate. `default` (and any
-// cursor-resolution failure) returns space_manager_active_space(). `mouse`
-// always targets the display under the live cursor. `smart` targets the
-// cursor's display only when the last focus change came from the mouse; a
-// keyboard-driven focus keeps the active display.
 uint64_t space_manager_focus_target_space(void)
 {
     bool want_mouse =
@@ -1283,35 +1203,20 @@ uint64_t space_manager_focus_target_space(void)
     return space_manager_active_space();
 }
 
-// Resolve `space --focus prev/next` with display-aware semantics. `dir` is +1
-// (next) or -1 (prev). When the next/prev space is on the SAME display, focus
-// it. At a display edge (no in-display target) — a display seam (the next/prev
-// space lives on another display) or an outer extreme (prev from the globally
-// first space, next from the globally last; no such space at all) — when
-// contain_space_focus_per_display is on, nudge the active space back and stop
-// (never leave the display); when off, fall through to stock behavior — focus
-// the next/prev space even on another display, or MISSING_DST at an outer
-// extreme so the caller fails like stock ("could not locate the ... space").
-// SUCCESS for guard-only outcomes (designed no-ops, not errors).
+// NOTE: at a display edge, contain_space_focus_per_display=on nudges back and
+// returns SUCCESS (designed no-op); off = stock cross-display / MISSING_DST.
 enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int dir)
 {
     if (!from_sid || (dir != +1 && dir != -1)) return SPACE_OP_ERROR_INVALID_SRC;
 
     uint32_t from_did = space_display_id(from_sid);
 
-    // Mid-slide burst: walk from the in-flight slide's optimistic target (the
-    // committed space is frozen until settle) and SEND the next hop straight
-    // through. The payload animator is interruptible — a mid-slide seed snaps the
-    // running slide to its end and starts this one — so spamming flicks through
-    // spaces in real time. No drain scheduled here: a slide is in flight and its
-    // commit (or the next press) drives the chain. Runs on the event-loop thread,
-    // so the FIFO needs no lock.
     if (space_slide_active_on(from_did) || space_pending_has_hops_for(from_did)) {
         uint64_t cursor = space_pending_cursor_sid();
         uint64_t next_logical = (dir > 0) ? space_manager_next_space(cursor)
                                           : space_manager_prev_space(cursor);
         if (!next_logical || space_display_id(next_logical) != from_did) {
-            return SPACE_OP_ERROR_SUCCESS;   // edge clamp — no repeated nudge mid-burst
+            return SPACE_OP_ERROR_SUCCESS;
         }
         int geometric_dir = (dir > 0) ? -1 : +1;   // next=-1, prev=+1 (matches focus_space)
         return space_manager_focus_space_animated(cursor, next_logical, geometric_dir);
@@ -1320,25 +1225,18 @@ enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int di
     uint64_t mc_target = (dir > 0) ? space_manager_next_space(from_sid)
                                    : space_manager_prev_space(from_sid);
 
-    // Same-display target → focus it.
     if (mc_target && space_display_id(mc_target) == from_did) {
         return space_manager_focus_space(mc_target);
     }
 
-    // Edge of this display's spaces — no in-display target (mc_target is on
-    // another display at a seam, or 0 at an outer extreme).
     if (g_window_manager.contain_space_focus_per_display) {
-        // ON: guard the boundary — nudge the active space back and stop.
         int nudge_distance = 100;
-        int dx_nudge = (dir > 0) ? -nudge_distance : nudge_distance;  // content slides opposite to press
+        int dx_nudge = (dir > 0) ? -nudge_distance : nudge_distance;
         space_manager_multi_display_edge_guard(dx_nudge, 0);
         return SPACE_OP_ERROR_SUCCESS;
     }
 
-    // OFF: stock — walk to the next/prev space even across the display boundary.
     if (mc_target) return space_manager_focus_space(mc_target);
-    // Outer extreme: no next/prev space exists anywhere — report it so the
-    // caller can fail like stock.
     return SPACE_OP_ERROR_MISSING_DST;
 }
 
@@ -1361,23 +1259,11 @@ static enum space_op_error space_manager_focus_space_ex(uint64_t sid, bool allow
     uint32_t new_did = space_display_id(sid);
     bool focus_display = cur_did != new_did;
 
-    // Don't hard-reject mid-slide: if one of OUR slides is in flight on the
-    // destination display, queue this absolute target on the bounded stack
-    // rather than dropping it. The commit-driven drain seeds it off the running
-    // slide's SPACE_CHANGED, continuing the chain. (No
-    // display_manager_display_is_animating gate — that read is a constant false
-    // on modern macOS; the optimistic-state gate is the real one.)
     if (space_slide_active_on(new_did)) {
         space_pending_focus_push(sid);
         return SPACE_OP_ERROR_SUCCESS;
     }
 
-    // Animated adjacent same-display slide (opt-in via space_animation_duration).
-    // On success the payload commits the space change itself, so we return
-    // without the instant scripting_addition_focus_space below. Suppressed when
-    // allow_animate is false (the drain's fast intermediates switch instantly).
-    // Cross-display or non-adjacent targets, or an animator refusal, fall through
-    // to the instant switch.
     if (allow_animate && g_window_manager.space_animation_duration > 0.0f && !focus_display) {
         int direction = 0;
         if (sid == space_manager_prev_space(cur_sid))      direction = +1;
@@ -1399,36 +1285,24 @@ static enum space_op_error space_manager_focus_space_ex(uint64_t sid, bool allow
     return SPACE_OP_ERROR_SUCCESS;
 }
 
-// Commit-driven drain — seeds the next queued hop as soon as the previous one
-// commits (its real visual end), giving a continuous chain. Called from the
-// SPACE_CHANGED handler on the event-loop thread (same thread as every push, so
-// the FIFO is lock-free). No-op when empty.
+// NOTE: event-loop thread only (shared with every push — FIFO is lock-free).
+// Loops only past no-op hops: a hop that starts a switch returns and lets its
+// SPACE_CHANGED commit re-enter the drain; queued intermediates switch instantly.
 void space_manager_drain_pending_focus(void)
 {
     struct space_manager *sm = &g_space_manager;
 
-    // Loop so a queued hop that turns out to be a no-op (already current -> no
-    // SPACE_CHANGED to re-drive us) doesn't stall the rest.
     while (sm->pending_focus_count != 0) {
         uint64_t front = sm->pending_focus_fifo[0];
         uint32_t did   = space_display_id(front);
 
-        // A real slide is still mid-flight -> leave the queue; its commit will
-        // re-enter this drain and seed the next hop.
         if (did && space_slide_active_on(did)) return;
 
         space_pending_focus_pop();
 
-        // Fast intermediates: if more hops are still queued behind this one, it's
-        // an intermediate — switch INSTANTLY (no cross-fade); only the LAST hop
-        // gets the full animated slide. Each instant switch still commits ->
-        // SPACE_CHANGED re-enters this drain for the next hop.
         bool more = (sm->pending_focus_count != 0);
         enum space_op_error rc = space_manager_focus_space_ex(front, /*allow_animate=*/!more);
 
-        // The hop that actually started a switch ends this pass — its commit
-        // drives the next. Only keep looping past a no-op (already there), which
-        // produces no commit to continue the chain.
         if (rc != SPACE_OP_ERROR_SAME_SPACE) return;
     }
 }
@@ -1459,13 +1333,8 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
     return scripting_addition_focus_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
 }
 
-// Rebuild Dock's Mission-Control strip after a byte-pattern-free server-side space op (create /
-// move / destroy). Invokes the named @objc -[Spaces handleDisplayReconfig] in the SA payload — a
-// NON-Mission-Control rebuild path that reaches Dock's per-display rebuild helper directly: no
-// expose cycle, no flash, no residual MC scale nudge, and no transient 1327/1328 for yabai's own
-// sls_event_handler to observe. handleDisplayReconfig rebuilds the strip unconditionally; its only
-// internal gate defers while a space switch is mid-flight, and every caller already rejects
-// MC-active (SPACE_OP_ERROR_IN_MISSION_CONTROL), so no guard is needed here.
+// NOTE: -[Spaces handleDisplayReconfig] rebuilds Dock's MC strip without an MC
+// cycle; call after any server-side space create/move/swap/destroy.
 void space_manager_dock_rebuild_strip(void)
 {
     scripting_addition_spaces_reconfig();
@@ -1485,10 +1354,8 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
     bool is_animating = display_manager_display_is_animating(did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
-    // Destination for the doomed space's windows (and the display's fallback if sid is the
-    // visible space): the first user space on sid's display that ISN'T sid. Guaranteed to
-    // exist — we ruled out the last-user-space case above. (display_space_list is arena
-    // memory; copy out the scalar dest_sid before the nested space_window_list arena call.)
+    // NOTE: copy dest_sid out before the nested space_window_list arena call —
+    // display_space_list memory is arena-owned.
     uint64_t dest_sid = 0;
     int display_space_count = 0;
     uint64_t *display_spaces = display_space_list(did, &display_space_count);
@@ -1502,10 +1369,8 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
     }
     if (!dest_sid) return SPACE_OP_ERROR_INVALID_SRC;
 
-    // SLSSpaceDestroy does NOT migrate windows (native Dock removeSpace does this itself before
-    // tearing the space down). Move the doomed space's windows to dest_sid first so they aren't
-    // orphaned onto a non-existent space. include_minimized=true so minimized windows assigned
-    // to the space follow too.
+    // NOTE: SLSSpaceDestroy does not migrate windows (native removeSpace does) —
+    // move them to dest_sid first or they are orphaned onto a dead space.
     int window_count = 0;
     uint32_t *window_list = space_window_list(sid, &window_count, true);   // arena — do NOT free
     if (window_list && window_count > 0) {
@@ -1517,8 +1382,6 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
 
     window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, dest_sid);
 
-    // The SA payload destroyed the space server-side (byte-pattern-free); rebuild the MC strip
-    // via handleDisplayReconfig (non-MC path — no expose cycle).
     space_manager_dock_rebuild_strip();
     return SPACE_OP_ERROR_SUCCESS;
 }
@@ -1534,8 +1397,6 @@ enum space_op_error space_manager_add_space(uint64_t sid)
 
     if (!scripting_addition_create_space(sid)) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
 
-    // The SA payload created the space server-side + set the wallpaper dirty flag byte-pattern-free;
-    // rebuild the MC strip via handleDisplayReconfig (non-MC path — no expose cycle).
     space_manager_dock_rebuild_strip();
     return SPACE_OP_ERROR_SUCCESS;
 }
@@ -1710,10 +1571,9 @@ uint32_t space_manager_preferred_focus_wid(uint64_t sid, const char **out_source
 
     struct view *view = space_manager_find_view(&g_space_manager, sid);
 
-    // Priority 1: the space's own focus recall, mirroring the SPACE_CHANGED
-    // handler so the ring parks where the post-commit recall will land focus.
-    // Same guard as the recall: never nominate a minimized window (it still
-    // reports its original space) or a hidden app's window.
+    // NOTE: event-thread only (ts_alloc arena). Mirrors the SPACE_CHANGED focus
+    // recall and its guards (no minimized/hidden windows) so the ring parks where
+    // the recall will land focus.
     if (view && out_view_last) *out_view_last = view->last_focused_wid;
     if (view && view->last_focused_wid) {
         struct window *recall = window_manager_find_window(&g_window_manager, view->last_focused_wid);
@@ -1725,11 +1585,6 @@ uint32_t space_manager_preferred_focus_wid(uint64_t sid, const char **out_source
         }
     }
 
-    // Priority 2: first yabai-tracked window in the space's rich-query z-order —
-    // normal windows only (sticky/hidden/minimized excluded server-side), topmost
-    // first, any process. Covers floats, which never enter the view's node tree,
-    // and an overlay/sticky window can't win the park (mirrors the SPACE_CHANGED
-    // focus fallback that lands focus here).
     struct window *topmost = window_manager_space_topmost_tracked_window(&g_window_manager, sid, 0);
     if (topmost) {
         if (out_source) *out_source = "space_query";

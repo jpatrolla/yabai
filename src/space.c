@@ -85,11 +85,6 @@ inline uint32_t *space_window_list(uint64_t sid, int *count, bool include_minimi
     return space_window_list_for_connection(&sid, 1, 0, count, include_minimized);
 }
 
-// Rich _SLSWindowQuery topmost (z-order row[0]) of the windows on `sid` matching
-// the tag filter, optionally scoped to `owner` (0 = any owner). The z-order
-// row[0] is the focused-window candidate when owner-scoped to the front app's
-// connection — see window_manager_focused_window. Thin wrapper over the
-// window_query module (src/window_query.c). include_tags=1 = normal windows.
 uint32_t space_query_focused_wid(uint64_t sid, int owner, uint64_t include_tags, uint64_t exclude_tags)
 {
     struct window_query_filter filter = {
