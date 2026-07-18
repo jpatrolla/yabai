@@ -136,8 +136,6 @@ extern int SLSDragWindowRelativeToMouse(int cid, uint32_t wid, double dx, double
 typedef CONNECTION_CALLBACK(connection_callback);
 extern CGError SLSRegisterConnectionNotifyProc(int cid, connection_callback *handler, uint32_t event, void *context);
 
-// Remove a registered notify proc. SLSRemoveNotifyProc arg order is (event,
-// handler, context) — event FIRST, opposite of SLSRegisterNotifyProc.
 extern CGError SLSRemoveNotifyProc(int event, void *handler, void *context);
 extern CGError SLSRemoveConnectionNotifyProc(int cid, int event, connection_callback *handler, void *context);
 
@@ -302,12 +300,7 @@ extern uint32_t SLSWindowIteratorGetWindowID(CFTypeRef iterator);
 extern void SLSWindowIteratorGetConstraints(CFTypeRef iterator, CGSize *outA, CGSize *outB, CGSize *outC, CGSize *junk);
 extern void SLSFlushWindow(int cid, uint32_t wid, void *null);
 
-// Non-deprecated sibling of SLSFlushWindow. Disasm-verified: it IGNORES the cid
-// arg and uses the process's main connection, looks the
-// window up via _CGSWindowGetMappedImpl (a GetWindowShmemReference mach_msg the
-// WindowServer owner-gates), then calls _CGSWindowFlushRegion(window, region, 0).
-// The passed region is taken VERBATIM in window-LOCAL coords (unlike SLSFlushWindow,
-// which offsets a global region by -shapeBounds first). Always returns 0.
+// NOTE: region is window-LOCAL (not global like SLSFlushWindow); NULL region dereferences → crash.
 extern CGError SLSFlushWindowContentRegion(int cid, uint32_t wid, CGSRegionRef region);
 
 // Force the WindowServer to recomposite a window's whole content region — the

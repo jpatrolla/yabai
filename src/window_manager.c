@@ -2065,14 +2065,6 @@ uint32_t window_manager_space_key_focus_window(struct window_manager *wm, uint64
 // 0 IS the defocus signal (desktop / no key holder) — stamped, not skipped. Key
 // focus can express "nothing focused"; topmost-z never could.
 //
-// Why 808 must NOT reach here (load-bearing): 808 precedes the AX WINDOW_FOCUSED on
-// every daemon-directed raise (`window --focus east`). Pre-stamping focused_window_id
-// there makes window_did_receive_focus's change gate (event_loop.c) see "no change"
-// and skip window_manager_center_mouse — a deterministic mff regression. Only the
-// 815/816 visibility-TRANSITION settle sites (and SPACE_CHANGED commit / front-switch
-// defocus) call this; plain raises of already-visible windows emit no 815, so the AX
-// edge stays intact. The residual race is covered by last_centered_wid in the funnel.
-//
 // Thread contract: event-loop thread ONLY — same thread as every other
 // focused_window_id write (window_did_receive_focus, SPACE_CHANGED, front-switch).
 //
@@ -2094,6 +2086,8 @@ void window_manager_stamp_focused_window(struct window_manager *wm, uint32_t wid
     }
 }
 
+// NOTE: stamps focused_window_id — call only from settled sites (815/816), never off
+// an 808 (808 precedes AX and may name a demoted sibling: mff/center-mouse regression).
 uint32_t window_manager_update_focused_window(struct window_manager *wm, uint64_t sid)
 {
     uint32_t wid = window_manager_space_key_focus_window(wm, sid);

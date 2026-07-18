@@ -458,13 +458,8 @@ static bool anim_ctx_step_one(struct anim_ctx *c, CFTypeRef tx)
         // computes an internal move (left/top-edge grow reflow); LB_FULL+T3D carry
         // the position. Triggers: 1 seat move at t=0, 2 threshold resize, 3 terminal.
         if (use_ax) {
-            // Jello AX choreography (warp rows): genie-style — ONE pure move
-            // (Trigger 1, endpin forced below) then ONE full end-size resize
-            // (the warp arm below), no progressive Trigger-2 fires. Each mid
-            // resize is an app repaint + a mesh-source desync window, and
-            // SLSGetWindowBounds reads the wrong clock to close it (frame
-            // geometry, not the app's content commit) — so the backing goes
-            // static at end size early and the mesh carries the whole glide.
+            // NOTE: LockedBounds doesn't compose with a live mesh; genie = one
+            // seat-move + one end-resize, mesh carries the glide.
             bool warp_ax   = (c->flags & SA_T3D_FLAG_WARP) && !c->pile
                           && w->mode != SA_T3D_ROW_MODE_LB_ONLY
                           && (fabsf(w->sw - w->ew) > 0.5f || fabsf(w->sh - w->eh) > 0.5f);

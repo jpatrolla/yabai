@@ -41,9 +41,8 @@ static void update_window_notifications(void)
         })
     }
 
-    // NOTE: SLSRequestNotificationsForWindows REPLACES the connection's subscription set —
-    // every rebuild must re-include the native-tab wids (AX-hidden, never in
-    // g_window_manager.window) or tab switches go silent.
+    // NOTE: SLSRequestNotificationsForWindows REPLACES the whole sub set — ship
+    // the full list every rebuild.
     table_for (void *tab_ptr, g_window_manager.tab_window, {
         if (window_count >= WINDOW_NOTIFICATION_CAP) break;
         uint32_t tab_wid = (uint32_t)(uintptr_t) tab_ptr;
@@ -54,10 +53,6 @@ static void update_window_notifications(void)
     SLSRequestNotificationsForWindows(g_connection, window_list, window_count);
 }
 
-// NOTE: while a yabai-driven slide is in flight, ring shows are suppressed at the
-// focus_ring.m choke point — the space commits server-side mid-slide, and a show there
-// resolves the window's untransformed final frame (stationary ring). begin() arms the
-// gate synchronously, before the first frame; active() self-expires at the slide's end.
 static struct {
     uint32_t gen;
     bool     active;
@@ -184,12 +179,8 @@ static void window_did_receive_focus(struct window_manager *wm, struct mouse_sta
     }
 }
 
-// Reconcile the focus ring off SLS focus signals (808 order-change; 815/816 settle).
-//
-// NOTE: an 808 burst mostly carries demoted siblings — wake_wid is only a wake hint;
-// identity is re-resolved from the SLS key focus. Settled sites stamp focused_window_id
-// and may act on a 0 resolve (hide); burst sites must not — 808 precedes AX, and a
-// transient 0 mid-burst would blink the ring.
+// NOTE: 808 is a wake hint (mostly demoted siblings); re-resolve identity from
+// SLS key focus. Act on a 0 resolve only post-settle (815/816).
 static void refocus_ring(uint32_t wake_wid, bool settled)
 {
     if (!wake_wid) return;

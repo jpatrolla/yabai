@@ -1,66 +1,6 @@
 // payload_inc/warp_cover.inc.m
 //
 // WM-9 phase-2: 9-slice warp snap cover for duration==0 placements.
-// The daemon sends SA_OPCODE_WARP_SNAP before its AX commit; we set a
-// chrome-pinned SLSSetWindowWarp mesh mapping the CURRENT backing onto the
-// target rect (the window is visually AT the target from this frame), arm
-// the animating property (BSP re-flush gate), then poll the real frame on a
-// generation-guarded 16ms dispatch chain and clear the warp at settle or the
-// hard cap. rc!=0 from SLSSetWindowWarp = no cover (bare-AX behavior), never
-// an error to the daemon.
-//
-// lb_warp: WARP_SNAP_FLAG_LB additionally pins LockedBounds at the CURRENT
-// rect for the cover's lifetime. The pin does two jobs a bare warp cannot:
-// (1) it freezes the warp's SOURCE space — the mesh is built against
-// cur, and without the pin the AX resize drags the backing size out from
-// under it mid-flight; (2) it turns the mid-cover content commit into a
-// near-identity — the app's dst-sized commit is squeezed into LB(cur) and
-// then warped cur->dst, so uniform-in composed with 9-slice-out roughly
-// cancels (chrome bands excepted). Release is ATOMIC: one transaction clears
-// warp + LockedBounds in the same server commit — clearing LB first would
-// show a frame of the dst-sized surface through the cur-sized mesh, clearing
-// the warp first would snap the presentation back to LB(cur).
-//
-// Animated transition (warp_ms, daemon lever window_animation_warp_min_ms):
-// warp_ms > 0 tweens the mesh TARGET cur->dst over warp_ms (ease-out expo,
-// payload_ease mode 3) on the tick chain instead of snapping it. Settle is
-// not consulted until the tween completes (warp_min_ms is a floor).
-// warp_ms == 0 = the instant snap.
-//
-// Source tracking: a mesh's target coords are global but its SOURCE coords
-// are backing-local, so a mesh built against cur goes stale the moment the
-// AX resize mutates the frame under it (live: out-of-sync distortion).
-// Every tick therefore re-reads the REAL frame and rebuilds the mesh with
-// source = the real dims and target = the FIXED cur0->dst trajectory
-// (re-anchoring the trajectory too would double-ease). Before the AX lands
-// this is a forward warp over the cur-sized backing; the landing flips it
-// into the genie idiom — a reverse envelope over the now-static dst
-// backing — continuously, no special case. At tween-end + settle the mesh
-// converges to the identity mapping, so the clear in finish is a visual
-// no-op by construction (no release pop, no atomicity needed).
-//
-// Move-first: begin seats the ORIGIN at dst server-side
-// (SLSTransactionMoveWindowWithGroup, sync commit) before the daemon's AX
-// fire. The server move bypasses AppKit's constraint entirely and lands in
-// ONE commit — no sweep — so the app's own resize is evaluated at the END
-// origin, never against the stale one (the AX size clamp misbehaves at a
-// stale origin). The app adopts the position via kCGSWindowDidMove; AX
-// keeps the size. FUSED with the pin mesh in ONE transaction: committed
-// apart, the move presents at least one unwarped frame at dst — the
-// pre-move mesh is cur->cur (identity, nothing for the server to hold) and
-// the first tick only re-pins ~16ms later (live: snap-to-dst then
-// bounce-back). Same-commit move+warp leaves no in-between frame: the frame
-// teleports under a mesh that is non-identity the instant it matters.
-//
-// LB fused: WARP_SNAP_FLAG_LB pins LockedBounds(cur) as a THIRD op in the
-// begin transaction — move, pin, warp, one commit. The warp still owns the
-// presentation (live-verified: the warp overpowers LB), so the glide is
-// unchanged; the pin does its two lb_warp jobs underneath — freeze the
-// mesh's source space against the mid-flight AX resize and squeeze the
-// app's dst-sized content commit back into cur — without a release pop,
-// because source tracking walks the mesh to identity before finish's
-// atomic warp+LB clear.
-//
 
 #define WARP_SNAP_MAX         16
 #define WARP_SNAP_SETTLE_PX   1.0   // match SA_ANIM_SETTLE_PX
@@ -96,6 +36,8 @@ static void warp_snap_finish(int i, uint64_t gen)
     if (!wid) return;
 
     int cid = SLSMainConnectionID();
+    // NOTE: clear warp+LB in one transaction (warp-first snaps to the LB rect); a
+    // same-tx geometry op invalidates a standing mesh — re-set the warp last.
     if (lb) {
         CFTypeRef tx = SLSTransactionCreate(cid);
         if (tx) {

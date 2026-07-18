@@ -1,10 +1,6 @@
 // NOTE: 1-D damped spring, semi-implicit Euler — the {response, damping_ratio}
 // model CASpringAnimation/SwiftUI .spring use. Pure math (no SLS, no
 // allocation): safe from any thread, target may move every frame.
-// The model matches Stage Manager's SpringParameters {response, dampingRatio}
-// (disasm-verified in WindowManagerAgent) — the same formulation Core
-// Animation's CASpringAnimation and SwiftUI's .spring(response:dampingFraction:)
-// use:
 #ifndef PAYLOAD_SPRING_PHYSICS_INC_M
 #define PAYLOAD_SPRING_PHYSICS_INC_M
 

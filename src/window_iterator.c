@@ -6,30 +6,10 @@
 
 extern CFArrayRef cfarray_of_cfnumbers(void *values, size_t size, int count, CFNumberType type);
 
-// SLSWindowQueryWindows(cid, wid_array, flags). The 3rd arg is a FLAGS bitmask,
-// NOT a window count — the wid array (2nd arg) carries its own length, and the
-// 3rd arg is passed straight to _run_query independent of array length (Dock's
-// own wrapper only ever passes 0x0/0x1/0x2). Flag bits (empirical + Dock disasm):
-//   bit 0 (0x1) = decode window titles. Clear → SLSWindowIteratorCopyTitle
-//                 returns NULL for EVERY window even with GetWindowCount>0;
-//                 set → all titles decode.
-//   bit 1 (0x2) = include attached windows. We want top-level enumeration
-//                 only, so leave it clear.
-//   bit 2 (0x4) = include the per-window space list. Clear → the server-side
-//                 encode_space_list writes count=0, so SLSWindowIteratorGet
-//                 SpaceCount / CopySpaces / IsInSpace read empty. Left clear
-//                 for the same top-level-only reason as bit 1.
-// Everything else (id/level/tags/bounds AND constraints) decodes regardless of
-// flags, so flags=0x1 yields titles AND constraints in one query; they are NOT
-// mutually exclusive.
-//
-// Separately, SLSWindowQueryWindows can return a "valid-but-empty" result for
-// some ARRAY shapes (payload length 0 → GetWindowCount == 0); _run_query's
-// reply validation (strict size match + end-of-payload cookie) is deterministic
-// against the input, so retrying the same input never recovers. Fix: append
-// zero-WIDs to the ARRAY until the reply validates.
-//
-// So: pad the array for valid-but-empty; pass a fixed flags=0x1 for titles.
+// SLSWindowQueryWindows(cid, wid_array, flags): 3rd arg is FLAGS, not a count —
+// bit 0 (0x1) decodes titles (clear → CopyTitle returns NULL for all); everything
+// else (id/level/tags/bounds/constraints) decodes regardless. Some array shapes
+// return valid-but-empty deterministically → append zero-WIDs until the reply validates.
 static CFTypeRef query_windows_with_window_pad(int cid, CFArrayRef wids, uint32_t flags) {
     if (!wids) return NULL;
     int base = (int)CFArrayGetCount(wids);

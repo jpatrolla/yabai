@@ -11,32 +11,18 @@ static float g_focus_ring_stroke_r     = 1.00f;
 static float g_focus_ring_stroke_g     = 1.00f;
 static float g_focus_ring_stroke_b     = 1.00f;
 
-// Background-blur (vibrancy) radius for the band. Stamped on every SHOW from
-// the daemon's `focus_ring blur` config. Just one filter knob on the always-on
-// backdrop pipeline (FR-24): 0 = unblurred band (tint at full alpha = the
-// classic solid ring), > 0 = frosted.
 static int   g_focus_ring_blur_radius  = 0;
 
 // NOTE: bleed pushes the band cutout inward past the window edge; the overlap
 // strip only samples the window when the ring is ordered ABOVE the target.
 static float g_focus_ring_blur_bleed   = 0.0f;
 
-// Backdrop color adjustment + tint blend mode (applies at any radius). Stamped on
-// every SHOW from the daemon's focus_ring_blur_saturation / _blur_brightness /
-// _blend_mode config. saturation/brightness are CAFilter colorSaturate/
-// colorBrightness inputAmounts applied to the sampled frosted content (defaults
-// 1.0/0.0 = identity, so an unconfigured blur ring is unchanged); blend_mode is
-// the tint sublayer's compositingFilter (0 = none / default source-over).
 static float g_focus_ring_blur_saturation = 1.0f;
 static float g_focus_ring_blur_brightness = 0.0f;
 static float g_focus_ring_blur_contrast   = 1.0f;   // colorContrast inputAmount; 1.0 = identity
 static float g_focus_ring_blur_hue        = 0.0f;   // colorHueRotate angle (degrees); 0.0 = identity
 static int   g_focus_ring_blend_mode      = 0;   // enum focus_ring_blend_mode ordinal
 
-// Hard stroke overlaid on the BLUR ring (focus_ring_blur_stroke{,_position,_width}).
-// Stamped on every SHOW. A CAShapeLayer sublayer of the backdrop window's root
-// (built in payload_focus_surface_create, configured in payload_focus_surface_sync); the
-// position is the layer's zPosition vs the frosted band (0 = above, 1 = below).
 static bool  g_focus_ring_blur_stroke          = false;
 static int   g_focus_ring_blur_stroke_position = 0;     // 0 = above band, 1 = below band
 static float g_focus_ring_blur_stroke_width    = 2.0f;
@@ -45,8 +31,6 @@ static float g_focus_ring_blur_tint_r = 1.00f, g_focus_ring_blur_tint_g = 1.00f,
              g_focus_ring_blur_tint_b = 1.00f, g_focus_ring_blur_tint_a = 0.05f;
 static float g_focus_ring_blur_strokeclr_r = 1.00f, g_focus_ring_blur_strokeclr_g = 1.00f,
              g_focus_ring_blur_strokeclr_b = 1.00f, g_focus_ring_blur_strokeclr_a = 0.05f;
-// Edge feather (focus_ring_blur_feather) — gaussianBlur radius applied to the band's
-// alpha mask so its edges soften. 0 = off (sharp band).
 static float g_focus_ring_blur_feather = 0.0f;
 
 // NOTE: per-kind style banks. The g_focus_ring_* globals hold whichever SHOW
@@ -135,18 +119,6 @@ static void payload_focus_set_system_alpha(CFTypeRef tx, uint32_t wid, float a)
     CFRelease(t);
 }
 
-// =========================================================================
-// MC-thumbnail occlusion knobs. They PERSIST across stroke-window
-// destroy/create cycles
-// (file-static, NOT part of g_payload_focus_stroke, which is zeroed on
-// destroy); the wid itself is ephemeral, so any per-wid SLS state that must
-// survive a focus change is RE-APPLIED from these globals at create time.
-//
-// Defaults are BELOW-target at level 0: MC thumbnail compositing does not
-// honor the overlay's transparency, so a topmost ring blanks the target's
-// thumbnail. Ordering below (effective only when ring and target share a
-// level) lets the window render into its thumbnail.
-// =========================================================================
 static uint64_t g_payload_focus_ring_extra_tags    = 0;    // debug bookkeeping only, never applied at create
 static int      g_payload_focus_ring_level          = 0;
 static bool     g_payload_focus_ring_order_below    = true;
@@ -318,10 +290,6 @@ static bool payload_focus_surface_create(int cid, CGRect surface_rect, uint32_t 
 
     uint64_t tags = (1ULL << 46 | 1ULL << 9);   // kCGSMergesWithMenuBar + kCGSIgnoreForEventsTagBit (click-through)
     SLSSetWindowTags(cid, wid, &tags, 64);
-    // WindowServer auto-applies bit 45 (kSLSMenuBarTagBit) + bit 46 (MergesWithMenuBar)
-    // to windows created on Dock's MAIN connection. Bit 45 pins us to the menu-bar
-    // origin (0,0) regardless of our move and breaks blur compositing, so clear it on
-    // every (re)create; bit 46 we keep as a default tag (set above).
     extern CGError SLSClearWindowTags(int cid, uint32_t wid, uint64_t *tags, size_t tag_size);
     uint64_t clear_menubar = (1ULL << 45);
     SLSClearWindowTags(cid, wid, &clear_menubar, 64);
@@ -432,23 +400,6 @@ static bool payload_focus_surface_create(int cid, CGRect surface_rect, uint32_t 
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// Feathered-band mask image (focus_ring_blur_feather).
-//
-// Filtering a CALayer used as a *mask* breaks the masking — CA fills/ignores
-// the shape and the hole collapses (both even-odd fills and strokes). So the
-// feather is NOT a live filter on the mask layer; the band's alpha is
-// pre-rendered into a CGImage handed to the mask as `contents`.
-//
-// Order matters: blur the FILLED outer shape FIRST, then cut the hole SHARP.
-// That keeps the window center clear and the inner edge crisp against the
-// window — only the OUTER edge feathers into the desktop. The blur is the
-// CoreGraphics shadow trick (draw the shape far offscreen, keep only its
-// blurred shadow) — pure CG, no CALayer filter.
-//
-// Cached by geometry so a pure-move drag reuses the image (only a resize /
-// param change re-renders). The band is symmetric on both axes, so the
-// CGImage's y-up origin vs the layer's y-down geometry needs no flip.
 static CGImageRef s_fm_img      = NULL;
 static float      s_fm_w        = -1, s_fm_h = -1, s_fm_corner = -1,
                   s_fm_bw       = -1, s_fm_bleed = -1, s_fm_feather = -1;
@@ -657,20 +608,6 @@ static void payload_focus_surface_sync(float corner, bool animated)
         CGRect hole   = CGRectInset(inner, band_in + bleed, band_in + bleed);
         float  hole_r = corner - bleed; if (hole_r < 0.0f) hole_r = 0.0f;
 
-        // The band mask has two forms, selected by focus_ring_blur_feather:
-        //
-        //   feather == 0 (sharp, default): an EVEN-ODD fill — outer rounded rect
-        //     minus the hole — exactly as before. Crisp inner + outer edges.
-        //
-        //   feather  > 0 (soft): the band's CENTER-LINE stroked at width = band
-        //     thickness, then gaussian-blurred. A stroke is a frame, not a fill, so
-        //     blurring it only feathers a `feather`-wide ramp at each edge — it can
-        //     NEVER fill the window center (the hole is preserved at any radius). An
-        //     even-odd FILL, by contrast, collapses its hole under the blur (the
-        //     "lost hole" bug). At feather→0 the centered stroke is pixel-identical
-        //     to the even-odd band, so this is a clean continuation, not a separate
-        //     look. lineWidth = (outer−hole) thickness; the centerline sits midway
-        //     between the outer edge and the (bleed-adjusted) inner edge.
         id maskl = g_payload_focus_stroke.ca_mask;
         if (stb->feather > 0.0f) {
             payload_focus_feather_mask_refresh(inner.size.width, inner.size.height,
@@ -1222,26 +1159,9 @@ static void payload_focus_ring_destroy_all(void)
 // ===========================================================================
 // Transform mirror — ride a sheet's slide-in/out animation
 // ===========================================================================
-// A modal sheet animates its entrance/exit by writing a per-tick CGAffineTransform
-// into placement slot 0x8000001 of its CGS window; the real frame stays final.
-// We can't ride that via a movement group (it's a transform, not a server move),
-// and SLSGetScreenRectForWindow returns the final rect throughout. Instead, each
-// VBL we READ the sheet's 0x8000001 slot and COPY its translate onto our overlay's
-// own 0x8000001 slot (composing over the overlay's slot-0 positioning rather than
-// replacing it), so the ring slides in lockstep with the sheet. Follows the real
-// matrix frame-by-frame, so it's fully timing/easing-agnostic — an app retiming
-// NSSheetAnimationTime, the pop-overshoot flavor, and reduce-motion all ride for
-// free (reduce-motion → slot is identity → ring just lands). Only the translate
-// is copied: it's anchor-independent, so it's portable onto our display-sized
-// overlay; the sheet's subtle scale is dropped (anchor-bound, and ~1.0 anyway).
 typedef CGError (*fr_get_at_placement_fn)(int cid, uint32_t wid, int placement, int arg3, CGAffineTransform *out);
 typedef CGError (*fr_set_at_placement_fn)(int cid, uint32_t wid, int placement, int arg3, CGAffineTransform *t);
 
-// The overlay's own window->screen positioning lives in slot 0, so we must NOT
-// write slot 0 (that replaces it and shoves the overlay off-screen). Write our
-// mirror translate into placement 0x8000001 — the same slot AppKit animates the
-// sheet in — which COMPOSES over the overlay's baseline (catenated = base × ours)
-// instead of replacing it. Reset = identity into 0x8000001.
 #define FR_MIRROR_PLACEMENT 0x8000001
 
 // SHEET mirrors the sheet's placement slot; MC / MC_ENTER project the focused
@@ -1285,15 +1205,6 @@ static float fr_mc_exit_alpha(double base_dist, double cur_dist)
     return (float)p;
 }
 
-// Project a window's NATURAL frame through its live transform to the current on-screen
-// rect. `natural` = SLSGetWindowBounds — the window's real frame, CONSTANT through the
-// exit (for a transformed window bounds stays the full frame while
-// SLSGetScreenRectForWindow returns the shrunk thumbnail = natural/scale).
-// CGSGetWindowTransform3D is screen->local (scale = 1/visual_scale, translate rests at
-// -natural.origin), so inverting gives visual.origin = -t/scale and visual.size =
-// natural.size/scale. At rest (t = -natural.origin, scale = 1) it lands exactly on the
-// natural frame = where the window sits. m is CATransform3D memory order: m[0]=sx,
-// m[5]=sy, m[12]=tx, m[13]=ty (planar MC transform — no z).
 static CGRect fr_project_frame_t3d(CGRect natural, const float m[16])
 {
     double sx = m[0], sy = m[5], tx = m[12], ty = m[13];

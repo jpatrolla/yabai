@@ -71,11 +71,8 @@ struct scratchpad
     struct window *window;
 };
 
-// Per-pid cache of (min, max) SLS size constraints, populated from
-// window_iterator_get_constraints at animator setup. AppKit's setContentMin/
-// MaxSize publish to SLS has a ~250ms timer, so a freshly-created window's
-// per-wid query can race the publish and come back empty; caching by pid lets
-// sibling windows reuse a previously-observed pair.
+// Per-pid cache of (min, max) SLS size constraints: a freshly-created window's
+// per-wid query can race AppKit's deferred publish and read empty.
 struct app_size_constraints {
     CGSize min;
     CGSize max;
@@ -166,25 +163,11 @@ struct window_manager
     int   window_animation_policy;
     bool window_frame_verify_retry;     // re-fire a clamped terminal setFrame until it lands (default off)
     float space_animation_duration;  // payload space-slide duration (s); 0 = off (instant native switch)
-    // Wallpaper participation in the animated switch: on = each space's
-    // wallpaper rides the slide with its windows, native-style (falls back to
-    // a static backdrop when the two spaces share one picture window); off =
-    // both wallpapers hold as a static, opaque backdrop behind the sliding
-    // windows.
-    bool space_animation_background;
-    // Space-slide cross-fade levers (space_manager_focus_space_animated packs
-    // these into the SPACE_FADE_* mask). Master gate + independent per-side
-    // control: with the master on, fade the incoming and/or outgoing windows
-    // over the slide; turn one side off for a one-sided fade (e.g. exit-only).
-    // Master default off = pure slide.
-    bool space_animation_fade;
-    bool space_animation_fade_enter;
+    bool space_animation_background;    // wallpaper rides the slide (on) vs static backdrop (off)
+    bool space_animation_fade;          // master space-slide cross-fade gate (default off = pure slide)
+    bool space_animation_fade_enter;    // per-side fade
     bool space_animation_fade_exit;
-    // Slide stagger (seconds): delay each space's window SLIDE start within the
-    // switch, so the exit can lead and the enter trail (a geometric hand-off).
-    // Offsets the Transform3D motion, NOT the fade. Bounded by the slide — the
-    // motion is compressed into the time left after the delay; raise
-    // space_animation_duration to give a big stagger room. 0 = slide with no delay.
+    // slide stagger (s): offsets the T3D motion (not the fade), compressed into the slide; 0 = none.
     float space_animation_enter_delay;
     float space_animation_exit_delay;
     // fade sub-timeline; <0 delay / <=0 dur = auto (track the slide).

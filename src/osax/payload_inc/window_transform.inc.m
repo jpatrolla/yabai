@@ -366,8 +366,8 @@ static void do_window_lockedbounds_translate3d_batch(char *message)
             float lb_x = lb_full ? lerp_x : anchor_x;
             float lb_y = lb_full ? lerp_y : anchor_y;
             CGRect bounds = CGRectMake(lb_x, lb_y, clamped_w, clamped_h);
-            // Not the AtPlace variant — it silently drops LB visibility
-            // regardless of place value.
+            // NOTE: a real place drops LockedBounds visibility — keep the
+            // 0x7ffffeff sentinel (non-AtPlace wrapper).
             SLSTransactionSetWindowLockedBounds(transaction, wid, bounds);
         }
 

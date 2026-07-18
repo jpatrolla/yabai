@@ -94,12 +94,6 @@ static int anim_skip_all_to_end(void);
 //   set_animating: also flip managed-display IsAnimating (the gate that stops
 //              the WindowServer auto-hiding the non-current space).
 //   reset    : tear down — identity transforms, hide incoming, clear animating.
-//
-// Geometry (signs live-verified — SLSSetSpaceTransform's tx moves a
-// space's content OPPOSITE the on-screen direction, since it transforms the
-// coordinate space, so these are flipped from the naive expectation):
-//   out_dx = -direction * width * fraction
-//   in_dx  =  direction * width * (1 - fraction)
 static void payload_space_anim_phase1(int cid, uint64_t out_sid, uint64_t in_sid,
                                       int direction, double width, double gap, double fraction,
                                       bool set_animating, bool reset)
@@ -157,14 +151,6 @@ static inline double anim_eased_p(double start_p, int target, uint64_t start_t,
 // identical per-space wallpapers hidden on one display during a fullscreen slide
 #define SA_FS_MASK_MAX 32
 
-// Dock paints a gray "Fullscreen Backdrop" window over a fullscreen space's
-// wallpaper, at CGWindowLevelForKey(2)+1 — one level above the desktop picture
-// (live: picture INT_MIN+24, this INT_MIN+26). It is what reads as "black" mid-
-// slide when leaving/switching fullscreen. Collect Dock's own windows at that
-// level so the cross-fade can fade them out, revealing the wallpaper already
-// beneath (on the fullscreen companion space). Queried across ALL spaces — the
-// backdrop lives on a fullscreen space's CHILD space, which a single-sid query
-// would miss. Returns count, fills out[] (up to max).
 static int find_fullscreen_backdrops(int cid, uint32_t *out, int max)
 {
     extern CFArrayRef SLSCopyWindowsWithOptionsAndTagsAndSpaceOptions(
@@ -175,9 +161,6 @@ static int find_fullscreen_backdrops(int cid, uint32_t *out, int max)
     int fs_level = CGWindowLevelForKey(2) + 1;   // kCGDesktopWindowLevelKey=2; backdrop = desktop+1
     int n = 0;
     uint64_t set_tags = 0, clear_tags = 0;
-    // owner=0 (all owners): the desktop windows are owned by a specific Dock
-    // connection that need not equal SLSMainConnectionID(); match purely by the
-    // reserved Fullscreen-Backdrop level (no app window lives at desktop+1).
     CFArrayRef all = SLSCopyWindowsWithOptionsAndTagsAndSpaceOptions(
         cid, 0, 0x7, 0x7, &set_tags, &clear_tags);
     if (!all) return 0;
@@ -194,13 +177,6 @@ static int find_fullscreen_backdrops(int cid, uint32_t *out, int max)
     return n;
 }
 
-// SPA-20: collect every desktop-PICTURE window that shares `frame` (the animated
-// display's full-display rect), EXCLUDING keep_wid. These are the byte-identical
-// per-space wallpapers — including a fullscreen space's CHILD-space wallpaper — that
-// otherwise mask the one we animate. Hidden for the slide, restored at settle/handoff.
-// Picture level is desktop-1 (one below the Fullscreen Backdrop). Display-scoped by
-// exact rect match so OTHER displays' wallpapers are never touched (no cross-display
-// blackout). Returns count, fills out[] up to max.
 static int find_wallpaper_maskers(int cid, CGRect frame, uint32_t keep_wid, uint32_t *out, int max)
 {
     extern CFArrayRef SLSCopyWindowsWithOptionsAndTagsAndSpaceOptions(
@@ -230,13 +206,6 @@ static int find_wallpaper_maskers(int cid, CGRect frame, uint32_t keep_wid, uint
     return n;
 }
 
-// SPA-20: build the 2D window transform that displays a wallpaper at visual scale S
-// (1.0 = natural) about its CENTER, in the screen→local convention the desktop picture
-// already uses (observed live: identity + (-origin)). Same shape as
-// do_window_scale_custom: scale(1/S) ∘ translate(-target_origin), where the target is
-// the S-scaled rect centered on the window. At S=1 it reduces to translate(-ox,-oy) =
-// natural, so it composes cleanly with the picture's existing transform and is correct
-// on any display (the origin is baked in — that's why the bare 3D scale slid off D2).
 extern CGError SLSTransactionSetWindowTransform(CFTypeRef tx, uint32_t wid, int u0, int u1, CGAffineTransform t);
 static inline CGAffineTransform fs_abyss_xform(double ox, double oy, double w, double h, double S)
 {
@@ -271,10 +240,6 @@ struct space_cross_fade_animator {
     bool      in_fade_only[SA_WINDOWS_ONLY_MAX_WIDS], out_fade_only[SA_WINDOWS_ONLY_MAX_WIDS];
     bool      in_geo_only[SA_WINDOWS_ONLY_MAX_WIDS];
     bool      out_geo_only[SA_WINDOWS_ONLY_MAX_WIDS];
-    // SPA-20: Dock's black "Fullscreen Backdrop" covers (find_fullscreen_backdrops).
-    // HIDDEN (alpha 0) for the slide so the scaling wallpaper shows over the exposed
-    // black, then restored to 1.0 at settle/handoff. Always opaque (baseline 1.0) and
-    // not contended by any other animator, so no per-wid baseline capture or AC-15 token.
     uint32_t  fs_wids[SA_FS_BACKDROP_MAX];  int fs_n;   // Dock "Fullscreen Backdrop" covers — HIDDEN for the slide so the scaling wallpaper shows over the black
     bool      fs_entering;  // true = entering a fullscreen space (in_sid fullscreen); picks scale/fade direction
     uint32_t  fs_scale_wid; // SPA-20: normal-space wallpaper that scales+fades into the abyss (out_wp on enter, in_wp on exit); 0 = none

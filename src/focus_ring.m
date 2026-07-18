@@ -44,8 +44,6 @@ static bool g_focus_ring_drag_follow = false;
 static uint64_t g_focus_ring_deferred_until_ns = 0;
 static uint64_t focus_ring_now_ns(void);
 
-// Reads per-window corner radius via SLSWindowIteratorGetCornerRadii (app-
-// requested) with a fallback to GetResolvedCornerRadii (compositor-applied).
 static void get_corner_radius_for_window(uint32_t target_wid, float *out_radius)
 {
     CFArrayRef window_ref = cfarray_of_cfnumbers(&target_wid, sizeof(uint32_t), 1, kCFNumberSInt32Type);
@@ -461,16 +459,6 @@ static void focus_ring_resolve_layers(float base_r, float base_g, float base_b, 
     *str_a = (g_focus_ring.inner_stroke_opacity >= 0.0f) ? g_focus_ring.inner_stroke_opacity : base_a;
 }
 
-// =========================================================================
-// Stroke color + live accent tracking (focus_ring_color).
-//
-// AUTO mode resolves +[NSColor controlAccentColor] (which folds the
-// "Multicolor" choice down to the standard macOS blue) and installs a
-// distributed-notification observer so the ring re-colors live when the user
-// changes the accent in System Settings. MUST live daemon-side: the SA payload
-// links no AppKit, so NSColor is unavailable there — the daemon resolves to
-// RGB and stamps it on every SA SHOW.
-// =========================================================================
 static id g_focus_ring_accent_observer = nil;
 
 static bool focus_ring_resolve_accent_rgb(float *out_r, float *out_g, float *out_b)
@@ -504,9 +492,6 @@ static void focus_ring_refresh_accent(const char *trigger)
 static void focus_ring_accent_observer_install(void)
 {
     if (g_focus_ring_accent_observer) return;
-    // System Settings posts this distributed notification when the user
-    // changes the accent OR highlight color. Delivered on the main run loop;
-    // the repaint bounces onto the focus_ring serial queue.
     g_focus_ring_accent_observer =
         [[NSDistributedNotificationCenter defaultCenter]
             addObserverForName:@"AppleColorPreferencesChangedNotification"
@@ -800,13 +785,6 @@ bool focus_ring_show_for_wid_at_rect_sync(uint32_t target_wid, CGRect target_rec
     return ok;
 }
 
-// Return an SLS-attached CHILD window of `wid` (parent_id == wid), or 0 if it
-// has none. CHEAP PRESENCE GATE only: SLS "attached" is necessary but NOT
-// sufficient for a real modal — Chrome's find bar and autosuggest are
-// SLS-attached floating panels too (window_attached_ax_sheet_child is the
-// authoritative AX gate that follows). SLSCopyAssociatedWindows returns the
-// whole attached group (children + the window itself) front-to-back. Runs on
-// the focus_ring dispatch queue.
 static uint32_t window_frontmost_attached_child(uint32_t wid)
 {
     if (wid == 0) return 0;
@@ -941,9 +919,6 @@ static uint32_t focus_ring_resolve_modal_target(uint32_t target_wid)
     g_focus_ring.modal_skip_wid = 0;
 
     if (child) {
-        // Remember the parent: the child (a Catalyst/SwiftUI sheet) rides the
-        // parent's drag but doesn't emit its own move event, so the ring tracks
-        // the parent's WINDOW_MOVED and re-fetches the child's new rect there.
         g_focus_ring.modal_parent_wid = target_wid;
         g_focus_ring.modal_child_wid  = child;
         focus_ring_log("modal_retarget", "parent=%u child=%u mode=%d",
@@ -1187,13 +1162,6 @@ bool focus_ring_resolve_dest(uint64_t in_sid, uint32_t *out_wid, CGRect *out_rec
 {
     extern uint32_t space_manager_preferred_focus_wid(uint64_t sid, const char **out_source, uint32_t *out_view_last);
     uint32_t dest_wid = space_manager_preferred_focus_wid(in_sid, NULL, NULL);
-    // Priority 3 (mirrors the focus path's own z-topmost fallback): rich SLS
-    // query on the DESTINATION space. An inactive space's z-order is frozen
-    // from when it was last left, so row[0] is the window macOS reveals on
-    // commit — this answers for spaces never visited since restart and for
-    // untracked windows, which the recall + tracked-list resolver above
-    // cannot. Wildcard owner is deliberate: the destination space has no
-    // front app yet, so there is nothing to owner-scope by.
     if (dest_wid == 0) {
         extern uint32_t space_query_focused_wid(uint64_t sid, int owner, uint64_t include_tags, uint64_t exclude_tags);
         dest_wid = space_query_focused_wid(in_sid, 0, WQ_TAG_NORMAL,

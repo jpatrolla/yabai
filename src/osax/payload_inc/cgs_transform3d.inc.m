@@ -95,10 +95,6 @@ static frt3d_get_conn_port_fn g_frt3d_get_port = NULL;
 static frt3d_get_tf3d_fn      g_frt3d_get_tf3d = NULL;
 static int                    g_frt3d_tried    = 0;
 
-// arm64e signs function pointers (key IA / disc 0); a raw scanned __text address
-// must be signed before we can call it, or the blraa auth-branch faults with a
-// PAC_EXCEPTION. Mirrors payload.m's add_space_fp handling. NULL stays NULL so
-// an unresolved marker never becomes a bogus signed ptr.
 static void *frt3d_pac_sign(void *raw)
 {
     return raw ? ptrauth_sign_unauthenticated(raw, ptrauth_key_asia, 0) : NULL;

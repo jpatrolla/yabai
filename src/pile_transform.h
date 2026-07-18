@@ -240,14 +240,6 @@ static inline void pile_compose_sls(double slot_x, double slot_y, double slot_w,
     if (!pile_mat4_inverse(Vis, out_m)) pm_ident(out_m);
 }
 
-// Tween toward the pile pose. `full` = the settled knobs (g_strip_layout);
-// progress p∈[0,1] is 0 at full window size, 1 at the settled thumb pose. Ramps
-// the rotation / cascade / position knobs by p but holds PERSPECTIVE CONSTANT —
-// the native Stage-Manager signature (perspective is full from the first frame;
-// only yaw/scale/position ride in, and with no rotation the perspective is inert
-// so p=0 reads as a flat full-size window). `slot` is the per-frame lerped rect
-// (natural → thumb). At p=0 with slot=natural the result is ~identity; at p=1
-// with slot=thumb it equals pile_compose_sls(full).
 static inline void pile_build_tween(double slot_x, double slot_y, double slot_w, double slot_h,
                                     double nat_x,  double nat_y,  double nat_w,  double nat_h,
                                     int depth, const struct pile_xform *full, double p,

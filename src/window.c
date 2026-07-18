@@ -1130,9 +1130,8 @@ struct window *window_create(struct application *application, AXUIElementRef win
     window->id = window_id;
     window->id_ptr = &window->id;
 
-    // NOTE: re-read EUI here — application_create's one-shot read races apps that
-    // set EUI on first window and AX timeouts on cold launch, sticking the cache
-    // false for the app's lifetime. Checked reader writes only on a good read.
+    // NOTE: some apps publish kAXEnhancedUserInterface only after their first
+    // window — a birth-time read caches stale false; re-read on window-create.
     bool eui_now;
     if (ax_enhanced_userinterface_checked(application->ref, &eui_now)) {
         application->ax_eui_cached = eui_now;

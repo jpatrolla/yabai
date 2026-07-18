@@ -41,9 +41,6 @@ static CONNECTION_CALLBACK(connection_handler)
     } else if (type == 1202) {
         __atomic_store_n(&__last_cmd_tab_time, read_os_timer(), __ATOMIC_RELEASE);
     } else if (type == 1329) {
-        // NOTE: an SA-driven slide commits the space in a raw SLS transaction and fires NO
-        // NSWorkspace.activeSpaceDidChange — this 1329 (kCGSSpaceChange) leg is how the daemon
-        // hears its own commit. Fires leave+enter per switch; post only on a real change.
         static uint64_t s_last_space_change_sid;
         uint64_t active = SLSGetActiveSpace(g_connection);
         if (active && active != s_last_space_change_sid) {
