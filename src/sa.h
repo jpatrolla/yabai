@@ -8,9 +8,10 @@ extern unsigned int __src_osax_loader_len;
 
 int scripting_addition_load(void);
 int scripting_addition_uninstall(void);
+int scripting_addition_reload(void);
 
 bool scripting_addition_create_space(uint64_t sid);
-bool scripting_addition_destroy_space(uint64_t sid);
+bool scripting_addition_destroy_space(uint64_t sid, uint64_t dest_sid);
 bool scripting_addition_focus_space(uint64_t sid);
 bool scripting_addition_move_space_to_display(uint64_t src_sid, uint64_t dst_sid, uint64_t src_prev_sid, bool focus);
 bool scripting_addition_move_space_after_space(uint64_t src_sid, uint64_t dst_sid, bool focus);
@@ -27,5 +28,7 @@ bool scripting_addition_order_window(uint32_t a_wid, int order, uint32_t b_wid);
 bool scripting_addition_order_window_in(uint32_t *window_list, int window_count);
 bool scripting_addition_move_window_list_to_space(uint64_t sid, uint32_t *window_list, int window_count);
 bool scripting_addition_move_window_to_space(uint64_t sid, uint32_t wid);
+
+#include "sa_inc/sa_experimental.h"
 
 #endif

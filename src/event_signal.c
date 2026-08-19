@@ -42,7 +42,8 @@ static bool event_signal_filter(struct event_signal *es, struct signal *signal)
     case SIGNAL_WINDOW_MOVED:
     case SIGNAL_WINDOW_RESIZED:
     case SIGNAL_WINDOW_MINIMIZED:
-    case SIGNAL_WINDOW_TITLE_CHANGED: {
+    case SIGNAL_WINDOW_TITLE_CHANGED:
+    case SIGNAL_WINDOW_FLAGS_CHANGED: {
         int regex_match_app = signal->app_regex_exclude ? REGEX_MATCH_YES : REGEX_MATCH_NO;
         bool app_no_match = regex_match(signal->app_regex_valid, &signal->app_regex, es->app) == regex_match_app;
 
@@ -223,6 +224,23 @@ void event_signal_push(enum signal_type type, void *context)
 
         es->app   = window->application->name;
         es->title = window_title_ts(window);
+        es->active = g_window_manager.focused_window_id == window->id;
+    } break;
+    case SIGNAL_WINDOW_FLAGS_CHANGED: {
+        struct window *window = context;
+
+        es->arg_name[0]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[0] = ts_alloc_unaligned(arg_size);
+        es->arg_name[1]  = ts_alloc_unaligned(arg_size);
+        es->arg_value[1] = ts_alloc_unaligned(arg_size);
+
+        snprintf(es->arg_name[0],  arg_size, "%s", "YABAI_WINDOW_ID");
+        snprintf(es->arg_value[0], arg_size, "%d", window->id);
+        snprintf(es->arg_name[1],  arg_size, "%s", "YABAI_WINDOW_STATE");
+        snprintf(es->arg_value[1], arg_size, "%s", window_state_class_str[window->state_class]);
+
+        es->app    = window->application->name;
+        es->title  = window_title_ts(window);
         es->active = g_window_manager.focused_window_id == window->id;
     } break;
     case SIGNAL_SPACE_CREATED: {

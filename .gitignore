@@ -3,3 +3,5 @@
 /archive
 /src/osax/loader_bin.c
 /src/osax/payload_bin.c
+/src/osax/wm_probe/wm_loader_bin.c
+/src/osax/wm_probe/wm_pic_bin.c

@@ -4,6 +4,7 @@
 
 #define SCRPT_ADD_LOAD_OPT      "--load-sa"
 #define SCRPT_ADD_UNINSTALL_OPT "--uninstall-sa"
+#define SCRPT_ADD_RELOAD_OPT    "--reload-sa"
 #define SERVICE_INSTALL_OPT     "--install-service"
 #define SERVICE_UNINSTALL_OPT   "--uninstall-service"
 #define SERVICE_START_OPT       "--start-service"
@@ -185,7 +186,12 @@ static void parse_arguments(int argc, char **argv)
         fprintf(stdout, "Usage: yabai [option]\n"
                         "Options:\n"
                         "    --load-sa              Install and load the scripting-addition.\n"
+                        "    --reload-sa            Force reinstall + re-inject in a single pass (--load-sa needs two passes and skips the reinstall when versions match).\n"
                         "    --uninstall-sa         Uninstall the scripting-addition.\n"
+                        "    --load-wmsa            Inject the WindowManager resize agent and hand it to the running yabai.\n"
+                        "    --reload-wmsa          Stop the resident agent, then inject and hand over a fresh one.\n"
+                        "    --uninstall-wmsa       Stop the resident agent and remove its files.\n"
+                        "    --fs-chrome <pid> <wid> <enter|exit|tile> [uuid]  Run the un-animated AppKit fullscreen transition inside pid. tile enters the server-minted space named uuid; enter uses AppKit's own.\n"
                         "    --install-service      Write launchd service file to disk.\n"
                         "    --uninstall-service    Remove launchd service file from disk.\n"
                         "    --start-service        Enable, load, and start the launchd service.\n"
@@ -220,6 +226,10 @@ static void parse_arguments(int argc, char **argv)
         exit(scripting_addition_load());
     }
 
+    if (string_equals(argv[1], SCRPT_ADD_RELOAD_OPT)) {
+        exit(scripting_addition_reload());
+    }
+
     if (string_equals(argv[1], SERVICE_INSTALL_OPT)) {
         exit(service_install());
     }
@@ -246,6 +256,10 @@ static void parse_arguments(int argc, char **argv)
         if ((string_equals(opt, DEBUG_VERBOSE_OPT_LONG)) ||
             (string_equals(opt, DEBUG_VERBOSE_OPT_SHRT))) {
             g_verbose = true;
+
+            // NOTE: stdout is a pipe under the service manager, so libc block-buffers it and
+            // the tail of a capture never reaches the log. Every debug() line ends in \n.
+            setvbuf(stdout, NULL, _IOLBF, 0);
         } else if ((string_equals(opt, CONFIG_OPT_LONG)) ||
                    (string_equals(opt, CONFIG_OPT_SHRT))) {
             char *val = i < argc - 1 ? argv[++i] : NULL;
@@ -314,6 +328,12 @@ int main(int argc, char **argv)
         workspace_is_macos_sequoia() ||
         workspace_is_macos_tahoe()) {
         mission_control_observe();
+        mission_control_osl_observe();
+
+        // NOTE: floor state lives in the payload and outlives the daemon, so a
+        // start-up clear is the only thing that reclaims a floor left parked by a
+        // killed yabai. `wallpaper_floor on` in .yabairc rebuilds after this.
+        wallpaper_floor_clear();
 
         if (workspace_is_macos_ventura() ||
             workspace_is_macos_sonoma() ||
@@ -327,7 +347,25 @@ int main(int argc, char **argv)
     }
 
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 808, NULL);
+    // NOTE: 1325 is the only signal a native tab switch emits (AX-silent).
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1326, NULL);
+    // NOTE: 805-816 are per-wid gated server-side like 804/808 -- events arrive
+    // only for wids declared via update_window_notifications(); registration
+    // alone delivers nothing.
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 805, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 806, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 807, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 815, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1329, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1202, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 815, NULL);
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
+
+    // NOTE: not version-gated — the tab paths run on every release the AX tab observers do,
+    // so folding this into the 804 check below takes the feature dark on Ventura and Sonoma.
+    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 804, NULL);
@@ -345,7 +383,13 @@ int main(int argc, char **argv)
         error("yabai: could not start message loop! abort..\n");
     }
 
+
     exec_config_file(g_config_file, sizeof(g_config_file));
+
+    // NOTE: must follow exec_config_file — the floor is derived from
+    // animate_wallpaper, and the startup wallpaper_floor_clear above ran before
+    // the config was read, so nothing else builds it for a default-config user.
+    window_manager_wallpaper_floor_sync(&g_window_manager);
 
     [NSApp run];
 

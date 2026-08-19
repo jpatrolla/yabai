@@ -415,9 +415,90 @@ out:
     return result;
 }
 
-#define sa_payload_init() char bytes[SA_SOCKET_BUFF_LEN]; int16_t length = 1+sizeof(length)
-#define pack(v) memcpy(bytes+length, &v, sizeof(v)); length += sizeof(v)
-#define sa_payload_send(op) *(int16_t*)bytes = length-sizeof(length), bytes[sizeof(length)] = op, scripting_addition_send_bytes(bytes, length)
+static pid_t scripting_addition_dock_pid(void)
+{
+    NSArray *dock = [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.apple.dock"];
+    return [dock count] > 0 ? [(NSRunningApplication *)[dock firstObject] processIdentifier] : 0;
+}
+
+// NOTE: install() restarts Dock asynchronously — wait for a Dock with a new pid
+// (plus a run-loop settle) or the inject has no target.
+static void scripting_addition_wait_for_dock_restart(pid_t old_pid)
+{
+    for (int i = 0; i < 200; ++i) {          // ~10s ceiling
+        pid_t pid = scripting_addition_dock_pid();
+        if (pid != 0 && pid != old_pid) {
+            usleep(500000);                  // 0.5s for Dock's run loop to come up
+            return;
+        }
+        usleep(50000);                       // 50ms poll
+    }
+}
+
+// NOTE: forced reinstall + inject in one shot — a bare --load-sa never installs
+// AND injects in the same run, and version-skips install entirely.
+int scripting_addition_reload(void)
+{
+    int result = 0;
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+
+    if (!is_root()) {
+        warn("yabai: scripting-addition must be loaded as root!\n");
+        notify("scripting-addition", "must be loaded as root!");
+        result = 1;
+        goto out;
+    }
+
+    if (!scripting_addition_is_sip_friendly()) {
+        warn("yabai: System Integrity Protection: Filesystem Protections and Debugging Restrictions must be disabled!\n");
+        notify("scripting-addition", "System Integrity Protection: Filesystem Protections and Debugging Restrictions must be disabled!");
+        result = 1;
+        goto out;
+    }
+
+#ifdef __arm64__
+    if (!scripting_addition_is_arm64e_enabled()) {
+        warn("yabai: missing required nvram boot-arg '-arm64e_preview_abi'!\n");
+        notify("scripting-addition", "missing required nvram boot-arg '-arm64e_preview_abi'!");
+        result = 1;
+        goto out;
+    }
+#endif
+
+    pid_t old_dock = scripting_addition_dock_pid();
+
+    result = scripting_addition_install();
+    if (result != 0) goto out;
+
+    scripting_addition_wait_for_dock_restart(old_dock);
+
+    if (!mach_loader_inject_payload()) {
+        warn("yabai: scripting-addition failed to inject payload into Dock.app!\n");
+        notify("scripting-addition", "failed to inject payload into Dock.app!");
+        result = 1;
+        goto out;
+    }
+
+    // NOTE: best-effort — a handshake race must not fail a successful inject.
+    if (scripting_addition_set_socket_path()) {
+        scripting_addition_perform_validation();
+    }
+
+out:
+    [pool drain];
+    return result;
+}
+
+// NOTE: pack() bounds-checks the socket buffer — an oversized message trips
+// pack_overflow and sa_payload_send fails instead of smashing the stack.
+#define sa_payload_init() char bytes[SA_SOCKET_BUFF_LEN]; int16_t length = 1+sizeof(length); __attribute__((unused)) bool pack_overflow = false
+#define pack(v) do { \
+        if (length + (int16_t)sizeof(v) > SA_SOCKET_BUFF_LEN) pack_overflow = true; \
+        else { memcpy(bytes+length, &v, sizeof(v)); length += sizeof(v); } \
+    } while (0)
+#define sa_payload_send(op) (pack_overflow \
+        ? (warn("yabai: sa message for opcode 0x%02x exceeds SA_SOCKET_BUFF_LEN — not sent\n", op), false) \
+        : (*(int16_t*)bytes = length-sizeof(length), bytes[sizeof(length)] = op, scripting_addition_send_bytes(bytes, length)))
 
 static bool scripting_addition_send_bytes(char *bytes, int length)
 {
@@ -453,10 +534,11 @@ bool scripting_addition_create_space(uint64_t sid)
     return sa_payload_send(SA_OPCODE_SPACE_CREATE);
 }
 
-bool scripting_addition_destroy_space(uint64_t sid)
+bool scripting_addition_destroy_space(uint64_t sid, uint64_t dest_sid)
 {
     sa_payload_init();
     pack(sid);
+    pack(dest_sid);
     return sa_payload_send(SA_OPCODE_SPACE_DESTROY);
 }
 
@@ -619,6 +701,9 @@ bool scripting_addition_move_window_to_space(uint64_t sid, uint32_t wid)
     pack(wid);
     return sa_payload_send(SA_OPCODE_WINDOW_TO_SPACE);
 }
+
+// NOTE: must stay above the #undef block — the wrappers use these macros.
+#include "sa_inc/sa_experimental.inc.m"
 
 #undef sa_payload_init
 #undef pack

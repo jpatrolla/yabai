@@ -10,7 +10,8 @@
                              (1 << kCGEventRightMouseDragged) | \
                              (1 << /* kCGSEventDockControl */ 30)
 
-#define MOUSE_EVENT_MASK     (1 << kCGEventLeftMouseDown) | \
+#define MOUSE_EVENT_MASK     (1 << kCGEventMouseMoved) | \
+                             (1 << kCGEventLeftMouseDown) | \
                              (1 << kCGEventLeftMouseUp) | \
                              (1 << kCGEventLeftMouseDragged) | \
                              (1 << kCGEventRightMouseDown) | \

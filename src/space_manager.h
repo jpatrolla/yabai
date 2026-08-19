@@ -7,6 +7,8 @@ struct space_label
     char *label;
 };
 
+#define SPACE_PENDING_FOCUS_CAP 3
+
 struct space_manager
 {
     struct table view;
@@ -27,6 +29,13 @@ struct space_manager
     uint32_t auto_balance;
     struct space_label *labels;
     bool skip_window_focus_animation;
+    bool mission_control_always_show_spaces_strip_enabled;
+
+    // NOTE: deferred mid-slide space-focus queue — drained one hop per SPACE_CHANGED
+    // commit; pushes past the cap collapse the tail (latest-wins) so a held key
+    // can't build a backlog. Event-loop thread only.
+    uint64_t pending_focus_fifo[SPACE_PENDING_FOCUS_CAP];
+    int      pending_focus_count;
 };
 
 enum space_op_error
@@ -74,8 +83,9 @@ void space_manager_set_label_for_space(struct space_manager *sm, uint64_t sid, c
 void space_manager_set_layout_for_space(struct space_manager *sm, uint64_t sid, enum view_type type);
 bool space_manager_set_gap_for_space(struct space_manager *sm, uint64_t sid, int type, int gap);
 bool space_manager_toggle_gap_for_space(struct space_manager *sm, uint64_t sid);
-void space_manager_toggle_mission_control(uint64_t sid);
+void space_manager_toggle_mission_control(uint64_t sid, bool thumbnails_enabled);
 void space_manager_toggle_show_desktop(uint64_t sid);
+void space_manager_dock_rebuild_strip(void);
 void space_manager_set_layout_for_all_spaces(struct space_manager *sm, enum view_type layout);
 void space_manager_set_window_gap_for_all_spaces(struct space_manager *sm, int window_gap);
 void space_manager_set_top_padding_for_all_spaces(struct space_manager *sm, int top_padding);
@@ -92,6 +102,11 @@ void space_manager_move_window_list_to_space(uint64_t sid, uint32_t *window_list
 void space_manager_move_window_to_space(uint64_t sid, struct window *window);
 bool space_manager_focus_space_using_gesture(uint32_t new_did, uint64_t new_sid);
 enum space_op_error space_manager_focus_space(uint64_t sid);
+bool space_manager_multi_display_edge_guard(int dx, int dy);
+enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int dir);
+uint64_t space_manager_focus_target_space(void);
+void space_manager_reconcile_optimistic_target(uint64_t committed_sid);
+void space_manager_drain_pending_focus(void);
 enum space_op_error space_manager_switch_space(uint64_t sid);
 enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uint64_t selector_sid);
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid);
@@ -107,5 +122,7 @@ void space_manager_mark_spaces_invalid(struct space_manager *sm);
 bool space_manager_refresh_application_windows(struct space_manager *sm);
 void space_manager_handle_display_add(struct space_manager *sm, uint32_t did);
 void space_manager_begin(struct space_manager *sm);
+
+uint32_t space_manager_preferred_focus_wid(uint64_t sid, const char **out_source, uint32_t *out_view_last);
 
 #endif

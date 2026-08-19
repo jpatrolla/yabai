@@ -46,3 +46,10 @@ yabai -m config                                 \
     mouse_drop_action            swap
 
 echo "yabai configuration loaded.."
+
+# Color the focus ring by the focused window's layout state.
+rm -f "${TMPDIR:-/tmp}/yabai_focus_ring_color"
+yabai -m signal --add label=ring_color_flags event=window_flags_changed active=yes \
+      action="$HOME/.config/yabai/focus_ring_colorizer.sh"
+yabai -m signal --add label=ring_color_focus event=window_focused \
+      action="$HOME/.config/yabai/focus_ring_colorizer.sh"

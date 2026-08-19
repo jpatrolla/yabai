@@ -41,6 +41,7 @@
 #include <pwd.h>
 #include <spawn.h>
 #include <libproc.h>
+#include <dlfcn.h>
 
 #include "misc/extern.h"
 #include "misc/macros.h"
@@ -62,6 +63,7 @@
 
 #include "view.h"
 #include "sa.h"
+#include "tab_ax.h"
 #include "event_loop.h"
 #include "event_signal.h"
 #include "workspace.h"
@@ -70,14 +72,19 @@
 #include "display.h"
 #include "space.h"
 #include "window.h"
+#include "window_iterator.h"
+#include "window_query.h"
 #include "process_manager.h"
 #include "application.h"
 #include "display_manager.h"
 #include "space_manager.h"
 #include "window_manager.h"
+#include "focus_ring.h"
 #include "mouse_handler.h"
+#include "capture.h"
 
 #include "sa.m"
+#include "tab_ax.m"
 #include "mission_control.c"
 #include "event_loop.c"
 #include "event_signal.c"
@@ -88,10 +95,15 @@
 #include "space.c"
 #include "view.c"
 #include "window.c"
+#include "window_iterator.c"
+#include "window_query.c"
 #include "process_manager.c"
 #include "application.c"
 #include "display_manager.c"
 #include "space_manager.c"
 #include "window_manager.c"
+#include "focus_ring_shims.c"
+#include "focus_ring.m"
 #include "mouse_handler.c"
+#include "capture.m"
 #include "yabai.c"

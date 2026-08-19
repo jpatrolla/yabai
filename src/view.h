@@ -2,7 +2,8 @@
 #define VIEW_H
 
 #define AX_ABS(a, b) (((a) - (b) < 0) ? (((a) - (b)) * -1) : ((a) - (b)))
-#define AX_DIFF(a, b) (AX_ABS(a, b) >= 1.5f)
+#define AX_DIFF_THRESHOLD 1.5f
+#define AX_DIFF(a, b) (AX_ABS(a, b) >= AX_DIFF_THRESHOLD)
 
 #define SPACE_PROPERTY_LIST \
     SPACE_PROPERTY_ENTRY("id",                   SPACE_PROPERTY_ID,            0x001) \
@@ -52,7 +53,20 @@ struct window_capture
 {
     struct window *window;
     float x, y, w, h;
+    // NOTE: wid-only visual rider (window == NULL, wid != 0) — see the packer in
+    // window_manager_animate_windows_lockedbounds_t3d_async. Appended LAST so
+    // positional initializers `{ w, x, y, w, h }` stay valid.
+    uint32_t wid;
 };
+
+struct axis_lock { bool width_fixed; bool height_fixed; };
+static inline struct axis_lock window_classify_axis_lock(CGSize min_size, CGSize max_size)
+{
+    return (struct axis_lock){
+        .width_fixed  = (min_size.width  == max_size.width)  && (min_size.width  > 0),
+        .height_fixed = (min_size.height == max_size.height) && (min_size.height > 0),
+    };
+}
 
 struct window_proxy
 {
@@ -212,6 +226,7 @@ struct view
     int right_padding;
     int window_gap;
     uint32_t auto_balance;
+    uint32_t last_focused_wid;   // last window focused on this space; SPACE_CHANGED restores it
     uint64_t flags;
 };
 
@@ -219,6 +234,7 @@ struct view
 #define view_clear_flag(v, x) ((v)->flags &= ~(x))
 #define view_set_flag(v, x)   ((v)->flags |=  (x))
 
+void insert_feedback_set_hittest(bool enabled);
 void insert_feedback_show(struct window_node *node);
 void insert_feedback_destroy(struct window_node *node);
 
@@ -235,6 +251,7 @@ void window_node_capture_windows(struct window_node *node, struct window_capture
 
 struct window_node *view_find_window_node_in_direction(struct view *view, struct window_node *source, int direction);
 struct window_node *view_find_window_node(struct view *view, uint32_t window_id);
+bool view_swap_node_window(struct view *view, uint32_t old_wid, uint32_t new_wid);
 void view_stack_window_node(struct window_node *node, struct window *window);
 struct window_node *view_add_window_node_with_insertion_point(struct view *view, struct window *window, uint32_t insertion_point);
 struct window_node *view_add_window_node(struct view *view, struct window *window);

@@ -244,10 +244,37 @@ bool space_manager_toggle_gap_for_space(struct space_manager *sm, uint64_t sid)
     return true;
 }
 
-void space_manager_toggle_mission_control(uint64_t sid)
+void space_manager_toggle_mission_control(uint64_t sid, bool thumbnails_enabled)
 {
-    space_manager_focus_space(sid);
-    CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+    static CGPoint saved_mouse_position = {0, 0};
+    bool is_in_mc = mission_control_is_active();
+
+    if (!is_in_mc) {
+        if (thumbnails_enabled) {
+            // NOTE: warping the cursor to the top edge as MC opens expands the spaces strip.
+            CGEventRef event = CGEventCreate(NULL);
+            saved_mouse_position = CGEventGetLocation(event);
+            CFRelease(event);
+
+            CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+
+            uint32_t did = display_manager_active_display_id();
+            CGRect bounds = CGDisplayBounds(did);
+            CGPoint top_center = {
+                .x = bounds.origin.x + bounds.size.width / 2,
+                .y = bounds.origin.y + 20
+            };
+            CGWarpMouseCursorPosition(top_center);
+
+            usleep(10000);
+            CGWarpMouseCursorPosition(saved_mouse_position);
+        } else {
+            CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+        }
+    } else {
+        CoreDockSendNotification(CFSTR("com.apple.expose.awake"), 0);
+        space_manager_focus_space(sid);
+    }
 }
 
 void space_manager_toggle_show_desktop(uint64_t sid)
@@ -845,7 +872,9 @@ enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uin
         }
     }
 
-    return success ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    space_manager_dock_rebuild_strip();
+    return SPACE_OP_ERROR_SUCCESS;
 }
 
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid)
@@ -885,7 +914,9 @@ enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint6
         }
     }
 
-    return success ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    space_manager_dock_rebuild_strip();
+    return SPACE_OP_ERROR_SUCCESS;
 }
 
 enum space_op_error space_manager_move_space_to_display(struct space_manager *sm, uint64_t sid, uint32_t did)
@@ -916,6 +947,7 @@ enum space_op_error space_manager_move_space_to_display(struct space_manager *sm
         if (focus_space) {
             space_manager_focus_space(sid);
         }
+        space_manager_dock_rebuild_strip();
         return SPACE_OP_ERROR_SUCCESS;
     }
 
@@ -982,7 +1014,219 @@ bool space_manager_focus_space_using_gesture(uint32_t new_did, uint64_t new_sid)
 }
 #pragma clang diagnostic pop
 
+// NOTE: while a slide is in flight the committed active space stays frozen at
+// the burst origin (the payload commits mid-slide) — relative nav walks this
+// optimistic state, cleared at commit (reconcile) or the seed's safety timer.
+// display_manager_display_is_animating() is a constant false here — cannot gate.
+static uint64_t g_anim_logical_sid;
+static uint64_t g_anim_origin_sid;
+static uint32_t g_anim_did;
+static uint64_t g_slide_animating_gen;
+
+#define SPACE_ANIM_TIMER_TAIL_S 0.10
+
+static enum space_op_error space_manager_focus_space_ex(uint64_t sid, bool allow_animate);
+
+static inline bool space_slide_active_on(uint32_t did)
+{
+    return g_anim_did == did && g_anim_logical_sid != 0;
+}
+
+static inline uint64_t space_pending_cursor_sid(void)
+{
+    struct space_manager *sm = &g_space_manager;
+    return sm->pending_focus_count > 0
+         ? sm->pending_focus_fifo[sm->pending_focus_count - 1]
+         : g_anim_logical_sid;
+}
+
+static inline bool space_pending_has_hops_for(uint32_t did)
+{
+    struct space_manager *sm = &g_space_manager;
+    return sm->pending_focus_count > 0
+        && space_display_id(sm->pending_focus_fifo[sm->pending_focus_count - 1]) == did;
+}
+
+static void space_pending_focus_push(uint64_t sid)
+{
+    struct space_manager *sm = &g_space_manager;
+    if (sid == 0) return;
+    if (sm->pending_focus_count > 0 &&
+        sm->pending_focus_fifo[sm->pending_focus_count - 1] == sid) return;
+    if (sm->pending_focus_count < SPACE_PENDING_FOCUS_CAP) {
+        sm->pending_focus_fifo[sm->pending_focus_count++] = sid;
+    } else {
+        sm->pending_focus_fifo[SPACE_PENDING_FOCUS_CAP - 1] = sid;
+    }
+}
+
+static uint64_t space_pending_focus_pop(void)
+{
+    struct space_manager *sm = &g_space_manager;
+    if (sm->pending_focus_count == 0) return 0;
+    uint64_t sid = sm->pending_focus_fifo[0];
+    for (int i = 1; i < sm->pending_focus_count; ++i) {
+        sm->pending_focus_fifo[i - 1] = sm->pending_focus_fifo[i];
+    }
+    --sm->pending_focus_count;
+    return sid;
+}
+
+// NOTE: commit == origin is the interruptible snap of the prior hop — keep the
+// optimistic state; any other non-target commit means superseded: clear.
+void space_manager_reconcile_optimistic_target(uint64_t committed_sid)
+{
+    if (g_anim_logical_sid == 0) return;
+    if (committed_sid == g_anim_logical_sid) {
+        g_anim_logical_sid = 0; g_anim_origin_sid = 0; g_anim_did = 0;
+    } else if (committed_sid != g_anim_origin_sid) {
+        g_anim_logical_sid = 0; g_anim_origin_sid = 0; g_anim_did = 0;
+    }
+}
+
+// NOTE: the payload commits the space change itself mid-slide — do not call
+// scripting_addition_focus_space here. A reseed mid-flight snaps the running
+// slide to its end and retargets. direction: +1 toward prev, -1 toward next.
+static enum space_op_error space_manager_focus_space_animated(uint64_t out_sid,
+                                                              uint64_t in_sid,
+                                                              int direction)
+{
+    uint32_t did = space_display_id(out_sid);
+    if (!did) return SPACE_OP_ERROR_INVALID_SRC;
+
+    CGRect bounds = CGDisplayBounds(did);
+    double width = bounds.size.width;
+    if (width <= 0.0) return SPACE_OP_ERROR_INVALID_SRC;
+
+    g_anim_origin_sid  = out_sid;
+    g_anim_did         = did;
+    g_anim_logical_sid = in_sid;
+
+    uint64_t gen = ++g_slide_animating_gen;
+    double hold_s = (double)g_window_manager.space_animation_duration + SPACE_ANIM_TIMER_TAIL_S;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(hold_s * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        if (gen != g_slide_animating_gen) return;
+        if (g_anim_did == did) { g_anim_logical_sid = 0; g_anim_origin_sid = 0; g_anim_did = 0; }
+        space_transition_finish();
+    });
+
+    struct display_timing *dt = display_timing_get(did);
+    float refresh_hz = (dt && dt->valid) ? (float)dt->refresh_rate_hz : 60.0f;
+
+    // NOTE: focus_ring_resolve_dest must run on the event thread (ts_alloc arena).
+    uint32_t ring_wid = 0; CGRect ring_rect = CGRectZero; float ring_radius = 0.0f;
+    if (focus_ring_get_enabled()) {
+        focus_ring_resolve_dest(in_sid, &ring_wid, &ring_rect, &ring_radius);
+    }
+
+    bool ok = scripting_addition_animate_space(out_sid, in_sid, (int32_t)direction,
+                                               g_window_manager.space_animation_duration,
+                                               width,
+                                               (double)g_window_manager.space_animation_gap,
+                                               did, refresh_hz,
+                                               (uint8_t)g_window_manager.space_animation_easing,
+                                               ring_wid,
+                                               (float)ring_rect.origin.x,    (float)ring_rect.origin.y,
+                                               (float)ring_rect.size.width,  (float)ring_rect.size.height,
+                                               ring_radius,
+                                               g_window_manager.space_animation_enter_delay,
+                                               g_window_manager.space_animation_exit_delay);
+
+    if (ok && focus_ring_get_enabled()) {
+        focus_ring_space_switch(out_sid, in_sid, /*animated=*/true);
+        space_transition_begin((int)((hold_s + 0.15) * 1000.0), did);
+    }
+
+    return ok ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+}
+
+#define MULTI_DISPLAY_EDGE_GUARD_DURATION_S 0.4f
+
+bool space_manager_multi_display_edge_guard(int dx, int dy)
+{
+    float dur_s = MULTI_DISPLAY_EDGE_GUARD_DURATION_S;
+
+    uint64_t sid = space_manager_active_space();
+    if (!sid) return false;
+
+    uint32_t did = space_display_id(sid);
+    struct display_timing *t = display_timing_get(did);
+    double rate_hz = (t && t->valid) ? t->refresh_rate_hz : 60.0;
+
+    uint32_t duration_ms = (uint32_t)(dur_s * 1000.0f);
+    int steps = (int)((rate_hz * (double)duration_ms / 1000.0) + 10);
+    if (steps < 12)  steps = 12;
+    if (steps > 240) steps = 240;
+
+    return scripting_addition_animate_edge_nudge(sid, dx, dy, duration_ms, (uint32_t)steps);
+}
+
+uint64_t space_manager_focus_target_space(void)
+{
+    bool want_mouse =
+        (g_window_manager.space_focus_target_display == SPACE_FOCUS_TARGET_DISPLAY_MOUSE) ||
+        (g_window_manager.space_focus_target_display == SPACE_FOCUS_TARGET_DISPLAY_SMART &&
+         g_window_manager.last_focus_method == FOCUS_METHOD_MOUSE);
+
+    if (want_mouse) {
+        CGEventRef event = CGEventCreate(NULL);
+        CGPoint point = CGEventGetLocation(event);
+        CFRelease(event);
+
+        uint32_t did = display_manager_point_display_id(point);
+        uint64_t sid = did ? display_space_id(did) : 0;
+        if (sid) return sid;
+    }
+
+    return space_manager_active_space();
+}
+
+// NOTE: at a display edge, contain_space_focus_per_display=on nudges back and
+// returns SUCCESS (designed no-op); off = stock cross-display / MISSING_DST.
+enum space_op_error space_manager_focus_relative_space(uint64_t from_sid, int dir)
+{
+    if (!from_sid || (dir != +1 && dir != -1)) return SPACE_OP_ERROR_INVALID_SRC;
+
+    uint32_t from_did = space_display_id(from_sid);
+
+    if (space_slide_active_on(from_did) || space_pending_has_hops_for(from_did)) {
+        uint64_t cursor = space_pending_cursor_sid();
+        uint64_t next_logical = (dir > 0) ? space_manager_next_space(cursor)
+                                          : space_manager_prev_space(cursor);
+        if (!next_logical || space_display_id(next_logical) != from_did) {
+            return SPACE_OP_ERROR_SUCCESS;
+        }
+        int geometric_dir = (dir > 0) ? -1 : +1;   // next=-1, prev=+1 (matches focus_space)
+        return space_manager_focus_space_animated(cursor, next_logical, geometric_dir);
+    }
+
+    uint64_t mc_target = (dir > 0) ? space_manager_next_space(from_sid)
+                                   : space_manager_prev_space(from_sid);
+
+    if (mc_target && space_display_id(mc_target) == from_did) {
+        return space_manager_focus_space(mc_target);
+    }
+
+    if (g_window_manager.contain_space_focus_per_display) {
+        int nudge_distance = 100;
+        int dx_nudge = (dir > 0) ? -nudge_distance : nudge_distance;
+        space_manager_multi_display_edge_guard(dx_nudge, 0);
+        return SPACE_OP_ERROR_SUCCESS;
+    }
+
+    if (mc_target) return space_manager_focus_space(mc_target);
+    return SPACE_OP_ERROR_MISSING_DST;
+}
+
 enum space_op_error space_manager_focus_space(uint64_t sid)
+{
+    return space_manager_focus_space_ex(sid, true);
+}
+
+// allow_animate=false forces an INSTANT switch (no animation) — used by the
+// drain for fast intermediates (only the final landing animates).
+static enum space_op_error space_manager_focus_space_ex(uint64_t sid, bool allow_animate)
 {
     bool is_in_mc = mission_control_is_active();
     if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
@@ -994,8 +1238,20 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
     uint32_t new_did = space_display_id(sid);
     bool focus_display = cur_did != new_did;
 
-    bool is_animating = display_manager_display_is_animating(new_did);
-    if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+    if (space_slide_active_on(new_did)) {
+        space_pending_focus_push(sid);
+        return SPACE_OP_ERROR_SUCCESS;
+    }
+
+    if (allow_animate && g_window_manager.space_animation_duration > 0.0f && !focus_display) {
+        int direction = 0;
+        if (sid == space_manager_prev_space(cur_sid))      direction = +1;
+        else if (sid == space_manager_next_space(cur_sid)) direction = -1;
+        if (direction != 0) {
+            enum space_op_error rc = space_manager_focus_space_animated(cur_sid, sid, direction);
+            if (rc == SPACE_OP_ERROR_SUCCESS) return SPACE_OP_ERROR_SUCCESS;
+        }
+    }
 
     if (scripting_addition_focus_space(sid)) {
         if (focus_display) {
@@ -1006,6 +1262,28 @@ enum space_op_error space_manager_focus_space(uint64_t sid)
     }
 
     return SPACE_OP_ERROR_SUCCESS;
+}
+
+// NOTE: event-loop thread only (shared with every push — FIFO is lock-free).
+// Loops only past no-op hops: a hop that starts a switch returns and lets its
+// SPACE_CHANGED commit re-enter the drain; queued intermediates switch instantly.
+void space_manager_drain_pending_focus(void)
+{
+    struct space_manager *sm = &g_space_manager;
+
+    while (sm->pending_focus_count != 0) {
+        uint64_t front = sm->pending_focus_fifo[0];
+        uint32_t did   = space_display_id(front);
+
+        if (did && space_slide_active_on(did)) return;
+
+        space_pending_focus_pop();
+
+        bool more = (sm->pending_focus_count != 0);
+        enum space_op_error rc = space_manager_focus_space_ex(front, /*allow_animate=*/!more);
+
+        if (rc != SPACE_OP_ERROR_SAME_SPACE) return;
+    }
 }
 
 enum space_op_error space_manager_switch_space(uint64_t sid)
@@ -1034,6 +1312,13 @@ enum space_op_error space_manager_switch_space(uint64_t sid)
     return scripting_addition_focus_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
 }
 
+// NOTE: -[Spaces handleDisplayReconfig] rebuilds Dock's MC strip without an MC
+// cycle; call after any server-side space create/move/swap/destroy.
+void space_manager_dock_rebuild_strip(void)
+{
+    scripting_addition_spaces_reconfig();
+}
+
 enum space_op_error space_manager_destroy_space(uint64_t sid)
 {
     bool is_in_mc = mission_control_is_active();
@@ -1044,18 +1329,39 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
     if (space_manager_is_space_last_user_space(sid)) return SPACE_OP_ERROR_INVALID_SRC;
 
     uint32_t did = space_display_id(sid);
-    uint64_t first_sid = space_manager_find_first_user_space_for_display(did);
 
     bool is_animating = display_manager_display_is_animating(did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
-    bool success = scripting_addition_destroy_space(sid);
-    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    // NOTE: copy dest_sid out before the nested space_window_list arena call —
+    // display_space_list memory is arena-owned.
+    uint64_t dest_sid = 0;
+    int display_space_count = 0;
+    uint64_t *display_spaces = display_space_list(did, &display_space_count);
+    if (display_spaces) {
+        for (int i = 0; i < display_space_count; ++i) {
+            if (display_spaces[i] != sid && space_is_user(display_spaces[i])) {
+                dest_sid = display_spaces[i];
+                break;
+            }
+        }
+    }
+    if (!dest_sid) return SPACE_OP_ERROR_INVALID_SRC;
 
-    if (first_sid) {
-        window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, first_sid);
+    // NOTE: SLSSpaceDestroy does not migrate windows (native removeSpace does) —
+    // move them to dest_sid first or they are orphaned onto a dead space.
+    int window_count = 0;
+    uint32_t *window_list = space_window_list(sid, &window_count, true);   // arena — do NOT free
+    if (window_list && window_count > 0) {
+        space_manager_move_window_list_to_space(dest_sid, window_list, window_count);
     }
 
+    bool success = scripting_addition_destroy_space(sid, dest_sid);
+    if (!success) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+
+    window_manager_validate_and_check_for_windows_on_space(&g_space_manager, &g_window_manager, dest_sid);
+
+    space_manager_dock_rebuild_strip();
     return SPACE_OP_ERROR_SUCCESS;
 }
 
@@ -1068,7 +1374,10 @@ enum space_op_error space_manager_add_space(uint64_t sid)
     bool is_animating = display_manager_display_is_animating(space_display_id(sid));
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
 
-    return scripting_addition_create_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    if (!scripting_addition_create_space(sid)) return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+
+    space_manager_dock_rebuild_strip();
+    return SPACE_OP_ERROR_SUCCESS;
 }
 
 void space_manager_assign_process_to_space(pid_t pid, uint64_t sid)
@@ -1210,6 +1519,7 @@ void space_manager_begin(struct space_manager *sm)
     sm->window_zoom_persist = true;
     sm->labels = NULL;
     sm->skip_window_focus_animation = false;
+    sm->mission_control_always_show_spaces_strip_enabled = false;
     table_init(&sm->view, 23, hash_view, compare_view);
 
     int display_count;
@@ -1230,4 +1540,34 @@ void space_manager_begin(struct space_manager *sm)
     sm->current_space_id = space_manager_active_space();
     sm->last_space_id = sm->current_space_id;
     sm->did_begin = true;
+}
+
+uint32_t space_manager_preferred_focus_wid(uint64_t sid, const char **out_source, uint32_t *out_view_last)
+{
+    if (out_source)    *out_source = "none";
+    if (out_view_last) *out_view_last = 0;
+    if (!sid) return 0;
+
+    struct view *view = space_manager_find_view(&g_space_manager, sid);
+
+    // NOTE: event-thread only (ts_alloc arena). Mirrors the SPACE_CHANGED focus
+    // recall and its guards (no minimized/hidden windows) so the ring parks where
+    // the recall will land focus.
+    if (view && out_view_last) *out_view_last = view->last_focused_wid;
+    if (view && view->last_focused_wid) {
+        struct window *recall = window_manager_find_window(&g_window_manager, view->last_focused_wid);
+        if (recall && window_space(recall->id) == sid
+            && !window_check_flag(recall, WINDOW_MINIMIZE)
+            && !recall->application->is_hidden) {
+            if (out_source) *out_source = "view_last";
+            return recall->id;
+        }
+    }
+
+    struct window *topmost = window_manager_space_topmost_tracked_window(&g_window_manager, sid, 0);
+    if (topmost) {
+        if (out_source) *out_source = "space_query";
+        return topmost->id;
+    }
+    return 0;
 }

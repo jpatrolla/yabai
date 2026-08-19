@@ -5,6 +5,15 @@ extern struct window_manager g_window_manager;
 
 #define INSERT_FEEDBACK_WIDTH 2
 #define INSERT_FEEDBACK_RADIUS 9
+// NOTE: the overlay is event-transparent by default (tag 9). A tab drag needs it to OCCLUDE
+// instead, so AppKit's own hit test misses the target underneath and declines the merge.
+static bool g_insert_feedback_hittest;
+
+void insert_feedback_set_hittest(bool enabled)
+{
+    g_insert_feedback_hittest = enabled;
+}
+
 void insert_feedback_show(struct window_node *node)
 {
     CFTypeRef frame_region;
@@ -45,6 +54,10 @@ void insert_feedback_show(struct window_node *node)
             update_window_notifications();
         }
     }
+
+    uint64_t ignore_for_events = (1ULL << 9);
+    if (g_insert_feedback_hittest) SLSClearWindowTags(g_connection, node->feedback_window.id, &ignore_for_events, 64);
+    else                           SLSSetWindowTags(g_connection, node->feedback_window.id, &ignore_for_events, 64);
 
     CGFloat clip_x, clip_y, clip_w, clip_h;
     CGFloat midx = CGRectGetMidX(frame);
@@ -332,14 +345,24 @@ void window_node_update(struct view *view, struct window_node *node)
     }
 }
 
+// NOTE: the layer reset must stay paired with the un-manage. Sub-level is only ever
+// reconciled upward, so a window dropped from the tree without it stays pinned below
+// every tile — and SLSOrderWindow cannot raise it against siblings at sub-level 0.
+static void window_node_release_windows(struct window_node *node)
+{
+    for (int i = 0; i < node->window_count; ++i) {
+        struct window *window = window_manager_find_window(&g_window_manager, node->window_list[i]);
+        if (window) window_manager_adjust_layer(window, LAYER_NORMAL);
+        window_manager_remove_managed_window(&g_window_manager, node->window_list[i]);
+    }
+}
+
 static void window_node_destroy(struct window_node *node)
 {
     if (node->left)  window_node_destroy(node->left);
     if (node->right) window_node_destroy(node->right);
 
-    for (int i = 0; i < node->window_count; ++i) {
-        window_manager_remove_managed_window(&g_window_manager, node->window_list[i]);
-    }
+    window_node_release_windows(node);
 
     insert_feedback_destroy(node);
     free(node);
@@ -616,6 +639,28 @@ struct window_node *view_find_window_node(struct view *view, uint32_t window_id)
     }
 
     return NULL;
+}
+
+// NOTE: in-place swap — area/ratio/split/parent stay put, so a take-over never reshapes the tree.
+bool view_swap_node_window(struct view *view, uint32_t old_wid, uint32_t new_wid)
+{
+    struct window_node *node = view_find_window_node(view, old_wid);
+    if (!node) return false;
+
+    // NOTE: the feedback table is keyed by window_order[0]; re-key it or the entry dangles.
+    bool rekey = node->feedback_window.id && node->window_order[0] == old_wid;
+    if (rekey) table_remove(&g_window_manager.insert_feedback, &old_wid);
+
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i]  == old_wid) node->window_list[i]  = new_wid;
+        if (node->window_order[i] == old_wid) node->window_order[i] = new_wid;
+    }
+
+    if (rekey) {
+        table_add(&g_window_manager.insert_feedback, &node->window_order[0], node);
+        SLSOrderWindow(g_connection, node->feedback_window.id, 1, new_wid);
+    }
+    return true;
 }
 
 struct window_node *view_remove_window_node(struct view *view, struct window *window)
@@ -1020,9 +1065,7 @@ void view_clear(struct view *view)
         if (view->root->left)  window_node_destroy(view->root->left);
         if (view->root->right) window_node_destroy(view->root->right);
 
-        for (int i = 0; i < view->root->window_count; ++i) {
-            window_manager_remove_managed_window(&g_window_manager, view->root->window_list[i]);
-        }
+        window_node_release_windows(view->root);
 
         insert_feedback_destroy(view->root);
         memset(view->root, 0, sizeof(struct window_node));

@@ -18,11 +18,18 @@ extern bool g_verbose;
 #define DOMAIN_QUERY   "query"
 #define DOMAIN_RULE    "rule"
 #define DOMAIN_SIGNAL  "signal"
+#define DOMAIN_CAPTURE "capture"
+#define COMMAND_CAPTURE_START  "start"
+#define COMMAND_CAPTURE_STOP   "stop"
+#define COMMAND_CAPTURE_STATUS "status"
+#define COMMAND_CAPTURE_STITCH "stitch"
+#define COMMAND_CAPTURE_HELP   "help"
 
 /* --------------------------------DOMAIN CONFIG-------------------------------- */
 #define COMMAND_CONFIG_DEBUG_OUTPUT          "debug_output"
 #define COMMAND_CONFIG_MFF                   "mouse_follows_focus"
 #define COMMAND_CONFIG_FFM                   "focus_follows_mouse"
+#define COMMAND_CONFIG_FULLSCREEN_ANIM       "disable_fullscreen_animation"
 #define COMMAND_CONFIG_DISPLAY_ORDER         "display_arrangement_order"
 #define COMMAND_CONFIG_WINDOW_ORIGIN         "window_origin_display"
 #define COMMAND_CONFIG_WINDOW_PLACEMENT      "window_placement"
@@ -31,7 +38,30 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_OPACITY               "window_opacity"
 #define COMMAND_CONFIG_OPACITY_DURATION      "window_opacity_duration"
 #define COMMAND_CONFIG_ANIMATION_DURATION    "window_animation_duration"
+#define COMMAND_CONFIG_ANIM_POLICY           "window_animation_policy"
 #define COMMAND_CONFIG_ANIMATION_EASING      "window_animation_easing"
+#define COMMAND_CONFIG_ANIMATION_MIN_OPACITY "window_animation_min_opacity"
+#define COMMAND_CONFIG_ANIMATION_AX_WAKE      "window_animation_ax_wake"
+#define COMMAND_CONFIG_SPACE_ANIMATION_DURATION "space_animation_duration"
+#define COMMAND_CONFIG_SPACE_ANIMATION_GAP "space_animation_gap"
+#define SPACE_ANIMATION_GAP_MAX 500
+#define COMMAND_CONFIG_SPACE_ANIMATION_ANIMATE_WALLPAPER "space_animation_animate_wallpaper"
+// NOTE: pre-floor name for the same lever — still accepted so existing yabairc
+// files keep working.
+#define COMMAND_CONFIG_SPACE_ANIMATION_WALLPAPER "space_animation_wallpaper"
+#define COMMAND_CONFIG_SPACE_ANIMATION_ANIMATE_MENUBAR "space_animation_animate_menubar"
+#define COMMAND_CONFIG_SPACE_ANIMATION_EASING "space_animation_easing"
+#define COMMAND_CONFIG_SPACE_ANIMATION_SPACE_TRANSFORM "space_animation_space_transform"
+#define COMMAND_CONFIG_WALLPAPER_FLOOR "wallpaper_floor"
+#define COMMAND_CONFIG_EXPOSE_ANIMATION_DURATION "expose_animation_duration"
+#define COMMAND_CONFIG_SPACE_ANIMATION_FADE       "space_animation_fade"
+#define COMMAND_CONFIG_SPACE_ANIMATION_ENTER_DELAY "space_animation_enter_delay"
+#define COMMAND_CONFIG_SPACE_ANIMATION_EXIT_DELAY  "space_animation_exit_delay"
+#define COMMAND_CONFIG_CONTAIN_SPACE_FOCUS_PER_DISPLAY "contain_space_focus_per_display"
+#define COMMAND_CONFIG_WINDOW_FOCUS_FOR_FLOATING "window_focus_for_floating_enabled"
+#define COMMAND_CONFIG_WINDOW_FOCUS_INTER_DISPLAY "window_focus_inter_display"
+#define COMMAND_CONFIG_WINDOW_FOCUS_WRAP     "window_focus_wrap"
+#define COMMAND_CONFIG_SPACE_FOCUS_TARGET_DISPLAY "space_focus_target_display"
 #define COMMAND_CONFIG_SHADOW                "window_shadow"
 #define COMMAND_CONFIG_MENUBAR_OPACITY       "menubar_opacity"
 #define COMMAND_CONFIG_ACTIVE_WINDOW_OPACITY "active_window_opacity"
@@ -51,7 +81,27 @@ extern bool g_verbose;
 #define COMMAND_CONFIG_MOUSE_ACTION2         "mouse_action2"
 #define COMMAND_CONFIG_MOUSE_DROP_ACTION     "mouse_drop_action"
 #define COMMAND_CONFIG_EXTERNAL_BAR          "external_bar"
+#define COMMAND_CONFIG_FRAME_VERIFY_RETRY    "window_frame_verify_retry"
 #define COMMAND_CONFIG_SKIP_SPACE_ANIMATION  "skip_window_focus_animation"
+#define COMMAND_CONFIG_MC_ALWAYS_SHOW_SPACES_STRIP "mission_control_always_show_spaces_strip_enabled"
+#define COMMAND_CONFIG_FOCUS_RING_ENABLED    "focus_ring_enabled"
+#define COMMAND_CONFIG_FOCUS_RING_WIDTH      "focus_ring_width"
+#define COMMAND_CONFIG_FOCUS_RING_COLOR_OPACITY    "focus_ring_color_opacity"
+#define COMMAND_CONFIG_FOCUS_RING_ALPHA      "focus_ring_alpha"
+#define COMMAND_CONFIG_FOCUS_RING_COLOR      "focus_ring_color"
+#define COMMAND_CONFIG_FOCUS_RING_BLUR_RADIUS          "focus_ring_blur_radius"
+#define COMMAND_CONFIG_FOCUS_RING_BLEED           "focus_ring_bleed"
+#define COMMAND_CONFIG_FOCUS_RING_FEATHER         "focus_ring_feather"
+#define COMMAND_CONFIG_FOCUS_RING_SATURATION      "focus_ring_saturation"
+#define COMMAND_CONFIG_FOCUS_RING_BRIGHTNESS      "focus_ring_brightness"
+#define COMMAND_CONFIG_FOCUS_RING_CONTRAST        "focus_ring_contrast"
+#define COMMAND_CONFIG_FOCUS_RING_HUE             "focus_ring_hue"
+#define COMMAND_CONFIG_FOCUS_RING_BLEND_MODE           "focus_ring_blend_mode"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE          "focus_ring_inner_stroke"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_POSITION "focus_ring_inner_stroke_position"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_WIDTH    "focus_ring_inner_stroke_width"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_OPACITY  "focus_ring_inner_stroke_opacity"
+#define COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_COLOR    "focus_ring_inner_stroke_color"
 
 #define SELECTOR_CONFIG_SPACE                "--space"
 
@@ -63,6 +113,9 @@ extern bool g_verbose;
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_DEFAULT "default"
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_FOCUSED "focused"
 #define ARGUMENT_CONFIG_WINDOW_ORIGIN_CURSOR  "cursor"
+#define ARGUMENT_CONFIG_SFTD_DEFAULT          "default"
+#define ARGUMENT_CONFIG_SFTD_MOUSE            "mouse"
+#define ARGUMENT_CONFIG_SFTD_SMART            "smart"
 #define ARGUMENT_CONFIG_WINDOW_PLACEMENT_FST  "first_child"
 #define ARGUMENT_CONFIG_WINDOW_PLACEMENT_SND  "second_child"
 #define ARGUMENT_CONFIG_WINDOW_INSERT_FOCUSED "focused"
@@ -121,6 +174,7 @@ extern bool g_verbose;
 #define ARGUMENT_SPACE_TGL_PADDING  "padding"
 #define ARGUMENT_SPACE_TGL_GAP      "gap"
 #define ARGUMENT_SPACE_TGL_MC       "mission-control"
+#define ARGUMENT_SPACE_TGL_MC_SHOW_STRIP "mission-control-show-strip"
 #define ARGUMENT_SPACE_TGL_SD       "show-desktop"
 #define ARGUMENT_SPACE_LAYOUT_BSP   "bsp"
 #define ARGUMENT_SPACE_LAYOUT_STACK "stack"
@@ -158,7 +212,7 @@ extern bool g_verbose;
 #define ARGUMENT_WINDOW_SEL_FCOUSIN     "first_cousin"
 #define ARGUMENT_WINDOW_SEL_SCOUSIN     "second_cousin"
 #define ARGUMENT_WINDOW_GRID            "%d:%d:%d:%d:%d:%d"
-#define ARGUMENT_WINDOW_MOVE            "%255[^:]:%f:%f"
+#define ARGUMENT_WINDOW_MOVE            "%255[^:]:%255[^:]:%255[^:]"
 #define ARGUMENT_WINDOW_RESIZE          "%255[^:]:%f:%f"
 #define ARGUMENT_WINDOW_RATIO           "%255[^:]:%f"
 #define ARGUMENT_WINDOW_LAYER_BELOW     "below"
@@ -478,6 +532,29 @@ static uint8_t parse_value_type(char *type)
     } else {
         return 0;
     }
+}
+
+static bool parse_move_coord(struct window *window, uint8_t type, char *field, bool is_x, float *value)
+{
+    if (string_equals(field, "center")) {
+        if (type != TYPE_ABS || !window) return false;
+
+        uint32_t did = window_display_id(window->id);
+        if (!did) return false;
+
+        CGRect bounds = display_bounds_constrained(did, false);
+        *value = is_x
+            ? bounds.origin.x + (bounds.size.width  - window->frame.size.width)  / 2.0f
+            : bounds.origin.y + (bounds.size.height - window->frame.size.height) / 2.0f;
+        return true;
+    }
+
+    char *end = NULL;
+    float v = strtof(field, &end);
+    if (!end || *end) return false;
+
+    *value = v;
+    return true;
 }
 
 static uint8_t parse_resize_handle(char *handle)
@@ -885,44 +962,44 @@ static struct selector parse_window_selector(FILE *rsp, char **message, struct w
     } else if (value.type == TOKEN_TYPE_STRING) {
         if (token_equals(result.token, ARGUMENT_COMMON_SEL_NORTH)) {
             if (acting_window) {
-                struct window *closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, acting_window, DIR_NORTH);
+                struct window *closest_window = window_manager_find_closest_window_in_direction(&g_window_manager, acting_window, DIR_NORTH);
                 if (closest_window) {
                     result.window = closest_window;
                 } else {
-                    daemon_fail(rsp, "could not locate a northward managed window.\n");
+                    daemon_fail(rsp, "could not locate a northward window.\n");
                 }
             } else {
                 daemon_fail(rsp, "could not locate the selected window.\n");
             }
         } else if (token_equals(result.token, ARGUMENT_COMMON_SEL_EAST)) {
             if (acting_window) {
-                struct window *closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, acting_window, DIR_EAST);
+                struct window *closest_window = window_manager_find_closest_window_in_direction(&g_window_manager, acting_window, DIR_EAST);
                 if (closest_window) {
                     result.window = closest_window;
                 } else {
-                    daemon_fail(rsp, "could not locate a eastward managed window.\n");
+                    daemon_fail(rsp, "could not locate a eastward window.\n");
                 }
             } else {
                 daemon_fail(rsp, "could not locate the selected window.\n");
             }
         } else if (token_equals(result.token, ARGUMENT_COMMON_SEL_SOUTH)) {
             if (acting_window) {
-                struct window *closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, acting_window, DIR_SOUTH);
+                struct window *closest_window = window_manager_find_closest_window_in_direction(&g_window_manager, acting_window, DIR_SOUTH);
                 if (closest_window) {
                     result.window = closest_window;
                 } else {
-                    daemon_fail(rsp, "could not locate a southward managed window.\n");
+                    daemon_fail(rsp, "could not locate a southward window.\n");
                 }
             } else {
                 daemon_fail(rsp, "could not locate the selected window.\n");
             }
         } else if (token_equals(result.token, ARGUMENT_COMMON_SEL_WEST)) {
             if (acting_window) {
-                struct window *closest_window = window_manager_find_closest_managed_window_in_direction(&g_window_manager, acting_window, DIR_WEST);
+                struct window *closest_window = window_manager_find_closest_window_in_direction(&g_window_manager, acting_window, DIR_WEST);
                 if (closest_window) {
                     result.window = closest_window;
                 } else {
-                    daemon_fail(rsp, "could not locate a westward managed window.\n");
+                    daemon_fail(rsp, "could not locate a westward window.\n");
                 }
             } else {
                 daemon_fail(rsp, "could not locate the selected window.\n");
@@ -1149,6 +1226,124 @@ static struct selector parse_insert_selector(FILE *rsp, char **message)
     return result;
 }
 
+// NOTE: order must match the enums in focus_ring.h — the ordinal is the
+// payload wire contract; append only.
+static char *focus_ring_blend_mode_str[] = {
+    "normal", "multiply", "screen", "overlay", "darken", "lighten",
+    "color-dodge", "color-burn", "soft-light", "hard-light", "difference",
+    "exclusion", "hue", "saturation", "color", "luminosity",
+};
+static char *focus_ring_inner_stroke_position_str[] = { "above", "below" };
+
+static void fr_config_bool(FILE *rsp, char **message, struct token command, struct token domain, bool (*get)(void), void (*set)(bool))
+{
+    struct token value = get_token(message);
+    if (!token_is_valid(value)) {
+        fprintf(rsp, "%s\n", bool_str[get()]);
+    } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+        set(false);
+    } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+        set(true);
+    } else {
+        daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
+static void fr_config_float(FILE *rsp, char **message, struct token command, struct token domain, float (*get)(void), void (*set)(float))
+{
+    struct token_value value = token_to_value(get_token(message));
+    if (value.type == TOKEN_TYPE_INVALID) {
+        fprintf(rsp, "%f\n", get());
+    } else if (value.type == TOKEN_TYPE_FLOAT) {
+        set(value.float_value);
+    } else if (value.type == TOKEN_TYPE_INT) {
+        set((float) value.int_value);
+    } else {
+        daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
+static void fr_config_int(FILE *rsp, char **message, struct token command, struct token domain, int (*get)(void), void (*set)(int))
+{
+    struct token_value value = token_to_value(get_token(message));
+    if (value.type == TOKEN_TYPE_INVALID) {
+        fprintf(rsp, "%d\n", get());
+    } else if (value.type == TOKEN_TYPE_INT) {
+        set(value.int_value);
+    } else if (value.type == TOKEN_TYPE_FLOAT) {
+        set((int) value.float_value);
+    } else {
+        daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
+static void fr_config_enum(FILE *rsp, char **message, struct token command, struct token domain, char **names, int count, int (*get)(void), void (*set)(int))
+{
+    struct token value = get_token(message);
+    if (!token_is_valid(value)) {
+        int cur = get();
+        if (cur >= 0 && cur < count) fprintf(rsp, "%s\n", names[cur]);
+    } else {
+        for (int i = 0; i < count; ++i) {
+            if (token_equals(value, names[i])) { set(i); return; }
+        }
+        daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
+static void fr_config_color_base(FILE *rsp, char **message, struct token command, struct token domain, uint32_t (*get)(void), bool (*is_auto)(void), void (*set)(uint32_t), void (*set_auto)(void))
+{
+    struct token value = get_token(message);
+    uint32_t argb;
+    if (!token_is_valid(value)) {
+        if (is_auto()) fprintf(rsp, "auto\n");
+        else           fprintf(rsp, "0x%08x\n", get());
+    } else if (token_equals(value, "auto") || token_equals(value, "system")) {
+        set_auto();
+    } else if (focus_ring_color_preset(value.text, &argb)) {
+        set(argb);
+    } else if (token_is_hexadecimal(value, &argb)) {
+        set(argb);
+    } else {
+        daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
+static void fr_config_color_inherit(FILE *rsp, char **message, struct token command, struct token domain, uint32_t (*get)(void), bool (*is_set)(void), void (*set)(uint32_t), void (*set_inherit)(void))
+{
+    struct token value = get_token(message);
+    uint32_t argb;
+    if (!token_is_valid(value)) {
+        if (!is_set()) fprintf(rsp, "inherit\n");
+        else           fprintf(rsp, "0x%06x\n", get());
+    } else if (token_equals(value, "inherit")) {
+        set_inherit();
+    } else if (focus_ring_color_preset(value.text, &argb)) {
+        set(argb);
+    } else if (token_is_hexadecimal(value, &argb)) {
+        set(argb);
+    } else {
+        daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
+static void fr_config_opacity_inherit(FILE *rsp, char **message, struct token command, struct token domain, float (*get)(void), void (*set)(float))
+{
+    struct token value = get_token(message);
+    if (!token_is_valid(value)) {
+        float cur = get();
+        if (cur == FOCUS_RING_OPACITY_INHERIT) fprintf(rsp, "inherit\n");
+        else                                        fprintf(rsp, "%f\n", cur);
+    } else if (token_equals(value, "inherit")) {
+        set(FOCUS_RING_OPACITY_INHERIT);
+    } else {
+        struct token_value tv = token_to_value(value);
+        if (tv.type == TOKEN_TYPE_FLOAT)    set(tv.float_value);
+        else if (tv.type == TOKEN_TYPE_INT) set((float) tv.int_value);
+        else daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+    }
+}
+
 static void handle_domain_config(FILE *rsp, struct token domain, char *message)
 {
     TIME_FUNCTION;
@@ -1186,6 +1381,21 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                 g_window_manager.enable_mff = false;
             } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
                 g_window_manager.enable_mff = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_FULLSCREEN_ANIM)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.disable_fullscreen_animation]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                if (!window_manager_set_disable_fullscreen_animation(&g_window_manager, false)) {
+                    daemon_fail(rsp, "could not restore Dock's fullscreen-duration instructions!\n");
+                }
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                if (!window_manager_set_disable_fullscreen_animation(&g_window_manager, true)) {
+                    daemon_fail(rsp, "could not patch Dock's fullscreen-duration instructions -- is the scripting-addition loaded?\n");
+                }
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
@@ -1263,6 +1473,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_FRAME_VERIFY_RETRY)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_frame_verify_retry]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_frame_verify_retry = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_frame_verify_retry = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
         } else if (token_equals(command, COMMAND_CONFIG_SKIP_SPACE_ANIMATION)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1274,6 +1495,53 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_MC_ALWAYS_SHOW_SPACES_STRIP)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_space_manager.mission_control_always_show_spaces_strip_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_space_manager.mission_control_always_show_spaces_strip_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_space_manager.mission_control_always_show_spaces_strip_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_ENABLED)) {
+            fr_config_bool(rsp, &message, command, domain, focus_ring_get_enabled, focus_ring_set_enabled);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_WIDTH)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_width, focus_ring_set_width);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_COLOR_OPACITY)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_color_opacity, focus_ring_set_color_opacity);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_ALPHA)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_alpha, focus_ring_set_alpha);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_COLOR)) {
+            fr_config_color_base(rsp, &message, command, domain, focus_ring_get_color, focus_ring_get_color_is_auto, focus_ring_set_color, focus_ring_set_color_auto);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLUR_RADIUS)) {
+            fr_config_int(rsp, &message, command, domain, focus_ring_get_blur_radius, focus_ring_set_blur_radius);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLEED)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_bleed, focus_ring_set_bleed);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_FEATHER)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_feather, focus_ring_set_feather);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_SATURATION)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_saturation, focus_ring_set_saturation);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BRIGHTNESS)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_brightness, focus_ring_set_brightness);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_CONTRAST)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_contrast, focus_ring_set_contrast);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_HUE)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_hue, focus_ring_set_hue);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_BLEND_MODE)) {
+            fr_config_enum(rsp, &message, command, domain, focus_ring_blend_mode_str, FOCUS_RING_BLEND_COUNT, focus_ring_get_blend_mode, focus_ring_set_blend_mode);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE)) {
+            fr_config_bool(rsp, &message, command, domain, focus_ring_get_inner_stroke, focus_ring_set_inner_stroke);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_POSITION)) {
+            fr_config_enum(rsp, &message, command, domain, focus_ring_inner_stroke_position_str, 2, focus_ring_get_inner_stroke_position, focus_ring_set_inner_stroke_position);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_WIDTH)) {
+            fr_config_float(rsp, &message, command, domain, focus_ring_get_inner_stroke_width, focus_ring_set_inner_stroke_width);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_OPACITY)) {
+            fr_config_opacity_inherit(rsp, &message, command, domain, focus_ring_get_inner_stroke_opacity, focus_ring_set_inner_stroke_opacity);
+        } else if (token_equals(command, COMMAND_CONFIG_FOCUS_RING_INNER_STROKE_COLOR)) {
+            fr_config_color_inherit(rsp, &message, command, domain, focus_ring_get_inner_stroke_color, focus_ring_get_inner_stroke_color_is_set, focus_ring_set_inner_stroke_color, focus_ring_set_inner_stroke_color_inherit);
         } else if (token_equals(command, COMMAND_CONFIG_OPACITY)) {
             struct token value = get_token(&message);
             if (!token_is_valid(value)) {
@@ -1294,6 +1562,17 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
             }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIM_POLICY)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", anim_policy_str[g_window_manager.window_animation_policy]);
+            } else if (token_equals(value, "true_resize")) {
+                g_window_manager.window_animation_policy = WM_ANIM_POLICY_TRUE_RESIZE;
+            } else if (token_equals(value, "lb_only")) {
+                g_window_manager.window_animation_policy = WM_ANIM_POLICY_LB_ONLY;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
         } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_DURATION)) {
             struct token_value value = token_to_value(get_token(&message));
             if (value.type == TOKEN_TYPE_INVALID) {
@@ -1303,14 +1582,200 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                     g_window_manager.window_animation_duration = value.float_value;
                 } else if (!scripting_addition_is_sip_friendly()) {
                     daemon_fail(rsp, "command '%.*s' for domain '%.*s' requires System Integrity Protection to be partially disabled! ignoring request..\n", command.length, command.text, domain.length, domain.text);
-                } else if (CGPreflightScreenCaptureAccess()) {
-                    g_window_manager.window_animation_duration = value.float_value;
                 } else {
-                    daemon_fail(rsp, "command '%.*s' for domain '%.*s' requires Screen Recording permissions! ignoring request..\n", command.length, command.text, domain.length, domain.text);
-                    CGRequestScreenCaptureAccess();
+                    g_window_manager.window_animation_duration = value.float_value;
                 }
             } else {
                 daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_DURATION)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%f\n", g_window_manager.space_animation_duration);
+            } else if (value.type == TOKEN_TYPE_FLOAT) {
+                if (value.float_value == 0.0f) {
+                    g_window_manager.space_animation_duration = value.float_value;
+                } else if (!scripting_addition_is_sip_friendly()) {
+                    daemon_fail(rsp, "command '%.*s' for domain '%.*s' requires System Integrity Protection to be partially disabled! ignoring request..\n", command.length, command.text, domain.length, domain.text);
+                } else {
+                    g_window_manager.space_animation_duration = value.float_value;
+                }
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_GAP)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%.4f\n", g_window_manager.space_animation_gap);
+            } else {
+                struct token_value tv = token_to_value(value);
+                float gap = 0.0f;
+                if (tv.type == TOKEN_TYPE_FLOAT)    gap = tv.float_value;
+                else if (tv.type == TOKEN_TYPE_INT) gap = (float)tv.int_value;
+                else                                gap = -1.0f;
+
+                if (gap < 0.0f || gap > SPACE_ANIMATION_GAP_MAX) {
+                    daemon_fail(rsp, "value '%.*s' is not a valid gap for command '%.*s' (must be between 0 and %d)\n", value.length, value.text, command.length, command.text, SPACE_ANIMATION_GAP_MAX);
+                } else {
+                    g_window_manager.space_animation_gap = gap;
+                }
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_ANIMATE_WALLPAPER) ||
+                   token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_WALLPAPER)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.space_animation_animate_wallpaper]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.space_animation_animate_wallpaper = false;
+                window_manager_wallpaper_floor_sync(&g_window_manager);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.space_animation_animate_wallpaper = true;
+                window_manager_wallpaper_floor_sync(&g_window_manager);
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_ANIMATE_MENUBAR)) {
+            // NOTE: retired — the menubar backdrop is a member of its space, so the
+            // space transform carries it either way and there is no longer an
+            // opt-out to select. Answers `on` because that is what it now does.
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) fprintf(rsp, "%s\n", bool_str[true]);
+            else daemon_fail(rsp, "'%.*s' is retired: the menubar rides the space transform\n", command.length, command.text);
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_EASING)) {
+            // Reuses focus_ring's curve vocabulary + enum (focus_ring_easing) so the
+            // slide and the focus-ring fade share one set of names and one curve table.
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", focus_ring_easing_to_string(g_window_manager.space_animation_easing));
+            } else {
+                char ease_buf[32];
+                snprintf(ease_buf, sizeof(ease_buf), "%.*s", value.length, value.text);
+                int e = focus_ring_easing_from_string(ease_buf);
+                if (e >= 0) {
+                    g_window_manager.space_animation_easing = e;
+                } else {
+                    daemon_fail(rsp, "value '%.*s' is not a valid easing for command '%.*s' (use linear/smoothstep/ease_in/ease_out_expo)\n", value.length, value.text, command.length, command.text);
+                }
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_EXPOSE_ANIMATION_DURATION)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%f\n", g_window_manager.expose_animation_duration);
+            } else if (value.type == TOKEN_TYPE_FLOAT) {
+                if (!scripting_addition_is_sip_friendly()) {
+                    daemon_fail(rsp, "command '%.*s' for domain '%.*s' requires System Integrity Protection to be partially disabled! ignoring request..\n", command.length, command.text, domain.length, domain.text);
+                } else {
+                    g_window_manager.expose_animation_duration = value.float_value;
+                    scripting_addition_set_expose_animation_duration((double)value.float_value);
+                }
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_FADE)) {
+            // NOTE: retired — the cross-fade rode SPACE alpha, which takes every
+            // member and cannot exempt the desktop picture. Kept as a stub so an
+            // existing `... fade on` line reports why instead of "unknown command".
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) fprintf(rsp, "%s\n", bool_str[false]);
+            else daemon_fail(rsp, "'%.*s' is retired: the space slide no longer cross-fades\n", command.length, command.text);
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_SPACE_TRANSFORM)) {
+            // NOTE: retired — the per-window applier it selected against is gone,
+            // so there is nothing to switch to. Answering `on` beats a lever that
+            // reads `off` while the slide plainly rides a space transform.
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) fprintf(rsp, "%s\n", bool_str[true]);
+            else daemon_fail(rsp, "'%.*s' is retired: the space slide always uses the space transform\n", command.length, command.text);
+        } else if (token_equals(command, COMMAND_CONFIG_WALLPAPER_FLOOR)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.wallpaper_floor]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.wallpaper_floor = false;
+                wallpaper_floor_clear();
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.wallpaper_floor = true;
+                wallpaper_floor_build();
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_ENTER_DELAY)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%f\n", g_window_manager.space_animation_enter_delay);
+            } else if (value.type == TOKEN_TYPE_FLOAT && value.float_value >= 0.0f) {
+                g_window_manager.space_animation_enter_delay = value.float_value;
+            } else if (value.type == TOKEN_TYPE_INT && value.int_value >= 0) {
+                g_window_manager.space_animation_enter_delay = (float)value.int_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_ANIMATION_EXIT_DELAY)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%f\n", g_window_manager.space_animation_exit_delay);
+            } else if (value.type == TOKEN_TYPE_FLOAT && value.float_value >= 0.0f) {
+                g_window_manager.space_animation_exit_delay = value.float_value;
+            } else if (value.type == TOKEN_TYPE_INT && value.int_value >= 0) {
+                g_window_manager.space_animation_exit_delay = (float)value.int_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_CONTAIN_SPACE_FOCUS_PER_DISPLAY)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.contain_space_focus_per_display]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.contain_space_focus_per_display = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.contain_space_focus_per_display = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_WINDOW_FOCUS_FOR_FLOATING)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_focus_for_floating_enabled]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_focus_for_floating_enabled = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_focus_for_floating_enabled = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_WINDOW_FOCUS_INTER_DISPLAY)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_focus_inter_display]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_focus_inter_display = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_focus_inter_display = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_WINDOW_FOCUS_WRAP)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", bool_str[g_window_manager.window_focus_wrap]);
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_focus_wrap = false;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_focus_wrap = true;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_SPACE_FOCUS_TARGET_DISPLAY)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", space_focus_target_display_mode_str[g_window_manager.space_focus_target_display]);
+            } else if (token_equals(value, ARGUMENT_CONFIG_SFTD_DEFAULT)) {
+                g_window_manager.space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_DEFAULT;
+            } else if (token_equals(value, ARGUMENT_CONFIG_SFTD_MOUSE)) {
+                g_window_manager.space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_MOUSE;
+            } else if (token_equals(value, ARGUMENT_CONFIG_SFTD_SMART)) {
+                g_window_manager.space_focus_target_display = SPACE_FOCUS_TARGET_DISPLAY_SMART;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
         } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_EASING)) {
             struct token value = get_token(&message);
@@ -1326,6 +1791,26 @@ static void handle_domain_config(FILE *rsp, struct token domain, char *message)
                     }
                 }
                 if (!match) daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_MIN_OPACITY)) {
+            struct token_value value = token_to_value(get_token(&message));
+            if (value.type == TOKEN_TYPE_INVALID) {
+                fprintf(rsp, "%f\n", g_window_manager.window_animation_min_opacity);
+            } else if (value.type == TOKEN_TYPE_FLOAT && in_range_ii(value.float_value, 0.0f, 1.0f)) {
+                g_window_manager.window_animation_min_opacity = value.float_value;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.token.length, value.token.text, command.length, command.text, domain.length, domain.text);
+            }
+        } else if (token_equals(command, COMMAND_CONFIG_ANIMATION_AX_WAKE)) {
+            struct token value = get_token(&message);
+            if (!token_is_valid(value)) {
+                fprintf(rsp, "%s\n", g_window_manager.window_animation_ax_wake ? "on" : "off");
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_ON)) {
+                g_window_manager.window_animation_ax_wake = true;
+            } else if (token_equals(value, ARGUMENT_COMMON_VAL_OFF)) {
+                g_window_manager.window_animation_ax_wake = false;
+            } else {
+                daemon_fail(rsp, "unknown value '%.*s' given to command '%.*s' for domain '%.*s'\n", value.length, value.text, command.length, command.text, domain.length, domain.text);
             }
         } else if (token_equals(command, COMMAND_CONFIG_SHADOW)) {
             struct token value = get_token(&message);
@@ -1721,6 +2206,7 @@ static void handle_domain_display(FILE *rsp, struct token domain, char *message)
         struct selector selector = parse_display_selector(rsp, &message, acting_did, false);
         if (selector.did_parse && selector.did) {
             if (acting_did != selector.did) {
+                g_window_manager.last_focus_method = FOCUS_METHOD_KEYBOARD;
                 display_manager_focus_display(selector.did, display_space_id(selector.did));
             } else {
                 daemon_fail(rsp, "cannot focus an already focused display.\n");
@@ -1763,6 +2249,7 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
     struct token command;
     uint64_t acting_sid = space_manager_active_space();
     struct selector selector = parse_space_selector(NULL, &message, acting_sid, true);
+    bool acting_explicit = selector.did_parse;
 
     if (selector.did_parse) {
         acting_sid = selector.sid;
@@ -1778,8 +2265,30 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
 
     for (; token_is_valid(command); command = get_token(&message)) {
         if (token_equals(command, COMMAND_SPACE_FOCUS)) {
-            struct selector selector = parse_space_selector(rsp, &message, acting_sid, false);
-            if (selector.did_parse && selector.sid) {
+            // NOTE: peek prev/next before parsing — at the global first/last space the
+            // parse fails before the edge guard could fire; route on the raw token and
+            // pass NULL rsp so the relative path owns the edge semantics.
+            char *peek = message;
+            struct token selector_token = get_token(&peek);
+            bool relative = token_equals(selector_token, ARGUMENT_COMMON_SEL_NEXT) ||
+                            token_equals(selector_token, ARGUMENT_COMMON_SEL_PREV);
+            struct selector selector = parse_space_selector(relative ? NULL : rsp, &message, acting_sid, false);
+            if (relative) {
+                int dir = token_equals(selector_token, ARGUMENT_COMMON_SEL_NEXT) ? +1 : -1;
+                uint64_t base_sid = acting_explicit ? acting_sid : space_manager_focus_target_space();
+                enum space_op_error result = space_manager_focus_relative_space(base_sid, dir);
+                if (result == SPACE_OP_ERROR_MISSING_DST) {
+                    daemon_fail(rsp, "could not locate the %s space.\n", dir > 0 ? "next" : "previous");
+                } else if (result == SPACE_OP_ERROR_SAME_SPACE) {
+                    daemon_fail(rsp, "cannot focus an already focused space.\n");
+                } else if (result == SPACE_OP_ERROR_DISPLAY_IS_ANIMATING) {
+                    daemon_fail(rsp, "cannot focus space because the display is in the middle of an animation.\n");
+                } else if (result == SPACE_OP_ERROR_IN_MISSION_CONTROL) {
+                    daemon_fail(rsp, "cannot focus space because mission-control is active.\n");
+                } else if (result == SPACE_OP_ERROR_SCRIPTING_ADDITION) {
+                    daemon_fail(rsp, "cannot focus space due to an error with the scripting-addition.\n");
+                }
+            } else if (selector.did_parse && selector.sid) {
                 enum space_op_error result = space_manager_focus_space(selector.sid);
                 if (result == SPACE_OP_ERROR_SAME_SPACE) {
                     daemon_fail(rsp, "cannot focus an already focused space.\n");
@@ -1998,7 +2507,9 @@ static void handle_domain_space(FILE *rsp, struct token domain, char *message)
                     daemon_fail(rsp, "cannot toggle gap for a non-managed space.\n");
                 }
             } else if (token_equals(value, ARGUMENT_SPACE_TGL_MC)) {
-                space_manager_toggle_mission_control(acting_sid);
+                space_manager_toggle_mission_control(acting_sid, g_space_manager.mission_control_always_show_spaces_strip_enabled);
+            } else if (token_equals(value, ARGUMENT_SPACE_TGL_MC_SHOW_STRIP)) {
+                space_manager_toggle_mission_control(acting_sid, true);
             } else if (token_equals(value, ARGUMENT_SPACE_TGL_SD)) {
                 space_manager_toggle_show_desktop(acting_sid);
             } else {
@@ -2082,6 +2593,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             }
 
             if (acting_window) {
+                g_window_manager.last_focus_method = FOCUS_METHOD_KEYBOARD;
                 window_manager_focus_window_with_raise(&acting_window->application->psn, acting_window->id, acting_window->ref);
             } else {
                 daemon_fail(rsp, "could not locate the window to act on!\n");
@@ -2144,7 +2656,7 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
                 if (space_is_fullscreen(sid)) {
                     daemon_fail(rsp, "can not move window to a macOS fullscreen space!\n");
                 } else {
-                    window_manager_send_window_to_space(&g_space_manager, &g_window_manager, acting_window, sid, false);
+                    window_manager_send_window_to_display(&g_space_manager, &g_window_manager, acting_window, selector.did, sid);
                 }
             }
         } else if (token_equals(command, COMMAND_WINDOW_SPACE)) {
@@ -2227,9 +2739,11 @@ static void handle_domain_window(FILE *rsp, struct token domain, char *message)
             }
         } else if (token_equals(command, COMMAND_WINDOW_MOVE)) {
             float x, y;
-            char type[MAXLEN];
+            char type[MAXLEN], sx[MAXLEN], sy[MAXLEN];
             struct token value = get_token(&message);
-            if ((sscanf(value.text, ARGUMENT_WINDOW_MOVE, type, &x, &y) == 3)) {
+            if ((sscanf(value.text, ARGUMENT_WINDOW_MOVE, type, sx, sy) == 3) &&
+                parse_move_coord(acting_window, parse_value_type(type), sx, true,  &x) &&
+                parse_move_coord(acting_window, parse_value_type(type), sy, false, &y)) {
                 enum window_op_error result = window_manager_move_window_relative(&g_window_manager, acting_window, parse_value_type(type), x, y);
                 if (result == WINDOW_OP_ERROR_INVALID_SRC_VIEW) {
                     daemon_fail(rsp, "cannot move a managed window.\n");
@@ -2976,6 +3490,169 @@ static void handle_domain_signal(FILE *rsp, struct token domain, char *message)
     }
 }
 
+static inline const char *capture_arg_value(struct token t, const char *key)
+{
+    size_t klen = strlen(key);
+    if ((size_t)t.length <= klen)         return NULL;
+    if (memcmp(t.text, key, klen) != 0)   return NULL;
+    if (t.text[klen] != ':')              return NULL;
+    return t.text + klen + 1;
+}
+
+static void handle_domain_capture(FILE *rsp, struct token domain, char *message)
+{
+    (void)domain;
+    struct token cmd = get_token(&message);
+
+    if (!token_is_valid(cmd) || token_equals(cmd, COMMAND_CAPTURE_HELP)) {
+        fprintf(rsp,
+            "usage: yabai -m capture <command> [<args>...]\n"
+            "\n"
+            "commands:\n"
+            "  start [<args>...]   begin a screen recording (HEVC .mp4 in ~/Movies/yabai-capture)\n"
+            "  stop                finalize the active capture session(s)\n"
+            "  status              print JSON status of the active capture\n"
+            "  stitch [<args>...]  combine per-display .mov files into one side-by-side video\n"
+            "  help                print this message\n"
+            "\n"
+            "start args:\n"
+            "  wid:<id>            window to record (0/omitted -> active display, full bounds)\n"
+            "  display:<index|all> record a specific display by arrangement index, or every display to one file each\n"
+            "  padding:<pts>       expand around the wid bounds on all sides, in points\n"
+            "  duration:<secs>     auto-stop after N seconds (0/omitted -> until `capture stop`)\n"
+            "  fps:<n>             frame rate (default 120)\n"
+            "  scale:<f>           multiplier on captured pixel dimensions (default 0.25)\n"
+            "  bpp:<f>             HEVC bits-per-pixel-per-frame target (default 0.6)\n"
+            "  cursor:<on|off>     include the mouse cursor (default off)\n"
+            "  name:<str>          filename suffix, appended after _<timestamp>\n"
+            "  format:<mp4|mov>    output container (default mp4; HEVC either way)\n"
+            "  if-exists:<overwrite|fail|rename>  output-file collision policy (default rename)\n"
+            "\n"
+            "stitch args:\n"
+            "  group:<name>        glob the per-display files written under that capture group\n"
+            "  <file.mov>...       explicit input paths (alternative to group:)\n"
+            "  out:<path>          output path (default ~/Movies/<group>/<group>_stitched.mov)\n"
+            "  layout:<sidebyside|faithful>  panel arrangement (default sidebyside)\n"
+            "  border:<px>         black matte inset on every side (default 0)\n"
+            "  gap:<px>            black gap between panels (default = border)\n"
+            "  match:<height|none> scale panels to a common height (default height; none disables)\n"
+            "  cleanup:<on|off>    delete source files after a successful export (default off)\n"
+            "  format:<mp4|mov>    output container (default mp4; HEVC either way)\n"
+            "  if-exists:<overwrite|fail|rename>  output-file collision policy (default rename)\n"
+            "\n"
+            "examples:\n"
+            "  # record the active display until `capture stop`\n"
+            "  yabai -m capture start\n"
+            "\n"
+            "  # record the focused window for 10s, full resolution, with the cursor\n"
+            "  yabai -m capture start wid:$(yabai -m query --windows --window | jq .id) \\\n"
+            "      duration:10 scale:1.0 cursor:on name:demo\n"
+            "\n"
+            "  # record every display to its own file, grouped for a later stitch\n"
+            "  yabai -m capture start display:all name:multimon\n"
+            "  yabai -m capture stop\n"
+            "\n"
+            "  # stitch that group into one faithful-layout video, then delete the parts\n"
+            "  yabai -m capture stitch group:multimon layout:faithful gap:8 cleanup:on\n"
+            "\n"
+            "  # stitch explicit files, overwriting any existing output\n"
+            "  yabai -m capture stitch left.mov right.mov out:~/Movies/combined.mov if-exists:overwrite\n");
+        return;
+    }
+
+    if (token_equals(cmd, COMMAND_CAPTURE_START)) {
+        struct capture_options o = {0};
+        struct token t;
+        while (token_is_valid(t = get_token(&message))) {
+            const char *v;
+            if      ((v = capture_arg_value(t, "wid")))      o.wid      = (uint32_t)strtoul(v, NULL, 10);
+            else if ((v = capture_arg_value(t, "padding")))  o.padding  = (int)strtol(v, NULL, 10);
+            else if ((v = capture_arg_value(t, "duration"))) o.duration = (int)strtol(v, NULL, 10);
+            else if ((v = capture_arg_value(t, "fps")))      o.fps      = (int)strtol(v, NULL, 10);
+            else if ((v = capture_arg_value(t, "scale")))    o.scale    = strtof(v, NULL);
+            else if ((v = capture_arg_value(t, "bpp")))      o.bpp      = strtof(v, NULL);
+            else if ((v = capture_arg_value(t, "name")))     o.name     = (char *)v;
+            else if ((v = capture_arg_value(t, "display"))) {
+                if (strcmp(v, "all") == 0) o.all_displays = true;
+                else {
+                    uint32_t did = display_manager_arrangement_display_id((int)strtol(v, NULL, 10));
+                    if (!did) { daemon_fail(rsp, "capture start: no display at arrangement index '%s'\n", v); return; }
+                    o.display = did;
+                }
+            }
+            else if ((v = capture_arg_value(t, "if-exists"))) {
+                if      (strcmp(v, "overwrite") == 0) o.if_exists = CAPTURE_IF_EXISTS_OVERWRITE;
+                else if (strcmp(v, "fail")      == 0) o.if_exists = CAPTURE_IF_EXISTS_FAIL;
+                else if (strcmp(v, "rename")    == 0) o.if_exists = CAPTURE_IF_EXISTS_RENAME;
+                else { daemon_fail(rsp, "capture start: bad if-exists '%s' (overwrite|fail|rename)\n", v); return; }
+            }
+            else if ((v = capture_arg_value(t, "cursor")))
+                o.cursor = (strcmp(v, "on") == 0 || strcmp(v, "true") == 0 || strcmp(v, "1") == 0);
+            else if ((v = capture_arg_value(t, "format"))) {
+                if      (strcmp(v, "mp4") == 0) o.container = CAPTURE_CONTAINER_MP4;
+                else if (strcmp(v, "mov") == 0) o.container = CAPTURE_CONTAINER_MOV;
+                else { daemon_fail(rsp, "capture start: bad format '%s' (mp4|mov)\n", v); return; }
+            }
+            else {
+                daemon_fail(rsp, "capture start: unknown arg '%.*s'\n", t.length, t.text);
+                return;
+            }
+        }
+        char err[512] = {0};
+        if (!capture_start(&o, err, sizeof err)) { daemon_fail(rsp, "%s\n", err); return; }
+        fprintf(rsp, "ok\n");
+    } else if (token_equals(cmd, COMMAND_CAPTURE_STOP)) {
+        char err[256] = {0};
+        if (!capture_stop(err, sizeof err)) { daemon_fail(rsp, "%s\n", err); return; }
+        fprintf(rsp, "ok\n");
+    } else if (token_equals(cmd, COMMAND_CAPTURE_STATUS)) {
+        char out[4096];
+        capture_status(out, sizeof out);
+        fprintf(rsp, "%s\n", out);
+    } else if (token_equals(cmd, COMMAND_CAPTURE_STITCH)) {
+        struct capture_stitch_options o = { .match_height = true };
+        char  *files[16];
+        int    file_count = 0;
+        struct token t;
+        while (token_is_valid(t = get_token(&message))) {
+            const char *v;
+            if      ((v = capture_arg_value(t, "group")))  o.group  = (char *)v;
+            else if ((v = capture_arg_value(t, "out")))    o.out    = (char *)v;
+            else if ((v = capture_arg_value(t, "border"))) o.border = (int)strtol(v, NULL, 10);
+            else if ((v = capture_arg_value(t, "gap")))    o.gap    = (int)strtol(v, NULL, 10);
+            else if ((v = capture_arg_value(t, "layout")))
+                o.layout = (strcmp(v, "faithful") == 0) ? CAPTURE_STITCH_FAITHFUL : CAPTURE_STITCH_SIDEBYSIDE;
+            else if ((v = capture_arg_value(t, "match")))
+                o.match_height = (strcmp(v, "none") != 0);
+            else if ((v = capture_arg_value(t, "cleanup")))
+                o.cleanup = (strcmp(v, "on") == 0 || strcmp(v, "true") == 0 || strcmp(v, "1") == 0);
+            else if ((v = capture_arg_value(t, "if-exists"))) {
+                if      (strcmp(v, "overwrite") == 0) o.if_exists = CAPTURE_IF_EXISTS_OVERWRITE;
+                else if (strcmp(v, "fail")      == 0) o.if_exists = CAPTURE_IF_EXISTS_FAIL;
+                else if (strcmp(v, "rename")    == 0) o.if_exists = CAPTURE_IF_EXISTS_RENAME;
+                else { daemon_fail(rsp, "capture stitch: bad if-exists '%s' (overwrite|fail|rename)\n", v); return; }
+            }
+            else if ((v = capture_arg_value(t, "format"))) {
+                if      (strcmp(v, "mp4") == 0) o.container = CAPTURE_CONTAINER_MP4;
+                else if (strcmp(v, "mov") == 0) o.container = CAPTURE_CONTAINER_MOV;
+                else { daemon_fail(rsp, "capture stitch: bad format '%s' (mp4|mov)\n", v); return; }
+            }
+            else if (file_count < 16) {
+                files[file_count++] = t.text;
+            } else {
+                daemon_fail(rsp, "capture stitch: too many file arguments\n");
+                return;
+            }
+        }
+        if (file_count > 0) { o.files = files; o.file_count = file_count; }
+        char err[512] = {0};
+        if (!capture_stitch(&o, err, sizeof err)) { daemon_fail(rsp, "%s\n", err); return; }
+        fprintf(rsp, "ok\n");
+    } else {
+        daemon_fail(rsp, "capture: unknown command '%.*s' (try `yabai -m capture help`)\n", cmd.length, cmd.text);
+    }
+}
+
 void handle_message(FILE *rsp, char *message)
 {
     struct token domain = get_token(&message);
@@ -2993,6 +3670,8 @@ void handle_message(FILE *rsp, char *message)
         handle_domain_rule(rsp, domain, message);
     } else if (token_equals(domain, DOMAIN_SIGNAL)) {
         handle_domain_signal(rsp, domain, message);
+    } else if (token_equals(domain, DOMAIN_CAPTURE)) {
+        handle_domain_capture(rsp, domain, message);
     } else {
         daemon_fail(rsp, "unknown domain '%.*s'\n", domain.length, domain.text);
     }

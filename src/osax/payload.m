@@ -1,28 +1,49 @@
+// NOTE: keep this file upstream-shaped against origin/master. New opcodes and
+// experimental work go in payload_inc/*.inc.m (same translation unit); see
+// payload_inc/README.md for the four-touchpoint checklist for a new SA opcode.
+
+#include <CoreFoundation/CFBase.h>
+#include <CoreFoundation/CFCGTypes.h>
+#include <CoreGraphics/CGAffineTransform.h>
+#include <CoreGraphics/CGDirectDisplay.h>
 #include <Foundation/Foundation.h>
 
+#include <Foundation/NSObjCRuntime.h>
+#include <os/log.h>
+#include <MacTypes.h>
 #include <mach-o/getsect.h>
 #include <mach-o/dyld.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <mach/mach_vm.h>
 #include <mach/vm_map.h>
 #include <mach/vm_page_size.h>
+#include <libkern/OSCacheControl.h>
+#include <servers/bootstrap.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 
 #include <CoreGraphics/CoreGraphics.h>
+#include <IOSurface/IOSurface.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
 #include <arpa/inet.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <stdatomic.h>
 #include <netdb.h>
 #include <dlfcn.h>
+#include <signal.h>
 
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
+#include <fcntl.h>
+#include <time.h>
 
 #include "common.h"
 
@@ -38,33 +59,289 @@
 #undef HASHTABLE_IMPLEMENTATION
 
 #define page_align(addr) (vm_address_t)((uintptr_t)(addr) & (~(vm_page_size - 1)))
-#define unpack(v) memcpy(&v, message, sizeof(v)); message += sizeof(v)
+// NOTE: handle_message stashes one-past-end in g_unpack_end before dispatch;
+// on overflow unpack zeroes the destination and sets g_unpack_overflow instead
+// of reading past the message (daemon/payload field-list desync).
+static __thread const char *g_unpack_end;
+static __thread bool        g_unpack_overflow;
+#define unpack(v) do { \
+        if ((const char *)(message) + sizeof(v) > g_unpack_end) { \
+            g_unpack_overflow = true; memset(&(v), 0, sizeof(v)); \
+        } else { \
+            memcpy(&(v), message, sizeof(v)); message += sizeof(v); \
+        } \
+    } while (0)
 #define lerp(a, t, b) (((1.0-t)*a) + (t*b))
 
+#define WOBBLY_USE_LOCAL_GLOBAL_COORDS 1
+
+typedef struct {
+  CGPoint local;
+  CGPoint global;
+} CGPointWarp;
+
+typedef void *CGSRegionRef;
+extern CGError SLSTransactionSetWindowTransform(CFTypeRef transaction, uint32_t wid, int unknown, int unknown2, CGAffineTransform t);
+extern CGError SLSTransactionMoveWindowWithGroup(CFTypeRef transaction, uint32_t wid, CGPoint origin);
+extern CGError SLSTransactionSetWindowShape(CFTypeRef transaction, uint32_t wid, float x, float y, CGSRegionRef shape);
+extern CGError SLSTransactionSetWindowDragRegion(CFTypeRef transaction, uint32_t wid, CGSRegionRef region);
+extern int      SLSAddDragRegion(int cid, uint32_t wid, CGSRegionRef region);
+extern int      SLSAddDragRegionInWindow(int cid, uint32_t wid, CGSRegionRef region);
+extern int      SLSClearDragRegion(int cid, uint32_t wid);
+extern CGError SLSCopyWindowProperty(int cid, uint32_t wid, CFStringRef key, CFTypeRef *out);
+extern bool    CGRegionContainsPoint(CGSRegionRef region, CGPoint point);
+extern CGRect  CGRegionGetBoundingBox(CGSRegionRef region);
+extern bool    CGRegionIsEmpty(CGSRegionRef region);
+extern CFDictionaryRef SLSCopyWindowRoutingRecordsForScreenLocation(int cid, double x, double y);
+extern CGError CGSNewRegionWithRect(const CGRect *rect, CGSRegionRef *outRegion);
+extern CGError CGSNewEmptyRegion(CGSRegionRef *outRegion);
+extern CGError SLSSetWindowShape(int cid, uint32_t wid, float x, float y, CGSRegionRef shape);
+extern CGError SLSSetWindowEventShape(int cid, uint32_t wid, CGSRegionRef shape);
+extern void SLSDisableUpdate(int cid);
+extern void SLSReenableUpdate(int cid);
+extern CGError SLSTransactionOrderWindow(CFTypeRef transaction, uint32_t wid, int order, uint32_t rel_wid);
+extern CGRect SLSWindowIteratorGetScreenRect(CFTypeRef iterator);
 extern int SLSMainConnectionID(void);
+ extern CGError SLSTransactionSetWindowOriginRelativeToWindow(CFTypeRef transaction, uint32_t wid, uint32_t relative_wid, float offset_x, float offset_y, uint32_t flags);
 extern CGError SLSGetConnectionPSN(int cid, ProcessSerialNumber *psn);
 extern CGError SLSGetWindowAlpha(int cid, uint32_t wid, float *alpha);
 extern CGError SLSSetWindowAlpha(int cid, uint32_t wid, float alpha);
+extern CGError SLSGetWindowResolution(int cid, uint32_t wid, double *resolution);
 extern OSStatus SLSMoveWindowWithGroup(int cid, uint32_t wid, CGPoint *point);
 extern CGError SLSReassociateWindowsSpacesByGeometry(int cid, CFArrayRef window_list);
 extern CGError SLSGetWindowOwner(int cid, uint32_t wid, int *window_cid);
 extern CGError SLSSetWindowTags(int cid, uint32_t wid, uint64_t *tags, size_t tag_size);
+extern CGError SLSSetWindowLevel(int cid, uint32_t wid, int level);
+extern CGError SLSSetWindowSubLevel(int cid, uint32_t wid, int sub_level);
+extern CGError SLSGetWindowTags(int cid, uint32_t wid, uint64_t *tags, size_t tag_size);
 extern CGError SLSClearWindowTags(int cid, uint32_t wid, uint64_t *tags, size_t tag_size);
 extern CGError SLSGetWindowBounds(int cid, uint32_t wid, CGRect *frame);
+extern CGError SLSGetScreenRectForWindow(int cid, uint32_t wid, CGRect *frame);
+extern int SLSWindowListSetLockedBounds(int cid, uint32_t *wid_list, CGRect *bounds_list, int count);
 extern CGError SLSGetWindowTransform(int cid, uint32_t wid, CGAffineTransform *t);
 extern CGError SLSSetWindowTransform(int cid, uint32_t wid, CGAffineTransform t);
+extern CGError SLSSetWindowTransforms(int cid, uint32_t wid, CGAffineTransform *transform, int flags);
+extern int SLSSpaceSetTransform(int cid, uint64_t sid, CGAffineTransform *transform, int options);
+extern CGError SLSTransactionSetSpaceTransform(CFTypeRef transaction, uint64_t sid, uint64_t options, CGAffineTransform *transform);
+extern CGError SLSTransactionShowSpace(CFTypeRef transaction, uint64_t sid);
+extern CGError SLSTransactionHideSpace(CFTypeRef transaction, uint64_t sid);
+extern CGError SLSTransactionSetManagedDisplayIsAnimating(CFTypeRef transaction, CFStringRef display_uuid, bool is_animating);
+extern CGError SLSTransactionSetManagedDisplayCurrentSpace(CFTypeRef transaction, CFStringRef display_uuid, uint64_t sid);
+extern int SLSWillSwitchSpaces(int cid, CFArrayRef spaces);
+extern CFArrayRef SLSCopyAssociatedWindows(int cid, uint32_t wid);
+extern CGError SLSRegisterNotifyProc(void *handler, uint32_t event, void *context);
+extern CGError SLSRequestNotificationsForWindows(int cid, uint32_t *window_list, int count);
+extern int SLSDragWindowRelativeToMouse(int cid, uint32_t wid, double dx, double dy);
+
+#define CONNECTION_CALLBACK(name) void name(uint32_t type, void *data, size_t data_length, void *context, int cid)
+typedef CONNECTION_CALLBACK(connection_callback);
+extern CGError SLSRegisterConnectionNotifyProc(int cid, connection_callback *handler, uint32_t event, void *context);
+
+extern CGError SLSRemoveNotifyProc(int event, void *handler, void *context);
+extern CGError SLSRemoveConnectionNotifyProc(int cid, int event, connection_callback *handler, void *context);
+
+extern CGError SLSTransactionSetWindowAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
+// NOTE: SLSTransactionSetWindowAlphaAnimated is deliberately not declared —
+// it SIGSEGVs WindowServer; fades run per-frame via SLSTransactionSetWindowAlpha.
+extern CGError SLSTransactionSetWindowSystemAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
+extern CGError SLSTransactionSetWindowLockedBounds(CFTypeRef transaction, uint32_t wid, CGRect bounds);
+extern CGError SLSTransactionSetWindowLockedBoundsAtPlace(CFTypeRef transaction, uint32_t wid, int place, CGRect bounds);
+extern CGError SLSTransactionClearWindowLockedBoundsAtPlace(CFTypeRef transaction, uint32_t wid, int place);
+extern CGError SLSTransactionMoveWindowForServerSideDrag(CFTypeRef transaction, uint32_t wid, uint64_t timestamp, CGPoint point, CGPoint mouse_location);
+extern CGError SLSTransactionSetWindowGlobalClipShape(CFTypeRef transaction, uint32_t wid, CGSRegionRef region);
+extern CGError SLSTransactionSetWindowSystemCornerRadius(CFTypeRef transaction, uint32_t wid, double radius);
+extern CGError SLSTransactionSetWindowCornerRadiusMaskedCorners(CFTypeRef transaction, uint32_t wid, uint32_t corners);
+extern CGError SLSTransactionClearWindowCornerRadius(CFTypeRef transaction, uint32_t wid);
+extern CGError SLSSetWindowListGlobalClipShape(int cid, CGSRegionRef region, const uint32_t *wids, int count);
+extern CGError SLSTransactionSetWindowBoundsPath(CFTypeRef transaction, uint32_t wid, CGPathRef path);
+extern CGError SLSTransactionClearWindowLockedBounds(CFTypeRef transaction, uint32_t wid);
+extern CFTypeRef SLSTransactionCreate(int cid);
+extern CGError SLSTransactionCommit(CFTypeRef transaction, int synchronous);
+extern CGError SLSTransactionMoveManagedSpaceToDisplayAfterSpace(CFTypeRef transaction, uint64_t sid, CFStringRef display_uuid, uint64_t after_sid);
+extern void SLSTransactionCommitUsingMethod(CFTypeRef transaction, int method);
+
+extern id SLSTransactionGetFencingContext(CFTypeRef transaction);
+#define YABAI_SLS_PLACE 0x7ffffeff
+extern CGPoint SLSCurrentInputPointerPosition(void);
+extern CGError SLSSetWindowLayerContext(int cid, uint32_t wid, CGContextRef context);
+extern CGError SLSSetWindowWarp(int cid, uint32_t wid, int w, int h, const float *mesh);
+extern CGError SLSTransactionSetWindowWarp(CFTypeRef transaction, uint32_t wid, int w, int h, float *mesh);
+extern CGError SLSAddSurface(int cid, uint32_t wid, uint32_t *surface_out);
+extern CGError SLSSetSurfaceBounds(int cid, uint32_t wid, uint32_t surface, CGRect bounds);
+extern CGContextRef SLSGetWindowLayerContext(int cid, uint32_t wid);
+extern CGError SLSCreateLayerContext(int cid, uint32_t *context_id, uint32_t *layer_id);
+
+extern void *_WSWindowCreate(int cid, int type, CGSRegionRef region, int flags);
+extern void _WSSystemWindowRelease(void *window);
+extern CGError _WSWindowSetCapturedContent(void *window, void *capture_surface);
+extern CGError _WSWindowSetTitle(void *window, CFStringRef title);
+extern CGError _WSWindowSetDepth(void *window, int depth);
+extern CGError _WSWindowSetHasAlpha(void *window, bool hasAlpha);
+extern CGError _WSWindowGetShape(void *window);
 extern CGError SLSOrderWindow(int cid, uint32_t wid, int order, uint32_t rel_wid);
+extern CGError SLSWindowIsOrderedIn(int cid, uint32_t wid, uint8_t *out);
+extern int SLSBlockWindowOrdering(int cid, int block);
+
+extern CGError SLSSetWindowParent(int cid, uint32_t child_wid, uint32_t parent_wid);
+extern CGError SLSGetSpaceBindings(uint32_t wid, int8_t *binding1, uint64_t *binding2);
+extern uint64_t SLSWindowGetBestSpace(uint32_t wid, uint32_t index);
+extern CGError SLSProcessAssignToSpace(int cid, pid_t pid, uint64_t sid);
+extern CGError SLSProcessAssignToAllSpaces(int cid, pid_t pid);
+extern CFStringRef kCGSConnectionDefaultSpace;
+extern CGError SLSSetConnectionProperty(int cid, int target_cid, CFStringRef key, CFTypeRef value);
+extern CGError SLSCopyConnectionProperty(int cid, int target_cid, CFStringRef key, CFTypeRef *out);
 extern void SLSManagedDisplaySetCurrentSpace(int cid, CFStringRef display_ref, uint64_t sid);
 extern uint64_t SLSManagedDisplayGetCurrentSpace(int cid, CFStringRef display_ref);
+extern bool SLSManagedDisplayIsAnimating(int cid, CFStringRef display_ref);
 extern CFStringRef SLSCopyManagedDisplayForSpace(int cid, uint64_t sid);
 extern void SLSMoveWindowsToManagedSpace(int cid, CFArrayRef window_list, uint64_t sid);
+extern uint64_t SLSSpaceCreate(int cid, int options, CFDictionaryRef values);
+extern void SLSSpaceDestroy(int cid, uint64_t sid);
+extern CGError SLSSpaceResetMenuBar(int cid, uint64_t sid);
+extern void SLSMoveManagedSpaceToDisplayIndex(int cid, uint64_t sid, CFStringRef display_uuid, uint64_t index);
+extern CFStringRef kCGSPackagesDisplayIdentifierKey;
+extern int SLSSpaceGetType(int cid, uint64_t sid);
+extern uint64_t SLSGetActiveSpace(int cid);
+extern CFArrayRef SLSCopyManagedDisplaySpaces(int cid);
+extern CGError SLSSpaceSetValues(int cid, uint64_t sid, CFDictionaryRef values);
+extern CFDictionaryRef SLSSpaceCopyValues(int cid, uint64_t sid);
 extern void SLSShowSpaces(int cid, CFArrayRef space_list);
 extern void SLSHideSpaces(int cid, CFArrayRef space_list);
 extern CFTypeRef SLSTransactionCreate(int cid);
 extern CGError SLSTransactionCommit(CFTypeRef transaction, int synchronous);
 extern CGError SLSTransactionOrderWindowGroup(CFTypeRef transaction, uint32_t wid, int order, uint32_t rel_wid);
+extern CGError SLSTransactionSafeOrderWindowGroup(CFTypeRef transaction, uint32_t wid, int order, uint32_t rel_wid);
 extern CGError SLSTransactionSetWindowSystemAlpha(CFTypeRef transaction, uint32_t wid, float alpha);
 extern CGError SLSSetWindowSubLevel(int cid, uint32_t wid, int level);
+extern void SLSTransactionDragWindowRelativeToMouse(CFTypeRef transaction, uint32_t wid, double dx, double dy, uint64_t flags);
+extern CGError SLSOrderWindowListWithOperation(int cid, const uint32_t *wids, int operation, uint32_t rel_wid, int count);
+extern CGError SLSAddWindowToWindowOrderingGroup(int cid, uint32_t parent_wid, uint32_t child_wid, int order);
+extern CGError SLSAddWindowToWindowMovementGroup(int cid, uint32_t parent_wid, uint32_t child_wid, int order);
+extern CGError SLSRemoveFromOrderingGroup(int cid, uint32_t child_wid);
+extern CGError SLSRemoveWindowFromWindowMovementGroup(int cid, uint32_t parent_wid, uint32_t child_wid);
+extern CFDictionaryRef SLSGetDebugInfo(int cid);
+extern CGError SLSManagedDisplaySetIsAnimating(int cid, CFStringRef display_uuid, bool is_animating);
+extern CFStringRef CGDisplayCreateUUIDFromDisplayID(CGDirectDisplayID display);
+
+// CVDisplayLink forward declarations (avoiding CoreVideo.h which conflicts with CG headers)
+typedef struct __CVDisplayLink *CVDisplayLinkRef;
+typedef uint32_t CVOptionFlags;
+typedef int32_t CVReturn;
+enum { kCVReturnSuccess = 0 };
+typedef struct {
+    uint32_t version;
+    int32_t  videoTimeScale;
+    int64_t  videoTime;
+    uint64_t hostTime;
+    double   rateScalar;
+    int64_t  videoRefreshPeriod;
+    int64_t  reserved[5];
+} CVTimeStamp;
+typedef CVReturn (*CVDisplayLinkOutputCallback)(CVDisplayLinkRef, const CVTimeStamp *, const CVTimeStamp *, CVOptionFlags, CVOptionFlags *, void *);
+extern CVReturn CVDisplayLinkCreateWithActiveCGDisplays(CVDisplayLinkRef *linkOut);
+extern CVReturn CVDisplayLinkSetOutputCallback(CVDisplayLinkRef link, CVDisplayLinkOutputCallback cb, void *ctx);
+extern CVReturn CVDisplayLinkStart(CVDisplayLinkRef link);
+extern CVReturn CVDisplayLinkStop(CVDisplayLinkRef link);
+extern CVReturn CVDisplayLinkCreateWithCGDisplay(CGDirectDisplayID did, CVDisplayLinkRef *linkOut);
+extern Boolean  CVDisplayLinkIsRunning(CVDisplayLinkRef link);
+extern void     CVDisplayLinkRelease(CVDisplayLinkRef link);
+
+#define DISPLAYLINK_NO_COREVIDEO_HEADER
+#include "../misc/displaylink.h"
+
+#include "payload_inc/logp.inc.m"
+
+#include "payload_inc/anim_owner.inc.m"
+
+#include "payload_inc/easing.inc.m"
+
+static void payload_focus_ring_destroy_all(void);
+
+#include "payload_inc/deathwatch.inc.m"
+
+extern CGError SLSWindowFreezeWithOptions(int cid, uint32_t wid, CFDictionaryRef options);
+extern CGError SLSWindowThaw(int cid, uint32_t wid);
+extern CGError SLSTransactionSetWindowTransform3D(CFTypeRef transaction, uint32_t wid, double *t);
+
+static inline CFArrayRef cfarray_of_cfnumbers(void *values, size_t size, int count, CFNumberType type)
+{
+    CFNumberRef temp[count];
+
+    for (int i = 0; i < count; ++i) {
+        temp[i] = CFNumberCreate(NULL, type, ((char *)values) + (size * i));
+    }
+
+    CFArrayRef result = CFArrayCreate(NULL, (const void **)temp, count, &kCFTypeArrayCallBacks);
+
+    for (int i = 0; i < count; ++i) {
+        CFRelease(temp[i]);
+    }
+
+    return result;
+}
+
+
+extern CFDictionaryRef SLSCreateWindowDebugInfo(int cid, uint32_t wid);
+
+extern int SLSPostBroadcastNotification(int cid, void *data, int length);
+extern void SLSTransactionPostBroadcastNotification(CFTypeRef transaction, int event_code, void *data, int length);
+
+extern CGError SLSGetUserAccessibilityReport(int cid, pid_t pid, CFDictionaryRef *report_out);
+extern CGError SLSGetUserAccessibilityReportForPid(pid_t pid, CFDictionaryRef *report_out);
+
+typedef void (*SLSNotifyProc)(int, int, int, int, int, void *);
+
+extern CGError SLSRequestNotificationsForWindows(int cid, uint32_t *window_list, int count);
+extern CGError SLSSetConnectionProperty(int cid, int target_cid, CFStringRef key, CFTypeRef value);
+
+extern CFTypeRef SLSWindowQueryWindows(int cid, CFArrayRef window_list, int count);
+extern CFTypeRef SLSWindowQueryResultCopyWindows(CFTypeRef query);
+extern bool SLSWindowIteratorAdvance(CFTypeRef iterator);
+extern uint32_t SLSWindowIteratorGetWindowID(CFTypeRef iterator);
+extern void SLSWindowIteratorGetConstraints(CFTypeRef iterator, CGSize *outA, CGSize *outB, CGSize *outC, CGSize *junk);
+extern void SLSFlushWindow(int cid, uint32_t wid, void *null);
+
+// NOTE: region is window-LOCAL (not global like SLSFlushWindow); NULL region dereferences → crash.
+extern CGError SLSFlushWindowContentRegion(int cid, uint32_t wid, CGSRegionRef region);
+
+// Force the WindowServer to recomposite a window's whole content region — the
+// step that makes an already-committed transform / bounds / clip change actually
+// become visible when the compositor hasn't refreshed the surface on its own.
+//
+// Owner gate: SLSFlushWindowContentRegion maps the wid through this process's
+// main connection, so the server only honors the flush for windows THIS cid can
+// map. From the SA payload that cid is Dock's (universal owner), which is why we
+// run the flush here rather than from yabai's daemon g_connection.
+//
+// Region: built explicitly in window-local coords from the live bounds. A NULL
+// region routes into _CGSWindowFlushRegion's CGRegion* path, which dereferences
+// the null arg — so we never pass NULL.
+//
+// Returns false only if the bounds read or region build failed; the flush rc
+// (effectively always 0) is written to *out_rc when non-NULL.
+static bool payload_flush_content_region(int cid, uint32_t wid, CGError *out_rc)
+{
+    CGRect bounds = {0};
+    if (SLSGetWindowBounds(cid, wid, &bounds) != kCGErrorSuccess ||
+        bounds.size.width <= 0.0 || bounds.size.height <= 0.0) {
+        return false;
+    }
+
+    CGRect local = { { 0, 0 }, bounds.size };
+    CGSRegionRef region = NULL;
+    if (CGSNewRegionWithRect(&local, &region) != kCGErrorSuccess || !region) {
+        return false;
+    }
+
+    SLSFlushWindowContentRegion(cid, wid, region);
+    if (out_rc) *out_rc = kCGErrorSuccess;
+    CFRelease(region);
+    return true;
+}
+
+extern CGError SLSNewConnection(int zero, int *cid);
+
+typedef uint32_t CGSConnectionID;
 
 struct window_fade_context
 {
@@ -89,45 +366,6 @@ static bool macOSSequoia;
 
 static pthread_t daemon_thread;
 static int daemon_sockfd;
-
-static void dump_class_info(Class c)
-{
-    const char *name = class_getName(c);
-    unsigned int count = 0;
-
-    Ivar *ivar_list = class_copyIvarList(c, &count);
-    for (int i = 0; i < count; i++) {
-        Ivar ivar = ivar_list[i];
-        const char *ivar_name = ivar_getName(ivar);
-        NSLog(@"%s ivar: %s", name, ivar_name);
-    }
-    if (ivar_list) free(ivar_list);
-
-    objc_property_t *property_list = class_copyPropertyList(c, &count);
-    for (int i = 0; i < count; i++) {
-        objc_property_t property = property_list[i];
-        const char *prop_name = property_getName(property);
-        NSLog(@"%s property: %s", name, prop_name);
-    }
-    if (property_list) free(property_list);
-
-    Method *method_list = class_copyMethodList(c, &count);
-    for (int i = 0; i < count; i++) {
-        Method method = method_list[i];
-        const char *method_name = sel_getName(method_getName(method));
-        NSLog(@"%s method: %s", name, method_name);
-    }
-    if (method_list) free(method_list);
-}
-
-static Class dump_class_info_by_name(const char *name)
-{
-    Class c = objc_getClass(name);
-    if (c != nil) {
-        dump_class_info(c);
-    }
-    return c;
-}
 
 static uint64_t static_base_address(void)
 {
@@ -264,6 +502,26 @@ static bool verify_os_version(NSOperatingSystemVersion os_version)
     return false;
 }
 
+// NOTE: >= 0 overrides -[WVExpose animationDuration] (0 kills the MC tween); < 0 = native.
+static double expose_animation_duration = -1;
+static double (*orig_WVExpose_animationDuration)(id, SEL);
+
+static double hook_WVExpose_animationDuration(id self, SEL sel)
+{
+    if (expose_animation_duration >= 0) return expose_animation_duration;
+    return orig_WVExpose_animationDuration ? orig_WVExpose_animationDuration(self, sel) : 0.25;
+}
+
+static void do_set_expose_animation_duration(char *message)
+{
+    double duration;
+    unpack(duration);
+    expose_animation_duration = duration;
+    NSLog(@"[yabai-sa] expose_animation_duration set to %f", expose_animation_duration);
+}
+
+#include "payload_inc/dock_fs_clamp.inc.m"
+
 static void init_instances()
 {
     NSOperatingSystemVersion os_version = [[NSProcessInfo processInfo] operatingSystemVersion];
@@ -391,6 +649,22 @@ static void init_instances()
             NSLog(@"[yabai-sa] animation_time_addr vm_protect failed; unable to patch instruction!");
         }
     }
+
+    init_fs_clamp(os_version, baseaddr);
+
+    Class WVExpose = objc_getClass("WVExpose");
+    if (!WVExpose) WVExpose = objc_getClass("_TtC8DockCore8WVExpose");
+    if (WVExpose) {
+        Method m = class_getInstanceMethod(WVExpose, @selector(animationDuration));
+        if (m) {
+            orig_WVExpose_animationDuration = (double (*)(id, SEL))method_setImplementation(m, (IMP)hook_WVExpose_animationDuration);
+            NSLog(@"[yabai-sa] hooked -[WVExpose animationDuration]");
+        } else {
+            NSLog(@"[yabai-sa] WVExpose has no -animationDuration; expose-duration override disabled");
+        }
+    } else {
+        NSLog(@"[yabai-sa] WVExpose class not found; expose-duration override disabled");
+    }
 }
 
 static inline id get_ivar_value(id instance, const char *name)
@@ -457,9 +731,81 @@ static inline id display_space_for_space_with_id(uint64_t space_id)
     return nil;
 }
 
+// NOTE: a server-side space op changes the WindowServer but not Dock's model.
+// handleDisplayReconfig rebuilds the strip unconditionally; only its wallpaper
+// branch is gated on the dirty ivars set here.
+static void payload_mark_spaces_dirty(bool wallpaper)
+{
+    if (dock_spaces == nil) return;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        Class cls = object_getClass(dock_spaces);
+        Ivar iv = class_getInstanceVariable(cls, "_needToUpdateSpaces");
+        if (iv) *((uint8_t *)dock_spaces + ivar_getOffset(iv)) = 1;
+        if (wallpaper) {
+            Ivar wv = class_getInstanceVariable(cls, "_needToUpdateDesktopPicture");
+            if (wv) *((uint8_t *)dock_spaces + ivar_getOffset(wv)) = 1;
+        }
+    });
+}
+
+static void payload_spaces_reconfig(void)
+{
+    if (dock_spaces == nil) return;
+    dispatch_sync(dispatch_get_main_queue(), ^{
+        SEL sel = sel_registerName("handleDisplayReconfig");
+        if ([dock_spaces respondsToSelector:sel])
+            ((void (*)(id, SEL))objc_msgSend)(dock_spaces, sel);
+    });
+}
+
+static void do_spaces_reconfig(char *message)
+{
+    (void)message;
+    payload_spaces_reconfig();
+}
+
+// NOTE: identity T3D is re-committed every ~1ms for dur_ms — a single commit
+// loses the last-writer race against Mission Control's own transform writes.
+static void payload_pin_windows(uint32_t *wids, uint32_t count, uint32_t dur_ms)
+{
+    if (count == 0 || dur_ms == 0) return;
+    if (count > 256) count = 256;
+    uint32_t *copy = malloc(sizeof(uint32_t) * count);
+    if (!copy) return;
+    memcpy(copy, wids, sizeof(uint32_t) * count);
+    int cid = SLSMainConnectionID();
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+        static const double IDENTITY3D[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        for (uint32_t k = 0; k < dur_ms; k++) {
+            CFTypeRef txn = SLSTransactionCreate(cid);
+            if (txn) {
+                for (uint32_t i = 0; i < count; i++)
+                    SLSTransactionSetWindowTransform3D(txn, copy[i], (double *)IDENTITY3D);
+                SLSTransactionCommit(txn, 1);
+                CFRelease(txn);
+            }
+            usleep(1000);
+        }
+        free(copy);
+    });
+}
+
+static void do_pin_windows(char *message)
+{
+    uint32_t dur_ms, count;
+    unpack(dur_ms);
+    unpack(count);
+    if (count > 256) count = 256;
+    uint32_t *wids = malloc(sizeof(uint32_t) * (count ? count : 1));
+    if (!wids) return;
+    for (uint32_t i = 0; i < count; i++) { uint32_t w = 0; unpack(w); wids[i] = w; }
+    payload_pin_windows(wids, count, dur_ms);
+    free(wids);
+}
+
 static void do_space_move(char *message)
 {
-    if (dock_spaces == nil || dp_desktop_picture_manager == nil || move_space_fp == 0) return;
+    if (dock_spaces == nil) return;
 
     uint64_t source_space_id, dest_space_id, source_prev_space_id;
     unpack(source_space_id);
@@ -469,91 +815,144 @@ static void do_space_move(char *message)
     bool focus_dest_space;
     unpack(focus_dest_space);
 
-    CFStringRef source_display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), source_space_id);
+    int cid = SLSMainConnectionID();
+
+    CFStringRef source_display_uuid = SLSCopyManagedDisplayForSpace(cid, source_space_id);
     id source_space = space_for_display_with_id(source_display_uuid, source_space_id);
     id source_display_space = display_space_for_display_uuid(source_display_uuid);
 
-    CFStringRef dest_display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), dest_space_id);
+    CFStringRef dest_display_uuid = SLSCopyManagedDisplayForSpace(cid, dest_space_id);
     id dest_space = space_for_display_with_id(dest_display_uuid, dest_space_id);
     unsigned dest_display_id = ((unsigned (*)(id, SEL, id)) objc_msgSend)(dock_spaces, @selector(displayIDForSpace:), dest_space);
     id dest_display_space = display_space_for_display_uuid(dest_display_uuid);
+
+    bool cross_display = source_display_uuid && dest_display_uuid && !CFEqual(source_display_uuid, dest_display_uuid);
 
     if (source_prev_space_id) {
         NSArray *ns_source_space = @[ @(source_space_id) ];
         NSArray *ns_dest_space = @[ @(source_prev_space_id) ];
         id new_source_space = space_for_display_with_id(source_display_uuid, source_prev_space_id);
-        SLSShowSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_dest_space);
-        SLSHideSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_source_space);
-        SLSManagedDisplaySetCurrentSpace(SLSMainConnectionID(), source_display_uuid, source_prev_space_id);
+        SLSShowSpaces(cid, (__bridge CFArrayRef) ns_dest_space);
+        SLSHideSpaces(cid, (__bridge CFArrayRef) ns_source_space);
+        SLSManagedDisplaySetCurrentSpace(cid, source_display_uuid, source_prev_space_id);
         set_ivar_value(source_display_space, "_currentSpace", [new_source_space retain]);
         [ns_dest_space release];
         [ns_source_space release];
     }
 
-    asm__call_move_space(source_space, dest_space, dest_display_uuid, dock_spaces, move_space_fp);
+    bool moved = false;
+    CFTypeRef txn = SLSTransactionCreate(cid);
+    if (txn) {
+        SLSTransactionMoveManagedSpaceToDisplayAfterSpace(txn, source_space_id, dest_display_uuid, dest_space_id);
+        SLSTransactionCommit(txn, 1);
+        CFRelease(txn);
+        moved = true;
+    } else if (move_space_fp) {
+        asm__call_move_space(source_space, dest_space, dest_display_uuid, dock_spaces, move_space_fp);
+        moved = true;
+    }
 
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        ((void (*)(id, SEL, id, unsigned, CFStringRef)) objc_msgSend)(dp_desktop_picture_manager, @selector(moveSpace:toDisplay:displayUUID:), source_space, dest_display_id, dest_display_uuid);
-    });
+    if (moved && cross_display && dp_desktop_picture_manager != nil) {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            ((void (*)(id, SEL, id, unsigned, CFStringRef)) objc_msgSend)(dp_desktop_picture_manager, @selector(moveSpace:toDisplay:displayUUID:), source_space, dest_display_id, dest_display_uuid);
+        });
+    }
 
     if (focus_dest_space) {
-        uint64_t new_source_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), source_display_uuid);
+        uint64_t new_source_space_id = SLSManagedDisplayGetCurrentSpace(cid, source_display_uuid);
         id new_source_space = space_for_display_with_id(source_display_uuid, new_source_space_id);
         set_ivar_value(source_display_space, "_currentSpace", [new_source_space retain]);
 
         NSArray *ns_dest_monitor_space = @[ @(dest_space_id) ];
-        SLSHideSpaces(SLSMainConnectionID(), (__bridge CFArrayRef) ns_dest_monitor_space);
-        SLSManagedDisplaySetCurrentSpace(SLSMainConnectionID(), dest_display_uuid, source_space_id);
+        SLSHideSpaces(cid, (__bridge CFArrayRef) ns_dest_monitor_space);
+        SLSManagedDisplaySetCurrentSpace(cid, dest_display_uuid, source_space_id);
         set_ivar_value(dest_display_space, "_currentSpace", [source_space retain]);
         [ns_dest_monitor_space release];
     }
+
+    if (cross_display) payload_mark_spaces_dirty(true);
 
     CFRelease(source_display_uuid);
     CFRelease(dest_display_uuid);
 }
 
-typedef void (*remove_space_call)(id space, id display_space, id dock_spaces, uint64_t space_id1, uint64_t space_id2);
 static void do_space_destroy(char *message)
 {
-    if (dock_spaces == nil || remove_space_fp == 0) return;
+    if (dock_spaces == nil) return;
 
-    uint64_t space_id;
+    uint64_t space_id, dest_space_id;
     unpack(space_id);
+    unpack(dest_space_id);
 
-    CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), space_id);
-    uint64_t active_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), display_uuid);
+    int cid = SLSMainConnectionID();
 
-    id space = space_for_display_with_id(display_uuid, space_id);
+    CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(cid, space_id);
+    if (!display_uuid) return;
+
     id display_space = display_space_for_display_uuid(display_uuid);
+    uint64_t active_space_id = SLSManagedDisplayGetCurrentSpace(cid, display_uuid);
 
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        ((remove_space_call) remove_space_fp)(space, display_space, dock_spaces, space_id, space_id);
-    });
-
-    if (active_space_id == space_id) {
-        uint64_t dest_space_id = SLSManagedDisplayGetCurrentSpace(SLSMainConnectionID(), display_uuid);
-        id dest_space = space_for_display_with_id(display_uuid, dest_space_id);
-        set_ivar_value(display_space, "_currentSpace", [dest_space retain]);
+    // NOTE: switch the display off the doomed space before destroying it.
+    if (active_space_id == space_id && dest_space_id) {
+        NSArray *ns_doomed = @[ @(space_id) ];
+        NSArray *ns_dest   = @[ @(dest_space_id) ];
+        id new_current = space_for_display_with_id(display_uuid, dest_space_id);
+        SLSShowSpaces(cid, (__bridge CFArrayRef) ns_dest);
+        SLSHideSpaces(cid, (__bridge CFArrayRef) ns_doomed);
+        SLSManagedDisplaySetCurrentSpace(cid, display_uuid, dest_space_id);
+        set_ivar_value(display_space, "_currentSpace", [new_current retain]);
+        [ns_dest release];
+        [ns_doomed release];
     }
+
+    SLSSpaceDestroy(cid, space_id);
+
 
     CFRelease(display_uuid);
 }
 
 static void do_space_create(char *message)
 {
-    if (dock_spaces == nil || add_space_fp == 0) return;
+    if (dock_spaces == nil) return;
 
     uint64_t space_id;
     unpack(space_id);
 
-    CFStringRef __block display_uuid = SLSCopyManagedDisplayForSpace(SLSMainConnectionID(), space_id);
+    int cid = SLSMainConnectionID();
+
+    CFStringRef display_uuid = SLSCopyManagedDisplayForSpace(cid, space_id);
+    if (display_uuid) {
+        CFMutableDictionaryRef values = CFDictionaryCreateMutable(NULL, 0,
+            &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        int32_t type = 0; // SLS_SPACE_USER
+        CFNumberRef type_num = CFNumberCreate(NULL, kCFNumberSInt32Type, &type);
+        CFDictionarySetValue(values, CFSTR("type"), type_num);
+        CFDictionarySetValue(values, kCGSPackagesDisplayIdentifierKey, display_uuid);
+
+        uint64_t new_sid = SLSSpaceCreate(cid, 0, values);
+
+        CFRelease(type_num);
+        CFRelease(values);
+
+        if (new_sid) {
+            SLSSpaceResetMenuBar(cid, new_sid);
+            payload_mark_spaces_dirty(true);
+            CFRelease(display_uuid);
+            return;
+        }
+        CFRelease(display_uuid);
+    }
+
+    // NOTE: legacy byte-pattern fallback — breaks across Dock updates (#2799).
+    if (add_space_fp == 0) return;
     dispatch_sync(dispatch_get_main_queue(), ^{
+        CFStringRef du = SLSCopyManagedDisplayForSpace(cid, space_id);
         id new_space = macOSSequoia
                      ? [[objc_getClass("ManagedSpace") alloc] init]
                      : [[objc_getClass("Dock.ManagedSpace") alloc] init];
-        id display_space = display_space_for_display_uuid(display_uuid);
+        id display_space = display_space_for_display_uuid(du);
         asm__call_add_space(new_space, display_space, add_space_fp);
-        CFRelease(display_uuid);
+        if (du) CFRelease(du);
     });
 }
 
@@ -592,20 +991,54 @@ static void do_space_focus(char *message)
     }
 }
 
+uint32_t payload_focus_ring_park_for_slide(int cid, uint32_t target_wid,
+                                           CGRect rect, float radius, uint64_t sid);
+uint32_t payload_focus_ring_adopt_for_exit(uint64_t out_sid);
+
+#include "payload_inc/space_animation.inc.m"
+
+// NOTE: T3D stage convention — identity = natural frame, scale > 1 SHRINKS;
+// translate = -scale * (target_origin - natural_origin).
+static void window_commit_scale_rect_transform(int cid, uint32_t wid, CGRect natural, CGRect target)
+{
+    if (target.size.width <= 0 || target.size.height <= 0) return;
+
+    CFTypeRef transaction = SLSTransactionCreate(cid);
+    if (!transaction) return;
+
+    double xs = natural.size.width  / target.size.width;
+    double ys = natural.size.height / target.size.height;
+    double m[16] = {
+        xs,  0.0, 0.0, 0.0,
+        0.0, ys,  0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        -xs * (target.origin.x - natural.origin.x), -ys * (target.origin.y - natural.origin.y), 0.0, 1.0,
+    };
+    SLSTransactionSetWindowTransform3D(transaction, wid, m);
+    SLSTransactionCommit(transaction, 0);
+    CFRelease(transaction);
+}
+
 static void do_window_scale(char *message)
 {
     uint32_t wid;
     unpack(wid);
     if (!wid) return;
 
+    int cid = SLSMainConnectionID();
+
     CGRect frame = {};
-    SLSGetWindowBounds(SLSMainConnectionID(), wid, &frame);
-    CGAffineTransform original_transform = CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y);
+    SLSGetWindowBounds(cid, wid, &frame);
+    if (frame.size.width <= 0 || frame.size.height <= 0) return;
 
-    CGAffineTransform current_transform;
-    SLSGetWindowTransform(SLSMainConnectionID(), wid, &current_transform);
+    // NOTE: the direction test must read SLSGetScreenRectForWindow — the 2D
+    // affine getter is blind to the Transform3D written below.
+    CGRect screen_rect = {};
+    SLSGetScreenRectForWindow(cid, wid, &screen_rect);
+    bool is_natural = fabs(screen_rect.size.width  - frame.size.width)  < 1.0 &&
+                      fabs(screen_rect.size.height - frame.size.height) < 1.0;
 
-    if (CGAffineTransformEqualToTransform(current_transform, original_transform)) {
+    if (is_natural) {
         float dx, dy, dw, dh;
         unpack(dx);
         unpack(dy);
@@ -615,17 +1048,16 @@ static void do_window_scale(char *message)
         int target_width  = dw / 4;
         int target_height = target_width / (frame.size.width/frame.size.height);
 
-        float x_scale = frame.size.width/target_width;
-        float y_scale = frame.size.height/target_height;
-
-        CGFloat transformed_x = -(dx+dw) + (frame.size.width * (1/x_scale));
-        CGFloat transformed_y = -dy;
-
-        CGAffineTransform scale = CGAffineTransformConcat(CGAffineTransformIdentity, CGAffineTransformMakeScale(x_scale, y_scale));
-        CGAffineTransform transform = CGAffineTransformTranslate(scale, transformed_x, transformed_y);
-        SLSSetWindowTransform(SLSMainConnectionID(), wid, transform);
+        CGRect target = CGRectMake(dx + dw - target_width, dy, target_width, target_height);
+        window_commit_scale_rect_transform(cid, wid, frame, target);
     } else {
-        SLSSetWindowTransform(SLSMainConnectionID(), wid, original_transform);
+        CFTypeRef transaction = SLSTransactionCreate(cid);
+        if (!transaction) return;
+        static const double IDENTITY3D[16] = { 1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1 };
+        SLSTransactionSetWindowTransform3D(transaction, wid, (double *)IDENTITY3D);
+        SLSSetWindowTransform(cid, wid, CGAffineTransformMakeTranslation(-frame.origin.x, -frame.origin.y));
+        SLSTransactionCommit(transaction, 0);
+        CFRelease(transaction);
     }
 }
 
@@ -755,11 +1187,19 @@ static void do_window_layer(char *message)
     int layer;
     unpack(layer);
 
-    SLSSetWindowSubLevel(SLSMainConnectionID(), wid, CGWindowLevelForKey(layer));
+    int sub = CGWindowLevelForKey(layer);
+    SLSSetWindowSubLevel(SLSMainConnectionID(), wid, sub);
+    deathwatch_record(wid, sub);
 }
 
+// NOTE: the original level is stashed in a window property so un-sticky can
+// restore it (reset-to-0 demotes above-normal windows); the property is
+// connection-scoped — always written and read from this (Dock) cid.
 static void do_window_sticky(char *message)
 {
+    extern CGError SLSGetWindowLevel(int cid, uint32_t wid, int *level);
+    extern CGError SLSSetWindowProperty(int cid, uint32_t wid, CFStringRef property, CFTypeRef value);
+
     uint32_t wid;
     unpack(wid);
     if (!wid) return;
@@ -767,11 +1207,42 @@ static void do_window_sticky(char *message)
     bool value;
     unpack(value);
 
-    uint64_t tags = (1 << 11);
+    int cid = SLSMainConnectionID();
+    uint64_t sticky_tag = (1ULL << 11);
+    // NOTE: bits 11/24/38/49 = OnAllWorkspaces / DontHide / IgnoreForExpose /
+    // IgnoresWorkspaceHeuristics — set and cleared in lockstep with sticky.
+    uint64_t tag_mask = (1ULL << 11) | (1ULL << 24) | (1ULL << 38) | (1ULL << 49);
+    CFStringRef level_key = CFSTR("com.koekeishiya.yabai.sticky_level.v1");
+
+    // NOTE: gate on the server-side tag — a redundant enable must not overwrite
+    // the stashed level with 21.
+    uint64_t tags = 0;
+    SLSGetWindowTags(cid, wid, &tags, 64);
+    bool currently_sticky = (tags & sticky_tag) != 0;
+
     if (value == 1) {
-        SLSSetWindowTags(SLSMainConnectionID(), wid, &tags, 64);
+        if (!currently_sticky) {
+            int level = 0;
+            SLSGetWindowLevel(cid, wid, &level);
+            CFNumberRef num = CFNumberCreate(NULL, kCFNumberIntType, &level);
+            if (num) {
+                SLSSetWindowProperty(cid, wid, level_key, num);
+                CFRelease(num);
+            }
+            SLSSetWindowTags(cid, wid, &tag_mask, 64);
+        }
+        SLSSetWindowLevel(cid, wid, 21);
     } else {
-        SLSClearWindowTags(SLSMainConnectionID(), wid, &tags, 64);
+        int level = 0;
+        CFTypeRef stored = NULL;
+        if (SLSCopyWindowProperty(cid, wid, level_key, &stored) == kCGErrorSuccess &&
+            stored && CFGetTypeID(stored) == CFNumberGetTypeID()) {
+            CFNumberGetValue((CFNumberRef)stored, kCFNumberIntType, &level);
+        }
+        if (stored) CFRelease(stored);
+
+        SLSClearWindowTags(cid, wid, &tag_mask, 64);
+        SLSSetWindowLevel(cid, wid, level);
     }
 }
 
@@ -787,7 +1258,7 @@ static void do_window_focus(char *message)
     unpack(wid);
 
     SLSGetWindowOwner(SLSMainConnectionID(), wid, &window_connection);
-    SLSGetConnectionPSN(SLSMainConnectionID(), &window_psn);
+    SLSGetConnectionPSN(window_connection, &window_psn);
 
     ((focus_window_call) set_front_window_fp)(window_psn, wid);
 }
@@ -816,6 +1287,7 @@ static void do_window_swap_proxy_in(char *message)
     if (!count) return;
 
     CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
+    if (!transaction) return;
     for (int i = 0; i < count; ++i) {
         uint32_t wid;
         unpack(wid);
@@ -838,6 +1310,7 @@ static void do_window_swap_proxy_out(char *message)
     if (!count) return;
 
     CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
+    if (!transaction) return;
     for (int i = 0; i < count; ++i) {
         uint32_t wid;
         unpack(wid);
@@ -875,6 +1348,7 @@ static void do_window_order_in(char *message)
     if (!count) return;
 
     CFTypeRef transaction = SLSTransactionCreate(SLSMainConnectionID());
+    if (!transaction) return;
     for (int i = 0; i < count; ++i) {
         uint32_t wid;
         unpack(wid);
@@ -884,23 +1358,6 @@ static void do_window_order_in(char *message)
     }
     SLSTransactionCommit(transaction, 0);
     CFRelease(transaction);
-}
-
-static inline CFArrayRef cfarray_of_cfnumbers(void *values, size_t size, int count, CFNumberType type)
-{
-    CFNumberRef temp[count];
-
-    for (int i = 0; i < count; ++i) {
-        temp[i] = CFNumberCreate(NULL, type, ((char *)values) + (size * i));
-    }
-
-    CFArrayRef result = CFArrayCreate(NULL, (const void **)temp, count, &kCFTypeArrayCallBacks);
-
-    for (int i = 0; i < count; ++i) {
-        CFRelease(temp[i]);
-    }
-
-    return result;
 }
 
 static void do_window_list_move_to_space(char *message)
@@ -929,6 +1386,95 @@ static void do_window_move_to_space(char *message)
     CFRelease(window_list_ref);
 }
 
+
+typedef struct __CGDisplayStream *SLDisplayStreamRef;
+typedef void (^SLFrameHandler)(int status, uint64_t displayTime,
+                               IOSurfaceRef surface, CFTypeRef updateRef);
+extern SLDisplayStreamRef SLSHWCaptureStreamCreateWithWindow(
+    uint32_t wid, int opts, CFDictionaryRef props,
+    dispatch_queue_t queue, SLFrameHandler handler);
+extern CGError SLDisplayStreamStart(SLDisplayStreamRef stream);
+extern CGError SLDisplayStreamStop(SLDisplayStreamRef stream);
+
+
+
+static _Atomic(int) g_probe_notify_count;
+static uint32_t     g_probe_notify_expected;
+static int          g_probe_notify_expected_ctx;
+
+
+static void payload_animate_space_transform(int cid,
+                                            uint64_t sid,
+                                            double dx,
+                                            double dy,
+                                            uint32_t dur_ms,
+                                            int steps,
+                                            double (^envelope)(double t))
+{
+    if (steps < 2) steps = 2;
+    dispatch_queue_t main_q = dispatch_get_main_queue();
+    for (int i = 0; i <= steps; i++) {
+        double t = (double)i / (double)steps;
+        double e = envelope(t);
+        double cur_dx = dx * e;
+        double cur_dy = dy * e;
+        int64_t delay_ns = (int64_t)(t * (double)dur_ms * 1e6);
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay_ns),
+                       main_q, ^{
+            CGAffineTransform xf = { 1.0, 0.0, 0.0, 1.0, cur_dx, cur_dy };
+            CFTypeRef tx = SLSTransactionCreate(cid);
+            if (tx) {
+                SLSTransactionSetSpaceTransform(tx, sid, 0, &xf);
+                SLSTransactionCommit(tx, 0);
+                CFRelease(tx);
+            }
+        });
+    }
+    int64_t commit_ns = (int64_t)((double)dur_ms * 1e6) + 50 * 1000000;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, commit_ns), main_q, ^{
+        CGAffineTransform identity = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
+        CFTypeRef tx = SLSTransactionCreate(cid);
+        if (tx) {
+            SLSTransactionSetSpaceTransform(tx, sid, SLS_SPACE_TRANSFORM_CLEAR_STATE, &identity);
+            SLSTransactionCommit(tx, 0);
+            CFRelease(tx);
+        }
+    });
+}
+
+#include "payload_inc/payload_spring_physics.inc.m"
+
+#include "payload_inc/window_transform.inc.m"
+
+#include "payload_inc/displaylink_ca.inc.m"
+#include "payload_inc/payload_anim_metrics.inc.m"
+#include "payload_inc/payload_ax.inc.m"
+#include "payload_inc/anim.inc.m"
+
+#include "payload_inc/cgs_transform3d.inc.m"
+
+#include "payload_inc/focus_ring.inc.m"
+
+#include "payload_inc/edge_guard.inc.m"
+
+#include "payload_inc/wallpaper_floor.inc.m"
+
+
+extern CGError SLSSetFrontProcessWithInfo(ProcessSerialNumber *psn, uint32_t wid, uint32_t options, CFDictionaryRef info);
+extern CGError SLSSetFrontWindow(int cid, uint32_t wid);
+extern CGError SLSSetWindowHasKeyAppearance(int cid, uint32_t wid, bool has_key);
+extern CGError SLSOrderFrontConditionally(int cid, uint32_t wid, int flag);
+extern CGError SLSSpaceSetFrontPSN(int cid, uint64_t sid, uint64_t psn_packed);
+extern CGError SLPSPostEventRecordTo(ProcessSerialNumber *psn, uint8_t *bytes);
+extern int _LSSetFrontApplicationLong(int sessionID, uint32_t asn_high, uint32_t asn_low, CFDictionaryRef options);
+extern CFTypeRef _LSASNCreateWithPid(CFAllocatorRef alloc, pid_t pid);
+extern Boolean _LSASNExtractHighAndLowParts(CFTypeRef asn, uint32_t *high_out, uint32_t *low_out);
+extern CGError _CPSSetFrontProcessWithOptions(ProcessSerialNumber *psn, uint32_t wid, uint32_t opts);
+extern int _LSOrderApplications(int sessionID, CFArrayRef order, CFTypeRef after);
+extern CGError SLSGetWindowOwner(int cid, uint32_t wid, int *wcid);
+extern CGError SLSConnectionGetPID(int cid, pid_t *pid);
+
+
 static void do_handshake(int sockfd)
 {
     uint32_t attrib = 0;
@@ -940,6 +1486,8 @@ static void do_handshake(int sockfd)
     if (move_space_fp)                     attrib |= OSAX_ATTRIB_MOV_SPACE;
     if (set_front_window_fp)               attrib |= OSAX_ATTRIB_SET_WINDOW;
     if (animation_time_addr)               attrib |= OSAX_ATTRIB_ANIM_TIME;
+    if (fs_clamp_site_count && fs_atu_d8_site_count && fs_atu_d0_site_count)
+                                           attrib |= OSAX_ATTRIB_FS_CLAMP;
 
     char bytes[BUFSIZ] = {};
     int version_length = strlen(OSAX_VERSION);
@@ -954,9 +1502,14 @@ static void do_handshake(int sockfd)
     send(sockfd, bytes, bytes_length+1, 0);
 }
 
-static void handle_message(int sockfd, char *message)
+static void handle_message(int sockfd, char *message, int length)
 {
-    enum sa_opcode op = *message++;
+    g_unpack_end      = message + length;
+    g_unpack_overflow = false;
+
+    // NOTE: uint8_t, not enum sa_opcode — the experimental cases are #defines
+    // outside the enum and would trip -Wswitch.
+    uint8_t op = *message++;
     switch (op) {
     case SA_OPCODE_HANDSHAKE: {
         do_handshake(sockfd);
@@ -1015,10 +1568,14 @@ static void handle_message(int sockfd, char *message)
     case SA_OPCODE_WINDOW_TO_SPACE: {
         do_window_move_to_space(message);
     } break;
+    #include "payload_inc/dispatch_experimental.inc.m"
     }
+
+    if (g_unpack_overflow)
+        logpf("SA", "WIRE DESYNC: opcode 0x%02x unpack walked past the %d-byte message — daemon pack/payload unpack field lists disagree", op, length);
 }
 
-static inline bool read_message(int sockfd, char *message)
+static inline bool read_message(int sockfd, char *message, int *out_len)
 {
     int bytes_read    = 0;
     int bytes_to_read = 0;
@@ -1034,7 +1591,7 @@ static inline bool read_message(int sockfd, char *message)
             bytes_read += cur_read;
         } while (bytes_read < bytes_to_read);
 
-        return bytes_read == bytes_to_read;
+        if (bytes_read == bytes_to_read) { *out_len = bytes_to_read; return true; }
     }
 
     return false;
@@ -1047,8 +1604,15 @@ static void *handle_connection(void *unused)
         if (sockfd == -1) continue;
 
         char message[SA_SOCKET_BUFF_LEN];
-        if (read_message(sockfd, message)) {
-            handle_message(sockfd, message);
+        int  message_len = 0;
+        if (read_message(sockfd, message, &message_len)) {
+            // NOTE: don't arm on SA_OPCODE_HANDSHAKE — it comes from the transient
+            // `yabai --load-sa` process, and watching that pid fires a false death the
+            // moment it exits.
+            if (message_len > 0 && (uint8_t)message[0] != SA_OPCODE_HANDSHAKE) {
+                deathwatch_observe_peer(sockfd);
+            }
+            handle_message(sockfd, message, message_len);
         }
 
         shutdown(sockfd, SHUT_RDWR);
@@ -1103,6 +1667,9 @@ __attribute__((constructor))
 void load_payload(void)
 {
     NSLog(@"[yabai-sa] loaded payload..");
+    logpf("PAYLOAD_LOAD", "xxx payload constructor ran, shared log = %s", LOGP_PATH);
+    logpf("PAYLOAD_ID", "branch=%s sha=%s (constructor / fresh inject) pid=%d", PAYLOAD_BRANCH, PAYLOAD_SHA, getpid());
+    payload_focus_ring_log("payload_id", "branch=%s sha=%s (constructor) pid=%d", PAYLOAD_BRANCH, PAYLOAD_SHA, getpid());
 
     const char *user = getenv("USER");
     if (!user) {
@@ -1113,9 +1680,12 @@ void load_payload(void)
     char socket_file[255];
     snprintf(socket_file, sizeof(socket_file), SA_SOCKET_PATH_FMT, user);
 
+    deathwatch_init();
+
     if (start_daemon(socket_file)) {
         NSLog(@"[yabai-sa] now listening..");
     } else {
         NSLog(@"[yabai-sa] failed to spawn thread..");
     }
+
 }

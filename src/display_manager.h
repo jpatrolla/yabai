@@ -86,6 +86,7 @@ int display_manager_active_display_count(void);
 uint32_t *display_manager_active_display_list(int *count);
 uint32_t display_manager_focus_display_with_window_at_point(CGPoint point);
 void display_manager_set_active_display_id(uint32_t did);
+uint32_t display_manager_resident_desktop_window(uint32_t did, uint64_t sid);
 void display_manager_focus_display(uint32_t did, uint64_t sid);
 enum space_op_error display_manager_focus_space(uint32_t did, uint64_t sid);
 bool display_manager_begin(struct display_manager *dm);

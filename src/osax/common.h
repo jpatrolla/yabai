@@ -2,9 +2,13 @@
 #define SA_COMMON_H
 
 #define SA_SOCKET_PATH_FMT "/tmp/yabai-sa_%s.socket"
-#define SA_SOCKET_BUFF_LEN 0x1000
+// NOTE: 8K — the anim_ax_begin batch can exceed upstream's 4K (asserted in common_experimental.h).
+#define SA_SOCKET_BUFF_LEN 0x2000
 
-#define OSAX_VERSION                "2.1.30"
+// NOTE: fork bump — the space-slide wire changed shape (32 -> 17 params), so an
+// installed older payload must fail the version check and be replaced on
+// `yabai --load-sa`.
+#define OSAX_VERSION                "2.3.0"
 
 #define OSAX_ATTRIB_DOCK_SPACES     0x01
 #define OSAX_ATTRIB_DPPM            0x02
@@ -44,5 +48,8 @@ enum sa_opcode
     SA_OPCODE_WINDOW_LIST_TO_SPACE  = 0x12,
     SA_OPCODE_WINDOW_TO_SPACE       = 0x13,
 };
+
+// NOTE: experimental opcodes live in common_experimental.h so the upstream enum stays diff-clean.
+#include "common_experimental.h"
 
 #endif

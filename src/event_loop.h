@@ -17,8 +17,18 @@
     EVENT_TYPE_ENTRY(WINDOW_MINIMIZED) \
     EVENT_TYPE_ENTRY(WINDOW_DEMINIMIZED) \
     EVENT_TYPE_ENTRY(WINDOW_TITLE_CHANGED) \
+    EVENT_TYPE_ENTRY(TABGROUP_UPDATED) \
+    EVENT_TYPE_ENTRY(TAB_SETTLE_TIMEOUT) \
+    EVENT_TYPE_ENTRY(MENU_ITEM_SELECTED_NEW) \
     EVENT_TYPE_ENTRY(SLS_WINDOW_ORDERED) \
     EVENT_TYPE_ENTRY(SLS_WINDOW_DESTROYED) \
+    EVENT_TYPE_ENTRY(SLS_WINDOW_MOVED) \
+    EVENT_TYPE_ENTRY(SLS_WINDOW_RESIZED) \
+    EVENT_TYPE_ENTRY(SLS_WINDOW_VISIBLE) \
+    EVENT_TYPE_ENTRY(SLS_WINDOW_INVISIBLE) \
+    EVENT_TYPE_ENTRY(SLS_WINDOW_DISPLAY_CHANGED) \
+    EVENT_TYPE_ENTRY(SLS_ADDED_TO_SPACE) \
+    EVENT_TYPE_ENTRY(SLS_REMOVED_FROM_SPACE) \
     EVENT_TYPE_ENTRY(SLS_SPACE_CREATED) \
     EVENT_TYPE_ENTRY(SLS_SPACE_DESTROYED) \
     EVENT_TYPE_ENTRY(SPACE_CHANGED) \
@@ -35,6 +45,8 @@
     EVENT_TYPE_ENTRY(MISSION_CONTROL_SHOW_FRONT_WINDOWS) \
     EVENT_TYPE_ENTRY(MISSION_CONTROL_SHOW_DESKTOP) \
     EVENT_TYPE_ENTRY(MISSION_CONTROL_ENTER) \
+    EVENT_TYPE_ENTRY(MISSION_CONTROL_OSL_ENTER) \
+    EVENT_TYPE_ENTRY(MISSION_CONTROL_OSL_EXIT) \
     EVENT_TYPE_ENTRY(MISSION_CONTROL_CHECK_FOR_EXIT) \
     EVENT_TYPE_ENTRY(MISSION_CONTROL_EXIT) \
     EVENT_TYPE_ENTRY(DOCK_DID_RESTART) \
@@ -72,5 +84,13 @@ struct event_loop
 
 bool event_loop_begin(struct event_loop *event_loop);
 void event_loop_post(struct event_loop *event_loop, enum event_type type, void *context, int param1);
+
+// Space-transition gate for animated slides: begin() synchronously at the slide seed
+// (the gate must be live before the first frame); finish() at the slide's nominal end.
+// active()/on_display() are read by focus_ring's show choke point to gate mid-slide paints.
+void space_transition_begin(int expected_ms, uint32_t did);
+bool space_transition_on_display(uint32_t did);
+void space_transition_finish(void);
+bool space_transition_active(void);
 
 #endif

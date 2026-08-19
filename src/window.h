@@ -61,7 +61,8 @@ static CFStringRef ax_window_notification[] =
     WINDOW_PROPERTY_ENTRY("is-hidden",            WINDOW_PROPERTY_IS_HIDDEN,           0x020000000) \
     WINDOW_PROPERTY_ENTRY("is-floating",          WINDOW_PROPERTY_IS_FLOATING,         0x040000000) \
     WINDOW_PROPERTY_ENTRY("is-sticky",            WINDOW_PROPERTY_IS_STICKY,           0x080000000) \
-    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000)
+    WINDOW_PROPERTY_ENTRY("is-grabbed",           WINDOW_PROPERTY_IS_GRABBED,          0x100000000) \
+    WINDOW_PROPERTY_ENTRY("is-pip",               WINDOW_PROPERTY_IS_PIP,              0x200000000)
 
 enum window_property
 {
@@ -100,9 +101,18 @@ struct window
     uint8_t notification;
     uint8_t rule_flags;
     uint8_t flags;
+    // NOTE: daemon-owned, so it does NOT survive a daemon/Dock restart — a window
+    // left in pip across one reads false. Deliberate: the geometric oracle it
+    // replaced matched every T3D-scaled window.
+    bool is_pip;
+    uint8_t state_class;
     float opacity;
     int layer;
     char *scratchpad;
+    // NOTE: bumped when a stepped animation claims this window. Ticks carry the value
+    // they started with and stop once a newer animation supersedes them -- without it
+    // both tick chains stay live and fight over the frame.
+    uint64_t anim_gen;
 };
 
 enum window_flag

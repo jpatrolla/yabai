@@ -23,7 +23,7 @@ yabai - window manager
 Synopsis
 --------
 
-*yabai* [*--load-sa*|*--uninstall-sa*|*--install-service*|*--uninstall-service*|*--start-service*|*--restart-service*|*--stop-service*|*--message*,*-m* 'msg'|*--config*,*-c* 'config_file'|*--verbose*,*-V*|*--version*,*-v*|*--help*,*-h*]
+*yabai* [*--load-sa*|*--reload-sa*|*--uninstall-sa*|*--install-service*|*--uninstall-service*|*--start-service*|*--restart-service*|*--stop-service*|*--message*,*-m* 'msg'|*--config*,*-c* 'config_file'|*--verbose*,*-V*|*--version*,*-v*|*--help*,*-h*]
 
 Description
 -----------
@@ -36,6 +36,11 @@ Options
     Load the scripting-addition into Dock.app. +
     Installs and updates the scripting-addition when necessary. +
     Path is /Library/ScriptingAdditions/yabai.osax. +
+    System Integrity Protection must be partially disabled.
+
+*--reload-sa*::
+    Force reinstall and re-inject the scripting-addition in a single pass. +
+    Unlike *--load-sa*, the reinstall is not skipped when the installed version matches — use after rebuilding yabai from source. +
     System Integrity Protection must be partially disabled.
 
 *--uninstall-sa*::
@@ -180,6 +185,22 @@ Global Settings
     You should only enable this if you do NOT use the scripting addition. +
     The scripting addition implements the same functionality in a more robust way.
 
+*mission_control_always_show_spaces_strip_enabled* ['<BOOL_SEL>']::
+    When *space --toggle mission-control* opens Mission Control, reveal the spaces thumbnail strip at the top of the screen by briefly nudging the cursor to the top of the active display. +
+    Off by default. The *space --toggle mission-control-show-strip* argument forces this on for a single invocation regardless of the config value.
+
+*window_focus_for_floating_enabled* ['<BOOL_SEL>']::
+    Extends *window --focus north|east|south|west* to resolve by window geometry when the BSP walk finds no target, making directional focus work for floating windows and float / stack spaces on the current space. +
+    On by default; turn off for stock managed-only directional focus.
+
+*window_focus_inter_display* ['<BOOL_SEL>']::
+    Extends *window --focus north|east|south|west* so that, when no target window is found on the current space, focus crosses to the closest window on the display in that direction. +
+    Off by default. Independent of *window_focus_for_floating_enabled*, which gates the current-space geometry fallback.
+
+*window_focus_wrap* ['<BOOL_SEL>']::
+    When *window --focus north|east|south|west* finds no window in that direction, wrap around to the farthest window in the opposite direction. +
+    Off by default. Wrapping is confined to the current space unless *window_focus_inter_display* is also on, in which case it wraps across all displays.
+
 *window_shadow* ['<BOOL_SEL>|float']::
     Draw shadow for windows. +
     System Integrity Protection must be partially disabled.
@@ -209,6 +230,158 @@ Global Settings
 *window_animation_easing* ['<EASING>']::
     Easing function to use for window animations. +
     See https://easings.net for details.
+
+*window_animation_min_opacity* ['<FLOAT_SEL>']::
+    Opacity floor for the window animation fade (0.0 - 1.0). +
+    The window fades from this value up to 1.0 over the animation; 1.0 disables the fade. +
+    Requires Screen Recording permissions. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_ax_wake* ['<BOOL_SEL>']::
+    Wake an application's lazy accessibility tree at animation start so apps that defer it (e.g. Chromium / Electron) animate smoothly from the first frame. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_policy* ['true_resize|lb_only']::
+    Presentation recipe used while a window animation is in flight. +
+    'true_resize': the real window is resized every frame. +
+    'lb_only': the window animates via locked bounds only &mdash; crisp bounds-driven motion with no transform. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_warp_cover* ['off|proxy|lb_warp']::
+    Cover instant (non-animated) window placements to mask the flash of the application repainting at the new frame. +
+    'proxy': cover the placement with a snapshot of the window, then fade the snapshot out. +
+    'lb_warp': warp the real window onto the target frame with a mesh, released once the resize lands. +
+    Off by default. Requires Screen Recording permissions. +
+    System Integrity Protection must be partially disabled.
+
+*window_animation_cover_fade* ['<FLOAT_SEL>']::
+    Fade-out duration (in seconds) of the 'proxy' placement cover; 0.0 reveals instantly.
+
+*window_animation_warp_min_ms* ['<FLOAT_SEL>']::
+    Mesh tween length (in milliseconds) of the 'lb_warp' placement cover; 0 snaps instantly.
+
+*window_animation_transport* ['off|agent']::
+    Commit path for window frame changes during animation. +
+    'off': commit frames through the existing Accessibility path. +
+    'agent': commit frames through the resident WindowManager agent instead; requires the agent to have been deployed with *yabai --load-wmsa*. +
+    Off by default.
+
+*window_animation_transport_hz* ['<FLOAT_SEL>']::
+    Rate the daemon-side stepper drives frames at when *window_animation_transport* is 'agent'. +
+    120 by default. Clamped to 540.
+
+*window_animation_transport_autoload* ['<BOOL_SEL>']::
+    Whether the daemon deploys the agent automatically. +
+    Off by default.
+
+*space_animation_duration* ['<FLOAT_SEL>']::
+    Duration of the animated slide when focusing an adjacent space on the same display. +
+    If 0.0, space focus switches instantly (stock behaviour). +
+    System Integrity Protection must be partially disabled.
+
+*space_animation_enter_delay* ['<FLOAT_SEL>']::
+    Delay (in seconds) before the incoming space starts sliding, staggering the two sides of the transition.
+
+*space_animation_exit_delay* ['<FLOAT_SEL>']::
+    Delay (in seconds) before the outgoing space starts sliding, staggering the two sides of the transition.
+
+*space_animation_gap* ['<FLOAT_SEL>']::
+    Width (in points) of the strip left between the two spaces while they slide, so that whatever sits beneath them — the wallpaper floor, when it is up — shows through. +
+    0.0 (flush) by default; a value outside the range 0 - 500 is rejected.
+
+*space_animation_easing* ['linear|smoothstep|ease_in|ease_out_expo']::
+    Curve the space slide follows. 'ease_out_expo' by default. +
+    'smoothstep' also answers to 'ease_in_out', 'ease_in' to 'ease_in_quad', and 'ease_out_expo' to 'expo'.
+
+*space_animation_animate_wallpaper* ['<BOOL_SEL>']::
+    Whether each space's desktop picture rides that space during the slide. +
+    'on': every picture travels with its own space, and the wallpaper floor is torn down. +
+    'off': Dock's pictures are blanked and the wallpaper floor — one captured picture per display, parked below every space — shows through the slide instead. +
+    Off by default. Also accepted as *space_animation_wallpaper*.
+
+*wallpaper_floor* ['<BOOL_SEL>']::
+    Build ('on') or tear down ('off') the persistent wallpaper floor directly. +
+    Normally derived from *space_animation_animate_wallpaper*; set it explicitly to force a rebuild, for instance after changing the desktop picture. +
+    Requires the scripting addition.
+
+*contain_space_focus_per_display* ['<BOOL_SEL>']::
+    Stop a *space --focus prev|next* at any edge of the current display's spaces (with a nudge) — a display seam or the globally first/last space — instead of walking across to the neighbouring display. +
+    On by default; turn off for the stock behaviour (focus continues onto the next display).
+
+*expose_animation_duration* ['<FLOAT_SEL>']::
+    Override the duration of the native Mission Control enter / exit animation. +
+    0.0 removes the tween entirely (Mission Control opens and closes instantly); a negative value restores the native duration. +
+    System Integrity Protection must be partially disabled.
+
+*space_focus_target_display* ['default|mouse|smart']::
+    Which display a *space --focus prev|next* without an explicit space acts on. +
+    'default': the currently active display. +
+    'mouse': the display under the cursor. +
+    'smart': the display under the cursor when the last focus change came from the mouse; the active display when it came from the keyboard.
+
+*focus_ring_enabled* ['<BOOL_SEL>']::
+    Draw a ring that follows the focused window (and rides animated space slides). +
+    The ring is a frosted band washed with a color, plus an optional hard inner
+    stroke hugging the window seam on its own layer. +
+    On by default. +
+    System Integrity Protection must be partially disabled.
+
+*focus_ring_width* ['<FLOAT_SEL>']::
+    Band thickness in pixels.
+
+*focus_ring_color* ['0xAARRGGBB|auto|system']::
+    Band color wash. 'auto' and 'system' track the macOS accent color; the
+    named accents (blue, purple, pink, red, orange, yellow, green, grey) are
+    also accepted.
+
+*focus_ring_color_opacity* ['<FLOAT_SEL>']::
+    Alpha of the band's color wash (0.0 - 1.0). 1.0 (the default) is a solid
+    color ring; lower it to let the frost show through, down to 0.0 for a pure
+    frost with no color.
+
+*focus_ring_alpha* ['<FLOAT_SEL>']::
+    Whole-ring translucency (0.0 - 1.0); dims band, stroke and frost together.
+
+*focus_ring_blur_radius* ['<FLOAT_SEL>']::
+    Frost blur radius in pixels — how strongly the band blurs the content it
+    samples; 0 samples unblurred.
+
+*focus_ring_bleed* ['<FLOAT_SEL>']::
+    Pixels of the window's own edge sampled and frosted outward; 0 disables.
+
+*focus_ring_feather* ['<FLOAT_SEL>']::
+    Pixels of softening applied to the band mask's edges; 0 disables.
+
+*focus_ring_saturation* ['<FLOAT_SEL>']::
+    Frost saturation (0.0 - 4.0); 1.0 leaves the frost unchanged.
+
+*focus_ring_brightness* ['<FLOAT_SEL>']::
+    Frost brightness (-1.0 - 1.0); 0.0 leaves the frost unchanged.
+
+*focus_ring_contrast* ['<FLOAT_SEL>']::
+    Frost contrast (0.0 - 4.0); 1.0 leaves the frost unchanged.
+
+*focus_ring_hue* ['<FLOAT_SEL>']::
+    Frost hue rotation in degrees (0 - 360); 0 leaves the frost unchanged.
+
+*focus_ring_blend_mode* ['<BLEND>']::
+    Blend mode of the color wash over the frost. +
+    <BLEND> := normal | multiply | screen | overlay | darken | lighten | color-dodge | color-burn | soft-light | hard-light | difference | exclusion | hue | saturation | color | luminosity
+
+*focus_ring_inner_stroke* ['<BOOL_SEL>']::
+    Overlay a crisp stroke hugging the band's inner edge (the window seam). On by default.
+
+*focus_ring_inner_stroke_position* ['above|below']::
+    Draw the stroke above or below the band.
+
+*focus_ring_inner_stroke_width* ['<FLOAT_SEL>']::
+    Stroke thickness in pixels, independent of the band width.
+
+*focus_ring_inner_stroke_color* ['0xAARRGGBB|inherit']::
+    Stroke color; 'inherit' follows *focus_ring_color*.
+
+*focus_ring_inner_stroke_opacity* ['<FLOAT_SEL>|inherit']::
+    Stroke alpha (0.0 - 1.0); 'inherit' follows *focus_ring_color_opacity*.
 
 *insert_feedback_color* ['0xAARRGGBB']::
     Color of the *window --insert* message and mouse_drag selection. +
@@ -348,7 +521,7 @@ COMMAND
 *--gap* 'abs|rel:<gap>'::
     Size of the gap that separates windows on the selected space.
 
-*--toggle* 'padding|gap|mission-control|show-desktop'::
+*--toggle* 'padding|gap|mission-control|mission-control-show-strip|show-desktop'::
     Toggle space setting on or off for the selected space.
 
 *--layout* 'bsp|stack|float'::
@@ -413,7 +586,8 @@ COMMAND
 
 *--move* 'abs|rel:<dx>:<dy>'::
     If type is 'rel' the selected window is moved by 'dx' pixels horizontally and 'dy' pixels vertically. +
-    If type is 'abs' 'dx' and 'dy' will become the new position.
+    If type is 'abs' 'dx' and 'dy' will become the new position. +
+    With type 'abs', either coordinate may be the literal 'center' to center the window on its display's usable area along that axis (e.g. 'abs:center:center').
 
 *--resize* 'top|left|bottom|right|top_left|top_right|bottom_right|bottom_left|abs:<dx>:<dy>'::
     Resize the selected window by moving the given handle 'dx' pixels horizontally and 'dy' pixels vertically. +
@@ -826,6 +1000,12 @@ EVENT
     Eligible for *app*, *title* and *active* filter. +
     Passes one argument: $YABAI_WINDOW_ID
 
+*window_flags_changed*::
+    Triggered when the focused window's state class changes. +
+    Eligible for *app*, *title* and *active* filter. +
+    Passes two arguments: $YABAI_WINDOW_ID, $YABAI_WINDOW_STATE +
+    $YABAI_WINDOW_STATE is one of: pip, sticky, fullscreen_zoom, parent_zoom, stack, managed, default
+
 *space_created*::
     Triggered when a space is created. +
     Passes two arguments: $YABAI_SPACE_ID, $YABAI_SPACE_INDEX
@@ -898,6 +1078,59 @@ DATAFORMAT
     "action": string
 }
 ----
+
+Capture
+~~~~~~~
+
+Screen-recording helper. Records a window, a display, or every display to HEVC video under ~/Movies, and can stitch per-display recordings into a single video afterwards.
+
+General Syntax
+^^^^^^^^^^^^^^
+
+yabai -m capture '<COMMAND>'
+
+COMMAND
+^^^^^^^
+
+*start* ['wid:<id>' 'display:<index|all>' 'padding:<pts>' 'duration:<secs>' 'fps:<n>' 'scale:<f>' 'bpp:<f>' 'cursor:<on|off>' 'name:<str>' 'format:<mp4|mov>' 'if-exists:<overwrite|fail|rename>']::
+    Begin a recording. With no arguments, records the active display until *capture stop*.
+
+*stop*::
+    Finalize the active capture session(s).
+
+*status*::
+    Output JSON status of the active capture.
+
+*stitch* ['group:<name>' '<file.mov>...' 'out:<path>' 'layout:<sidebyside|faithful>' 'border:<px>' 'gap:<px>' 'match:<height|none>' 'cleanup:<on|off>' 'format:<mp4|mov>' 'if-exists:<overwrite|fail|rename>']::
+    Combine per-display recordings into one video.
+
+*help*::
+    Output the full argument reference with examples.
+
+Wm-agent
+~~~~~~~~
+
+Manages the resident agent yabai injects into WindowManager.app to commit animated window frames directly, bypassing Accessibility. Enable the transport itself with *window_animation_transport*.
+
+General Syntax
+^^^^^^^^^^^^^^
+
+yabai -m wm-agent '<COMMAND>'
+
+COMMAND
+^^^^^^^
+
+*status*::
+    Print attach state, transport state and request counters.
+
+*reload*::
+    Spawn the privileged loader and re-attach.
+
+*detach*::
+    Drop the send right to the agent; every commit falls back to Accessibility.
+
+*warm*::
+    Pre-resolve every managed window's identifier.
 
 Exit Codes
 ----------

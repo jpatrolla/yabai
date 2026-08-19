@@ -401,6 +401,13 @@ void window_nonax_serialize(FILE *rsp, uint32_t wid, uint64_t flags)
         if (did_output) fprintf(rsp, ",\n");
 
         fprintf(rsp, "\t\"is-grabbed\":%s", json_bool(false));
+        did_output = true;
+    }
+
+    if (flags & WINDOW_PROPERTY_IS_PIP) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"is-pip\":%s", json_bool(false));
     }
 
     fprintf(rsp, "\n}");
@@ -705,6 +712,13 @@ void window_serialize(FILE *rsp, struct window *window, uint64_t flags)
 
         bool grabbed = window == g_mouse_state.window;
         fprintf(rsp, "\t\"is-grabbed\":%s", json_bool(grabbed));
+        did_output = true;
+    }
+
+    if (flags & WINDOW_PROPERTY_IS_PIP) {
+        if (did_output) fprintf(rsp, ",\n");
+
+        fprintf(rsp, "\t\"is-pip\":%s", json_bool(window->is_pip));
     }
 
     fprintf(rsp, "\n}");
@@ -1099,6 +1113,14 @@ struct window *window_create(struct application *application, AXUIElementRef win
     window->ref = window_ref;
     window->id = window_id;
     window->id_ptr = &window->id;
+
+    // NOTE: some apps publish kAXEnhancedUserInterface only after their first
+    // window — a birth-time read caches stale false; re-read on window-create.
+    bool eui_now;
+    if (ax_enhanced_userinterface_checked(application->ref, &eui_now)) {
+        application->ax_eui_cached = eui_now;
+    }
+
     window->frame = window_ax_frame(window);
     window->role = window_ax_role(window);
     window->subrole = window_ax_subrole(window);
@@ -1139,6 +1161,8 @@ void window_destroy(struct window *window)
     if (window->role) CFRelease(window->role);
     if (window->subrole) CFRelease(window->subrole);
     if (window->title) CFRelease(window->title);
-    CFRelease(window->ref);
+    // role-window entries (window_manager_track_role_windows) have a NULL AX ref —
+    // an unguarded CFRelease traps on display teardown.
+    if (window->ref) CFRelease(window->ref);
     free(window);
 }

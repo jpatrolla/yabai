@@ -8,5 +8,6 @@ bool space_is_user(uint64_t sid);
 bool space_is_system(uint64_t sid);
 bool space_is_fullscreen(uint64_t sid);
 bool space_is_visible(uint64_t sid);
+uint32_t space_query_focused_wid(uint64_t sid, int owner, uint64_t include_tags, uint64_t exclude_tags);
 
 #endif

@@ -228,6 +228,15 @@ Specify which display a newly created window should be managed in.
 \fIcursor\fP: The display that currently holds the mouse cursor.
 .RE
 .sp
+\fBwindow_focus_method\fP [\fIax|sls\fP]
+.RS 4
+Specify the mechanism used to focus a window.
+.br
+\fIax\fP: Set the front process and raise the window through the Accessibility API (kAXRaiseAction).
+.br
+\fIsls\fP: Hand focus to the WindowServer through the scripting\-addition, bypassing the Accessibility API. Falls back to \fIax\fP if the scripting\-addition is unavailable.
+.RE
+.sp
 \fBwindow_placement\fP [\fIfirst_child|second_child\fP]
 .RS 4
 Specify whether managed windows should become the first or second leaf\-node.

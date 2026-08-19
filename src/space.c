@@ -14,6 +14,9 @@ inline uint32_t space_display_id(uint64_t sid)
     return id;
 }
 
+// NOTE: an ordered-out window is only real if it says why it is invisible — bit 60
+// minimized or bit 39 hidden. Windows asserting neither are destroyed-but-lingering
+// (no AX element at any remote-token id) and must not be admitted.
 uint32_t *space_window_list_for_connection(uint64_t *space_list, int space_count, int cid, int *count, bool include_minimized)
 {
     uint32_t *window_list = NULL;
@@ -49,7 +52,7 @@ uint32_t *space_window_list_for_connection(uint64_t *space_list, int space_count
                 if (level == 0 || level == 3 || level == 8) {
                     if (((attributes & 0x2) || (tags & 0x400000000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000)))) {
                         window_list[window_count++] = wid;
-                    } else if ((attributes == 0x0 || attributes == 0x1) && ((tags & 0x1000000000000000) || (tags & 0x300000000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000)))) {
+                    } else if ((attributes == 0x0 || attributes == 0x1) && ((tags & 0x1000000000000000) || (tags & 0x8000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000)))) {
                         window_list[window_count++] = wid;
                     }
                 }
@@ -83,6 +86,20 @@ err:
 inline uint32_t *space_window_list(uint64_t sid, int *count, bool include_minimized)
 {
     return space_window_list_for_connection(&sid, 1, 0, count, include_minimized);
+}
+
+uint32_t space_query_focused_wid(uint64_t sid, int owner, uint64_t include_tags, uint64_t exclude_tags)
+{
+    struct window_query_filter filter = {
+        .owner = owner,
+        .spaces = &sid,
+        .space_count = 1,
+        .window_list_options = 0x2,   // visible/standard (the focus path)
+        .query_flags = 0x2,
+        .include_tags = include_tags,
+        .exclude_tags = exclude_tags,
+    };
+    return window_query_topmost_wid(g_connection, &filter);
 }
 
 inline  bool space_is_user(uint64_t sid)

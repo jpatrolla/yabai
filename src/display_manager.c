@@ -1,5 +1,6 @@
 extern struct display_manager g_display_manager;
 extern struct window_manager g_window_manager;
+extern struct process_manager g_process_manager;
 extern int g_connection;
 
 bool display_manager_query_displays(FILE *rsp, uint64_t flags)
@@ -454,8 +455,128 @@ out:
 void display_manager_set_active_display_id(uint32_t did)
 {
     CFStringRef uuid = display_uuid(did);
-    SLSSetActiveMenuBarDisplayIdentifier(g_connection, uuid, uuid);
+    SLSSetActiveMenuBarDisplayIdentifier(g_connection, uuid, ~0ULL);
     CFRelease(uuid);
+}
+
+static bool display_manager_window_resides_on_display(uint32_t did, uint32_t wid)
+{
+    CGRect bounds;
+    if (SLSGetWindowBounds(g_connection, wid, &bounds) != kCGErrorSuccess) return false;
+    CGPoint mid = { CGRectGetMidX(bounds), CGRectGetMidY(bounds) };
+    return CGRectContainsPoint(CGDisplayBounds(did), mid);
+}
+
+static uint32_t display_manager_desktop_window_on_space(uint32_t did, uint64_t sid)
+{
+    uint32_t result = 0;
+
+    CFNumberRef sid_num = CFNumberCreate(NULL, kCFNumberSInt64Type, &sid);
+    if (!sid_num) return 0;
+    CFArrayRef space_list = CFArrayCreate(NULL, (const void **)&sid_num, 1, &kCFTypeArrayCallBacks);
+    CFRelease(sid_num);
+    if (!space_list) return 0;
+
+    uint64_t set_tags = 0, clear_tags = 0;
+    CFArrayRef window_list = SLSCopyWindowsWithOptionsAndTags(g_connection, 0, space_list, 0x7, &set_tags, &clear_tags);
+    CFRelease(space_list);
+    if (!window_list) return 0;
+
+    for (int i = 0, count = CFArrayGetCount(window_list); i < count && !result; ++i) {
+        CFNumberRef num = CFArrayGetValueAtIndex(window_list, i);
+        uint32_t wid = 0;
+        if (num && CFGetTypeID(num) == CFNumberGetTypeID()) {
+            CFNumberGetValue(num, kCFNumberSInt32Type, &wid);
+        }
+        if (!wid) continue;
+
+        int level = 0;
+        if (SLSGetWindowLevel(g_connection, wid, &level) != kCGErrorSuccess || level >= 0) continue;
+
+        int wcid = 0;
+        ProcessSerialNumber psn = {0};
+        if (SLSGetWindowOwner(g_connection, wid, &wcid) != kCGErrorSuccess) continue;
+        if (SLSGetConnectionPSN(wcid, &psn) != kCGErrorSuccess) continue;
+        if (!psn_equals(&psn, &g_process_manager.finder_psn)) continue;
+
+        if (display_manager_window_resides_on_display(did, wid)) result = wid;
+    }
+    CFRelease(window_list);
+    return result;
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+// NOTE: Finder desktop windows are join-all-spaces chrome — absent from
+// sid-scoped SLS lists; this public CGWindowList tier is the one that finds them.
+static uint32_t display_manager_desktop_window_via_cgwindowlist(uint32_t did)
+{
+    pid_t finder_pid = 0;
+    GetProcessPID(&g_process_manager.finder_psn, &finder_pid);
+    if (!finder_pid) return 0;
+
+    CFArrayRef list = CGWindowListCopyWindowInfo(kCGWindowListOptionAll, kCGNullWindowID);
+    if (!list) return 0;
+
+    uint32_t result = 0;
+    CGRect display_frame = CGDisplayBounds(did);
+    for (int i = 0, count = CFArrayGetCount(list); i < count && !result; ++i) {
+        CFDictionaryRef info = CFArrayGetValueAtIndex(list, i);
+        if (!info || CFGetTypeID(info) != CFDictionaryGetTypeID()) continue;
+
+        int64_t pid = 0, layer = 0, wid = 0;
+        CFNumberRef num;
+        if (!(num = CFDictionaryGetValue(info, kCGWindowOwnerPID)) ||
+            !CFNumberGetValue(num, kCFNumberSInt64Type, &pid) || pid != finder_pid) continue;
+        if (!(num = CFDictionaryGetValue(info, kCGWindowLayer)) ||
+            !CFNumberGetValue(num, kCFNumberSInt64Type, &layer) || layer >= 0) continue;
+        if (!(num = CFDictionaryGetValue(info, kCGWindowNumber)) ||
+            !CFNumberGetValue(num, kCFNumberSInt64Type, &wid) || !wid) continue;
+
+        CFDictionaryRef bounds_dict = CFDictionaryGetValue(info, kCGWindowBounds);
+        CGRect bounds;
+        if (!bounds_dict || !CGRectMakeWithDictionaryRepresentation(bounds_dict, &bounds)) continue;
+
+        CGPoint mid = { CGRectGetMidX(bounds), CGRectGetMidY(bounds) };
+        if (CGRectContainsPoint(display_frame, mid)) result = (uint32_t)wid;
+    }
+    CFRelease(list);
+    return result;
+}
+#pragma clang diagnostic pop
+
+// NOTE: SLSManagedDisplaysCopyRoleWindows can answer with the OTHER display's
+// desktop window (stale registration); the residency check is load-bearing —
+// keying a non-resident window yanks focus to its display.
+uint32_t display_manager_resident_desktop_window(uint32_t did, uint64_t sid)
+{
+    uint32_t result = 0;
+
+    CFStringRef uuid = display_uuid(did);
+    if (uuid) {
+        const void *uvals[1] = { uuid };
+        CFArrayRef uarr = CFArrayCreate(NULL, uvals, 1, &kCFTypeArrayCallBacks);
+        if (uarr) {
+            CFArrayRef rws = SLSManagedDisplaysCopyRoleWindows(g_connection, uarr, 1);
+            if (rws) {
+                for (int i = 0, count = CFArrayGetCount(rws); i < count && !result; ++i) {
+                    CFNumberRef num = CFArrayGetValueAtIndex(rws, i);
+                    uint32_t wid = 0;
+                    if (num && CFGetTypeID(num) == CFNumberGetTypeID()) {
+                        CFNumberGetValue(num, kCFNumberSInt32Type, &wid);
+                    }
+                    if (wid && display_manager_window_resides_on_display(did, wid)) result = wid;
+                }
+                CFRelease(rws);
+            }
+            CFRelease(uarr);
+        }
+        CFRelease(uuid);
+    }
+
+    if (!result) result = display_manager_desktop_window_on_space(did, sid);
+    if (!result) result = display_manager_desktop_window_via_cgwindowlist(did);
+    return result;
 }
 
 #pragma clang diagnostic push
@@ -468,14 +589,17 @@ void display_manager_focus_display(uint32_t did, uint64_t sid)
         window_manager_center_mouse(&g_window_manager, window);
         display_manager_set_active_display_id(did);
     } else {
-        CGPoint point = display_center(did);
-        CGWarpMouseCursorPosition(point);
-        display_manager_set_active_display_id(did);
-
-        if (space_manager_active_space() != display_space_id(did)) {
-            CGPostMouseEvent(point, false, 1, true);
-            CGPostMouseEvent(point, false, 1, false);
+        // NOTE: an empty display takes focus only by keying its resident desktop
+        // window — a bare front-process call does not land, and desktop windows have no AX ref.
+        uint32_t role_wid = display_manager_resident_desktop_window(did, sid);
+        if (role_wid) {
+            int wcid = 0;
+            ProcessSerialNumber psn = {0};
+            SLSGetWindowOwner(g_connection, role_wid, &wcid);
+            SLSGetConnectionPSN(wcid, &psn);
+            window_manager_focus_window_without_raise(&psn, role_wid);
         }
+        display_manager_set_active_display_id(did);
     }
 }
 #pragma clang diagnostic pop
