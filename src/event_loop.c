@@ -395,7 +395,11 @@ static void late_tile_window(uint32_t wid)
 
     struct window *window = window_manager_find_window(&g_window_manager, wid);
     if (!window)                                                  { debug("%s: skip untracked wid=%d\n", __FUNCTION__, wid); return; }
-    if (window_manager_find_managed_window(&g_window_manager, window)) { debug("%s: skip managed wid=%d\n", __FUNCTION__, wid); return; }
+    // NOTE: a lone tab holds its node for the whole tear-off — no group meant no take-over to
+    // demote it — so it arrives at the drop still managed. Only the wid the gesture named may
+    // pass; the node it left is stripped below, once the placement is certain.
+    struct view *held = window_manager_find_managed_window(&g_window_manager, window);
+    if (held && !claims)                                          { debug("%s: skip managed wid=%d\n", __FUNCTION__, wid); return; }
 
     // Honour the drop even when no member has taken the node over yet, or the group membership
     // outlives the tear-off and the torn tab is never tiled at all. Ahead of the group gate and
@@ -425,7 +429,16 @@ static void late_tile_window(uint32_t wid)
     if (!view || view->layout == VIEW_FLOAT)                      { debug("%s: skip non-bsp wid=%d\n", __FUNCTION__, wid); return; }
 
     // NOTE: consume the drop only once the tile is certain — every skip above has to leave it
-    // armed, or an adoption that lags past this pass loses the placement for good.
+    // armed, and the node a claimed wid still holds unstripped, or a pass that bails between
+    // the two loses the placement for good or strands the window with no node at all.
+    if (held) {
+        struct window_node *left = view_remove_window_node(held, window);
+        if (left) {
+            if (space_is_visible(held->sid)) window_node_flush(left);
+            else                             view_set_flag(held, VIEW_IS_DIRTY);
+        }
+        window_manager_remove_managed_window(&g_window_manager, wid);
+    }
     if (placed) memset(&g_tab_drop, 0, sizeof(g_tab_drop));
 
     uint32_t insertion = 0;

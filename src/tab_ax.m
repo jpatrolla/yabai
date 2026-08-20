@@ -155,15 +155,21 @@ static struct
 // NOTE: the press lands on whatever descendant of the bar is under it — tab button, close X,
 // title text — and only the AXTabGroup ancestor carries the bar's own frame; matching one
 // role would recognise a grab from the button alone and miss every other one.
-static bool ax_probe_tab_bar_bounds(AXUIElementRef element, CGRect *bounds)
+static bool ax_probe_tab_bar_bounds(AXUIElementRef element, CGRect *bounds, int *count)
 {
     AXUIElementRef node = (AXUIElementRef) CFRetain(element);
     bool result = false;
 
+    *count = 0;
     for (int depth = 0; depth < 5; ++depth) {
         char role[64] = {0};
         ax_copy_string(node, kAXRoleAttribute, role, sizeof(role));
-        if (strcmp(role, "AXTabGroup") == 0) { result = ax_element_frame(node, bounds); break; }
+        if (strcmp(role, "AXTabGroup") == 0) {
+            CFIndex tabs = 0;
+            if (AXUIElementGetAttributeValueCount(node, kAXTabsAttribute, &tabs) == kAXErrorSuccess) *count = (int) tabs;
+            result = ax_element_frame(node, bounds);
+            break;
+        }
         if (strcmp(role, "AXWindow") == 0) break;
 
         CFTypeRef parent = NULL;
@@ -211,11 +217,13 @@ void ax_probe_click_target(CGPoint point, bool secondary, bool native_tabbable)
     // NOTE: the hit element carries the wid of the tab it belongs to even when that tab is not
     // on screen yet — the one naming of the grabbed window available before the click swaps it.
     g_click_probe.wid            = ax_window_id(element);
-    g_click_probe.has_bar_bounds = ax_probe_tab_bar_bounds(element, &g_click_probe.bar_bounds);
 
-    debug("AX_CLICK_TARGET: role=%s title=\"%s\" wid=%u button=%s at=%.0f,%.0f bar=(%.0f,%.0f %.0fx%.0f) probe_us=%llu\n",
+    int tab_count = 0;
+    g_click_probe.has_bar_bounds = ax_probe_tab_bar_bounds(element, &g_click_probe.bar_bounds, &tab_count);
+
+    debug("AX_CLICK_TARGET: role=%s title=\"%s\" wid=%u button=%s at=%.0f,%.0f tabs=%d bar=(%.0f,%.0f %.0fx%.0f) probe_us=%llu\n",
           g_click_probe.role, g_click_probe.title, ax_window_id(element),
-          secondary ? "right" : "left", point.x, point.y,
+          secondary ? "right" : "left", point.x, point.y, tab_count,
           g_click_probe.bar_bounds.origin.x, g_click_probe.bar_bounds.origin.y,
           g_click_probe.bar_bounds.size.width, g_click_probe.bar_bounds.size.height,
           (read_os_timer() - arrive_ns) / 1000);

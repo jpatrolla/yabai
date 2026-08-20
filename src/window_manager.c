@@ -4183,7 +4183,11 @@ static struct window *tab_reconcile_candidate(struct window_manager *wm, struct 
         bool kin = (group && window_manager_find_tab_group(wm, b->id) == group) ||
                    tab_hypothesis_names(hints, hint_count, a->id, b->id);
         if (!kin) {
-            if (b_view) continue;
+            // NOTE: AppKit names only its drag proxy across a tab-bar drop, so the real pair is
+            // never hinted and the frame is the sole witness. A B holding a node is normally not
+            // A's tab — but a lone tab keeps its own and is redrawn at A's, which is that
+            // witness; the animator's transient bounds name no placement, so sit those out.
+            if (b_view && window_manager_is_animating(b->id)) continue;
 
             CGRect b_bounds = {0}; SLSGetWindowBounds(g_connection, b->id, &b_bounds);
             if (CGRectIsEmpty(b_bounds)) b_bounds = b->frame;
@@ -4247,11 +4251,20 @@ void window_manager_tab_reconcile(struct window_manager *wm, struct tab_hypothes
         // itself alone — a demote benches it, and a benched wid is one late_tile_window declines.
         bool torn = pairs[i].a_wid == torn_wid;
 
-        // NOTE: A is ordered out and B ordered in by the gates above, so when B holds a node of
-        // its own it is A's that is the vacancy. Collapse A and leave B where it is — swapping
-        // the node under an on-screen window teleports it. Ahead of the focus gate on purpose:
-        // this branch raises nothing, and a stale vacancy squeezes live windows until it goes.
+        // NOTE: which of the two moved decides which node is vacant, and only geometry says so:
+        // B drawn at A's node joined A's group, rather than A leaving one — a lone tab dropped
+        // on another window's bar does exactly that, and its own node is the one left empty.
+        bool migrated = false;
         if (b_view) {
+            CGRect b_bounds = {0}; SLSGetWindowBounds(g_connection, b->id, &b_bounds);
+            if (CGRectIsEmpty(b_bounds)) b_bounds = b->frame;
+            migrated = tab_frame_matches(wm, a, b_bounds);
+        }
+
+        // NOTE: A is ordered out and B ordered in by the gates above, so a B that stayed put and
+        // holds a node makes A's the vacancy. Collapse A and leave B — swapping the node under an
+        // on-screen window teleports it. Ahead of the focus gate: this branch raises nothing.
+        if (b_view && !migrated) {
             // NOTE: strip the node without space_manager_untile_window — its LAYER_NORMAL write
             // on an A that is ordered out draws an 815 straight back, which is why the demote
             // path skips the same write.
@@ -4271,6 +4284,17 @@ void window_manager_tab_reconcile(struct window_manager *wm, struct tab_hypothes
         // steal it, so leave the node stale until this app is in front again.
         struct window *f = window_manager_find_window(wm, wm->focused_window_id);
         if (!torn && f && f->application != b->application) continue;
+
+        // NOTE: behind the focus gate on purpose — every exit above this point must leave B in
+        // the node it still holds, or a declined hand-off strands it with no node at all.
+        if (migrated) {
+            struct window_node *b_node = view_remove_window_node(b_view, b);
+            if (b_node) {
+                if (space_is_visible(b_view->sid)) window_node_flush(b_node);
+                else                               view_set_flag(b_view, VIEW_IS_DIRTY);
+            }
+            window_manager_remove_managed_window(wm, b->id);
+        }
 
         if (!(torn ? window_manager_tab_inherit_node(wm, a, b)
                    : window_manager_tab_take_over_node(wm, a, b))) continue;
