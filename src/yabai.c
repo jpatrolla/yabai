@@ -347,7 +347,10 @@ int main(int argc, char **argv)
     }
 
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 808, NULL);
-    // NOTE: 1325 is the only signal a native tab switch emits (AX-silent).
+    // NOTE: SkyLight appends to a per-type callback vector without deduping (callback,
+    // context) — a code registered twice delivers every notification twice.
+    // NOTE: 1325 is the only signal a native tab switch emits (AX-silent). Keep it out of
+    // the 804 version gate below or native tabs go dark on Ventura and Sonoma.
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1326, NULL);
     // NOTE: 805-816 are per-wid gated server-side like 804/808 -- events arrive
@@ -360,12 +363,6 @@ int main(int argc, char **argv)
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1329, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1202, NULL);
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 815, NULL);
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
-
-    // NOTE: not version-gated — the tab paths run on every release the AX tab observers do,
-    // so folding this into the 804 check below takes the feature dark on Ventura and Sonoma.
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1325, NULL);
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 804, NULL);
