@@ -10,6 +10,8 @@ static OBSERVER_CALLBACK(application_notification_handler)
     } else if (CFEqual(notification, kAXFocusedWindowChangedNotification)) {
         __atomic_store_n(&__pending_window_focus, true, __ATOMIC_RELEASE);
         event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) ax_window_id(element), 0);
+    } else if (CFEqual(notification, ax_application_notification[AX_APPLICATION_WINDOW_FOCUSED_TAB_INDEX])) {
+        event_loop_post(&g_event_loop, TABBED_WINDOW_FOCUSED, (void *) CFRetain(element), (int) ax_window_id(element));
     } else if (CFEqual(notification, kAXWindowMovedNotification)) {
         event_loop_post(&g_event_loop, WINDOW_MOVED, (void *)(intptr_t) ax_window_id(element), 0);
     } else if (CFEqual(notification, kAXWindowResizedNotification)) {

@@ -13,6 +13,8 @@ volatile bool __pending_gesture;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
 
+static bool tabbed_window_swap(struct view *view, struct window *a, struct window *b);
+
 static void update_window_notifications(void)
 {
     int window_count = 0;
@@ -672,6 +674,59 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
     event_signal_push(SIGNAL_WINDOW_FOCUSED, window);
 }
 
+static bool tabbed_window_swap(struct view *view, struct window *a, struct window *b)
+{
+    struct view *b_view = window_manager_find_managed_window(&g_window_manager, b);
+    if ((b_view && b_view != view) ||
+        !window_manager_should_manage_window(b) ||
+        !view_find_window_node(view, a->id)) {
+        debug("%s: %s %d -> %d rejected\n", __FUNCTION__, b->application->name, a->id, b->id);
+        return false;
+    }
+
+    // NOTE: Finder posts kAXFocusedWindowChanged for a tabbed window, which AppKit suppresses
+    // everywhere else, so the incoming tab may already be tiled by the time the pair lands.
+    if (b_view) {
+        space_manager_untile_window(view, b);
+        window_manager_remove_managed_window(&g_window_manager, b->id);
+    }
+
+    if (!view_swap_node_window(view, a->id, b->id)) {
+        debug("%s: %s %d -> %d rejected\n", __FUNCTION__, b->application->name, a->id, b->id);
+        return false;
+    }
+
+    window_manager_adjust_layer(a, LAYER_NORMAL);
+    window_manager_remove_managed_window(&g_window_manager, a->id);
+    window_manager_adjust_layer(b, LAYER_BELOW);
+    window_manager_add_managed_window(&g_window_manager, b, view);
+    window_set_flag(a, WINDOW_TAB_MEMBER);
+    window_clear_flag(b, WINDOW_TAB_MEMBER);
+
+    // NOTE: not window_node_flush; that animates the incoming tab in from the frame it kept while hidden.
+    struct window_node *node = view_find_window_node(view, b->id);
+    struct area area = node->zoom ? node->zoom->area : node->area;
+    window_manager_set_window_frame(b, area.x, area.y, area.w, area.h);
+
+    debug("%s: %s %d -> %d\n", __FUNCTION__, b->application->name, a->id, b->id);
+    return true;
+}
+
+// NOTE: AppKit posts this instead of kAXFocusedWindowChanged for a tabbed window and names only the
+// INCOMING tab; the outgoing one is named by the 1325/1326 pair, which is where the node swap happens.
+// An unknown wid is a window still being created -- adopting it here would starve WINDOW_CREATED.
+static EVENT_HANDLER(TABBED_WINDOW_FOCUSED)
+{
+    uint32_t wid = (uint32_t) param1;
+    CFRelease(context);
+
+    debug("%s: %d\n", __FUNCTION__, wid);
+
+    if (!window_manager_find_window(&g_window_manager, wid)) return;
+
+    event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) wid, 0);
+}
+
 static EVENT_HANDLER(WINDOW_MOVED)
 {
     uint32_t window_id = (uint32_t)(intptr_t) context;
@@ -947,6 +1002,51 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     debug("%s: %d\n", __FUNCTION__, wid);
     struct window_node *node = table_find(&g_window_manager.insert_feedback, &wid);
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
+}
+
+#define TAB_SWITCH_PAIR_MS 250.0f
+
+static struct {
+    uint32_t wid;
+    uint64_t time;
+} g_tab_ordered_in;
+
+static EVENT_HANDLER(SLS_ADDED_TO_SPACE)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, wid);
+
+    // NOTE: tearing a tab out puts an untracked drag proxy on the space between the pair, and stashing
+    // it would shadow the tab actually coming forward -- only a tracked window can be the incoming one.
+    if (!window_manager_find_window(&g_window_manager, wid)) return;
+
+    g_tab_ordered_in.wid = wid;
+    g_tab_ordered_in.time = read_os_timer();
+}
+
+// NOTE: a hidden tab coming forward is the one thing that pairs a space add with a space removal, but
+// both notifications are noisy alone -- a tooltip adds and removes the same wid, a closing window
+// repeats the removal -- so the pair is only a tab switch when it names two known windows of one app.
+static EVENT_HANDLER(SLS_REMOVED_FROM_SPACE)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, wid);
+
+    struct window *a = window_manager_find_window(&g_window_manager, wid);
+    if (!a) return;
+
+    uint32_t incoming = g_tab_ordered_in.wid;
+    if (!incoming || incoming == wid) return;
+
+    float dt = ((float)(read_os_timer() - g_tab_ordered_in.time)) * (1000.0f / (float) read_os_freq());
+    struct window *b = dt < TAB_SWITCH_PAIR_MS ? window_manager_find_window(&g_window_manager, incoming) : NULL;
+    struct view *view = b && b->application == a->application
+                          ? window_manager_find_managed_window(&g_window_manager, a) : NULL;
+
+    if (view && view->layout == VIEW_BSP) {
+        g_tab_ordered_in.wid = 0;
+        tabbed_window_swap(view, a, b);
+    }
 }
 
 static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
