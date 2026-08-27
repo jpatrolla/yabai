@@ -790,6 +790,10 @@ static bool tabbed_window_swap(struct view *view, struct window *a, struct windo
     window_set_flag(a, WINDOW_TAB_MEMBER);
     window_clear_flag(b, WINDOW_TAB_MEMBER);
 
+    // NOTE: the create path pairs a new tab against the focused window, so focus has to follow the swap
+    // or the next new tab in that group pairs against a demoted window and opens a second node.
+    if (g_window_manager.focused_window_id == a->id) g_window_manager.focused_window_id = b->id;
+
     // NOTE: not window_node_flush; that animates the incoming tab in from the frame it kept while hidden.
     struct window_node *node = view_find_window_node(view, b->id);
     struct area area = node->zoom ? node->zoom->area : node->area;
