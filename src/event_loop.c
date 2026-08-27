@@ -643,7 +643,12 @@ static EVENT_HANDLER(WINDOW_CREATED)
             uint64_t sid;
 
             if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
-                sid = window_space(window->id);
+                // NOTE: a window is on no space yet at this event, and window_space then guesses the
+                // active space of a display resolved from unsettled bounds -- the predecessor names
+                // the space the window is about to land on, so prefer it while the query is empty.
+                int space_count = 0;
+                window_space_list(window->id, &space_count);
+                sid = !space_count && tab_view ? tab_view->sid : window_space(window->id);
             } else if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
                 sid = g_space_manager.current_space_id;
             } else /* if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_CURSOR) */ {
