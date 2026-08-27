@@ -550,6 +550,51 @@ static EVENT_HANDLER(APPLICATION_HIDDEN)
     event_signal_push(SIGNAL_APPLICATION_HIDDEN, application);
 }
 
+#define TAB_SWITCH_PAIR_MS 250.0f
+#define TAB_ORDERED_OUT_SLOTS 8
+
+// NOTE: deduped by wid -- an open menu repeats the removal for its own untracked wid and would
+// otherwise flush the entry the create reads back.
+static struct {
+    uint32_t wid[TAB_ORDERED_OUT_SLOTS];
+    uint64_t time[TAB_ORDERED_OUT_SLOTS];
+    int index;
+} g_tab_ordered_out;
+
+static void tab_ordered_out_record(uint32_t wid)
+{
+    for (int i = 0; i < TAB_ORDERED_OUT_SLOTS; ++i) {
+        if (g_tab_ordered_out.wid[i] != wid) continue;
+        g_tab_ordered_out.time[i] = read_os_timer();
+        return;
+    }
+
+    g_tab_ordered_out.wid[g_tab_ordered_out.index] = wid;
+    g_tab_ordered_out.time[g_tab_ordered_out.index] = read_os_timer();
+    g_tab_ordered_out.index = (g_tab_ordered_out.index + 1) % TAB_ORDERED_OUT_SLOTS;
+}
+
+// NOTE: a recent removal alone cannot refuse the tile -- a new window of an app that posts the create
+// before the space add is not ordered in either, and gets no 815 to recover on.
+static bool tabbed_window_adopt_hidden(struct window *window)
+{
+    uint64_t now = read_os_timer();
+
+    for (int i = 0; i < TAB_ORDERED_OUT_SLOTS; ++i) {
+        if (g_tab_ordered_out.wid[i] != window->id) continue;
+        if (((float)(now - g_tab_ordered_out.time[i])) * (1000.0f / (float) read_os_freq()) >= TAB_SWITCH_PAIR_MS) return false;
+
+        uint8_t ordered_in = 0;
+        SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in);
+        if (ordered_in) return false;
+
+        window_set_flag(window, WINDOW_TAB_MEMBER);
+        return true;
+    }
+
+    return false;
+}
+
 static EVENT_HANDLER(WINDOW_CREATED)
 {
     uint32_t window_id = ax_window_id(context);
@@ -578,7 +623,8 @@ static EVENT_HANDLER(WINDOW_CREATED)
         }
     }
 
-    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+    if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window) &&
+        !tabbed_window_adopt_hidden(window)) {
         // NOTE: a new window whose same-app predecessor just left the space is that group's incoming
         // tab, and nothing else names the group -- the 1325/1326 pair cannot swap it because the
         // incoming window is not tracked until this event, so the predecessor is the only signal.
@@ -1107,8 +1153,6 @@ static EVENT_HANDLER(SLS_WINDOW_VISIBLE)
     if (window && window_check_flag(window, WINDOW_TAB_MEMBER)) tabbed_window_promote(window);
 }
 
-#define TAB_SWITCH_PAIR_MS 250.0f
-
 static struct {
     uint32_t wid;
     uint64_t time;
@@ -1136,7 +1180,10 @@ static EVENT_HANDLER(SLS_REMOVED_FROM_SPACE)
     debug("%s: %d\n", __FUNCTION__, wid);
 
     struct window *a = window_manager_find_window(&g_window_manager, wid);
-    if (!a) return;
+    if (!a) {
+        tab_ordered_out_record(wid);
+        return;
+    }
 
     uint32_t incoming = g_tab_ordered_in.wid;
     if (incoming && incoming != wid) {
