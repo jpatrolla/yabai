@@ -671,6 +671,8 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     }
 }
 
+#define WINDOW_FOCUS_FROM_TAB 1
+
 // NOTE: window_space reports a space for a hidden tab, so ordered-in is the only reliable test for one.
 // Moving a tab out to its own window posts no create and no 1326 -- 815 is the only signal it happened.
 static void tabbed_window_promote(struct window *window)
@@ -732,6 +734,17 @@ static EVENT_HANDLER(WINDOW_FOCUSED)
 
     if (!application_is_frontmost(window->application)) {
         return;
+    }
+
+    // NOTE: the tab a swap demoted can still have a plain focus event in flight; letting it land points
+    // focused_window_id at a window with no node, and every later tab pairs against that and opens a
+    // second one. A hidden tab is never ordered in, so it cannot legitimately hold focus.
+    if (param1 != WINDOW_FOCUS_FROM_TAB && window_check_flag(window, WINDOW_TAB_MEMBER)) {
+        uint8_t ordered_in = 0;
+        SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in);
+        if (!ordered_in) return;
+
+        tabbed_window_promote(window);
     }
 
     debug("%s: %s %d\n", __FUNCTION__, window->application->name, window->id);
@@ -801,7 +814,7 @@ static EVENT_HANDLER(TABBED_WINDOW_FOCUSED)
     g_tab_promoted.wid = wid;
     g_tab_promoted.time = read_os_timer();
 
-    event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) wid, 0);
+    event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) wid, WINDOW_FOCUS_FROM_TAB);
 }
 
 static EVENT_HANDLER(WINDOW_MOVED)
