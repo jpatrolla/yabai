@@ -579,18 +579,34 @@ static EVENT_HANDLER(WINDOW_CREATED)
     }
 
     if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
-        uint64_t sid;
+        // NOTE: a new window whose same-app predecessor just left the space is that group's incoming
+        // tab, and nothing else names the group -- the 1325/1326 pair cannot swap it because the
+        // incoming window is not tracked until this event, so the predecessor is the only signal.
+        uint32_t prev = g_window_manager.focused_window_id;
+        struct window *a = prev && prev != window->id ? window_manager_find_window(&g_window_manager, prev) : NULL;
+        struct view *tab_view = a && a->application == window->application
+                                  ? window_manager_find_managed_window(&g_window_manager, a) : NULL;
 
-        if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
-            sid = window_space(window->id);
-        } else if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
-            sid = g_space_manager.current_space_id;
-        } else /* if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_CURSOR) */ {
-            sid = space_manager_cursor_space();
+        uint8_t prev_ordered_in = 1;
+        if (tab_view) SLSWindowIsOrderedIn(g_connection, a->id, &prev_ordered_in);
+
+        bool swapped = tab_view && tab_view->layout == VIEW_BSP && !prev_ordered_in &&
+                       tabbed_window_swap(tab_view, a, window);
+
+        if (!swapped) {
+            uint64_t sid;
+
+            if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_DEFAULT) {
+                sid = window_space(window->id);
+            } else if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_FOCUSED) {
+                sid = g_space_manager.current_space_id;
+            } else /* if (g_window_manager.window_origin_mode == WINDOW_ORIGIN_CURSOR) */ {
+                sid = space_manager_cursor_space();
+            }
+
+            struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
+            window_manager_add_managed_window(&g_window_manager, window, view);
         }
-
-        struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
-        window_manager_add_managed_window(&g_window_manager, window, view);
     }
 
     if (window_manager_is_window_eligible(window)) {
