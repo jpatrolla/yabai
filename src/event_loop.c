@@ -618,6 +618,13 @@ static EVENT_HANDLER(WINDOW_CREATED)
     }
 }
 
+#define TAB_PROMOTE_MS 50.0f
+
+static struct {
+    uint32_t wid;
+    uint64_t time;
+} g_tab_promoted;
+
 static EVENT_HANDLER(WINDOW_DESTROYED)
 {
     struct window *window = context;
@@ -629,6 +636,19 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     debug("%s: %s %d\n", __FUNCTION__, window->application ? window->application->name : "<unknown>", window->id);
 
     struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+
+    // NOTE: the 1325/1326 pair normally hands the node to the successor tab before this event, but the
+    // pair and the destroy come from different sources -- keep the handover for when the destroy wins.
+    if (view && view->layout == VIEW_BSP && g_tab_promoted.wid && g_tab_promoted.wid != window->id) {
+        float dt = ((float)(read_os_timer() - g_tab_promoted.time)) * (1000.0f / (float) read_os_freq());
+        struct window *heir = dt < TAB_PROMOTE_MS ? window_manager_find_window(&g_window_manager, g_tab_promoted.wid) : NULL;
+
+        if (heir && heir->application == window->application && tabbed_window_swap(view, window, heir)) {
+            g_tab_promoted.wid = 0;
+            view = NULL;
+        }
+    }
+
     if (view) {
         space_manager_untile_window(view, window);
         window_manager_remove_managed_window(&g_window_manager, window->id);
@@ -739,6 +759,9 @@ static EVENT_HANDLER(TABBED_WINDOW_FOCUSED)
     debug("%s: %d\n", __FUNCTION__, wid);
 
     if (!window_manager_find_window(&g_window_manager, wid)) return;
+
+    g_tab_promoted.wid = wid;
+    g_tab_promoted.time = read_os_timer();
 
     event_loop_post(&g_event_loop, WINDOW_FOCUSED, (void *)(intptr_t) wid, 0);
 }
