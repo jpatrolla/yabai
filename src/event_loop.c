@@ -690,6 +690,25 @@ static void tabbed_window_promote(struct window *window)
     window_manager_add_managed_window(&g_window_manager, window, view);
 }
 
+// NOTE: merging windows into one group orders each of them out and drops it from the space with no pair
+// and no destroy, so a managed window that is no longer ordered in has become a hidden tab and must give
+// up its node -- never the focused one, which is the group they merge into and the tab a switch replaces.
+static void tabbed_window_demote(struct window *window)
+{
+    if (g_window_manager.focused_window_id == window->id) return;
+
+    uint8_t ordered_in = 0;
+    SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in);
+    if (ordered_in) return;
+
+    struct view *view = window_manager_find_managed_window(&g_window_manager, window);
+    if (!view || view->layout != VIEW_BSP) return;
+
+    space_manager_untile_window(view, window);
+    window_manager_remove_managed_window(&g_window_manager, window->id);
+    window_set_flag(window, WINDOW_TAB_MEMBER);
+}
+
 static EVENT_HANDLER(WINDOW_FOCUSED)
 {
     __atomic_store_n(&__pending_window_focus, false, __ATOMIC_RELEASE);
@@ -1103,17 +1122,19 @@ static EVENT_HANDLER(SLS_REMOVED_FROM_SPACE)
     if (!a) return;
 
     uint32_t incoming = g_tab_ordered_in.wid;
-    if (!incoming || incoming == wid) return;
+    if (incoming && incoming != wid) {
+        float dt = ((float)(read_os_timer() - g_tab_ordered_in.time)) * (1000.0f / (float) read_os_freq());
+        struct window *b = dt < TAB_SWITCH_PAIR_MS ? window_manager_find_window(&g_window_manager, incoming) : NULL;
+        struct view *view = b && b->application == a->application
+                              ? window_manager_find_managed_window(&g_window_manager, a) : NULL;
 
-    float dt = ((float)(read_os_timer() - g_tab_ordered_in.time)) * (1000.0f / (float) read_os_freq());
-    struct window *b = dt < TAB_SWITCH_PAIR_MS ? window_manager_find_window(&g_window_manager, incoming) : NULL;
-    struct view *view = b && b->application == a->application
-                          ? window_manager_find_managed_window(&g_window_manager, a) : NULL;
-
-    if (view && view->layout == VIEW_BSP) {
-        g_tab_ordered_in.wid = 0;
-        tabbed_window_swap(view, a, b);
+        if (view && view->layout == VIEW_BSP) {
+            g_tab_ordered_in.wid = 0;
+            if (tabbed_window_swap(view, a, b)) return;
+        }
     }
+
+    tabbed_window_demote(a);
 }
 
 static EVENT_HANDLER(SLS_WINDOW_DESTROYED)
