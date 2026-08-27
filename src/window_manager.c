@@ -1638,26 +1638,61 @@ static bool window_manager_application_has_tab_group(struct window_manager *wm, 
     return !answered;
 }
 
-// NOTE: a hidden native tab is on no space, so every per-space query misses it. Adopt it unmanaged --
-// the AX API hands out no element for one either, hence the remote-token scan.
+// NOTE: a hidden native tab is ordered out and on no space, and the AX API hands out no element for
+// one -- hence the remote-token scan. Do not route this through space_window_list_for_connection: its
+// admission is free to reject this exact shape, which is the dead ordered-out window it must filter.
 void window_manager_add_existing_application_tabs(struct space_manager *sm, struct window_manager *wm, struct application *application)
 {
-    int count = 0;
-    uint32_t *window_list = space_window_list_for_connection(NULL, 0, application->connection, &count, true);
-    if (!window_list) return;
+    uint64_t set_tags = 0;
+    uint64_t clear_tags = 0;
 
-    uint32_t unseen[256];
+    CFArrayRef space_list_ref = CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+    CFArrayRef window_list_ref = SLSCopyWindowsWithOptionsAndTags(g_connection, application->connection, space_list_ref, 0x7, &set_tags, &clear_tags);
+    CFRelease(space_list_ref);
+    if (!window_list_ref) return;
+
+    int count = CFArrayGetCount(window_list_ref);
+    if (!count) {
+        CFRelease(window_list_ref);
+        return;
+    }
+
+    CFTypeRef query = SLSWindowQueryWindows(g_connection, window_list_ref, count);
+    CFTypeRef iterator = SLSWindowQueryResultCopyWindows(query);
+
+    uint32_t unseen[64];
     uint32_t tracked[64];
     int unseen_count = 0;
     int tracked_count = 0;
 
-    for (int i = 0; i < count && unseen_count < array_count(unseen); ++i) {
-        if (window_manager_find_window(wm, window_list[i])) {
-            if (tracked_count < array_count(tracked)) tracked[tracked_count++] = window_list[i];
+    while (SLSWindowIteratorAdvance(iterator)) {
+        uint32_t wid = SLSWindowIteratorGetWindowID(iterator);
+
+        if (window_manager_find_window(wm, wid)) {
+            if (tracked_count < array_count(tracked)) tracked[tracked_count++] = wid;
             continue;
         }
-        unseen[unseen_count++] = window_list[i];
+
+        if (unseen_count == array_count(unseen))            continue;
+        if (SLSWindowIteratorGetParentID(iterator) != 0)    continue;
+        if (SLSWindowIteratorGetLevel(iterator) != 0)       continue;
+
+        uint64_t attributes = SLSWindowIteratorGetAttributes(iterator);
+        if (attributes != 0x0 && attributes != 0x1)         continue;
+
+        uint64_t tags = SLSWindowIteratorGetTags(iterator);
+        if (!(tags & 0x300000000000000) || !(tags & 0x1))   continue;
+
+        uint8_t ordered_in = 0;
+        SLSWindowIsOrderedIn(g_connection, wid, &ordered_in);
+        if (ordered_in)                                     continue;
+
+        unseen[unseen_count++] = wid;
     }
+
+    CFRelease(query);
+    CFRelease(iterator);
+    CFRelease(window_list_ref);
 
     if (!unseen_count || !tracked_count) return;
 
