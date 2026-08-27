@@ -671,6 +671,25 @@ static EVENT_HANDLER(WINDOW_DESTROYED)
     }
 }
 
+// NOTE: window_space reports a space for a hidden tab, so ordered-in is the only reliable test for one.
+// Moving a tab out to its own window posts no create and no 1326 -- 815 is the only signal it happened.
+static void tabbed_window_promote(struct window *window)
+{
+    uint8_t ordered_in = 0;
+    SLSWindowIsOrderedIn(g_connection, window->id, &ordered_in);
+    if (!ordered_in) return;
+
+    uint64_t sid = window_space(window->id);
+    if (!sid) return;
+
+    window_clear_flag(window, WINDOW_TAB_MEMBER);
+    if (!window_manager_should_manage_window(window)) return;
+    if (window_manager_find_managed_window(&g_window_manager, window)) return;
+
+    struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
+    window_manager_add_managed_window(&g_window_manager, window, view);
+}
+
 static EVENT_HANDLER(WINDOW_FOCUSED)
 {
     __atomic_store_n(&__pending_window_focus, false, __ATOMIC_RELEASE);
@@ -1041,6 +1060,15 @@ static EVENT_HANDLER(SLS_WINDOW_ORDERED)
     debug("%s: %d\n", __FUNCTION__, wid);
     struct window_node *node = table_find(&g_window_manager.insert_feedback, &wid);
     if (node) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
+}
+
+static EVENT_HANDLER(SLS_WINDOW_VISIBLE)
+{
+    uint32_t wid = (uint64_t)(intptr_t) context;
+    debug("%s: %d\n", __FUNCTION__, wid);
+
+    struct window *window = window_manager_find_window(&g_window_manager, wid);
+    if (window && window_check_flag(window, WINDOW_TAB_MEMBER)) tabbed_window_promote(window);
 }
 
 #define TAB_SWITCH_PAIR_MS 250.0f

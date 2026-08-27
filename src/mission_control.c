@@ -20,6 +20,9 @@ static CONNECTION_CALLBACK(connection_handler)
     } else if (type == 804) {
         uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
         event_loop_post(&g_event_loop, SLS_WINDOW_DESTROYED, (void *) (intptr_t) wid, 0);
+    } else if (type == 815) {
+        uint32_t wid; memcpy(&wid, data, sizeof(uint32_t));
+        if (wid) event_loop_post(&g_event_loop, SLS_WINDOW_VISIBLE, (void *) (intptr_t) wid, 0);
     } else if (type == 1325 || type == 1326) {
         // NOTE: space-membership payload is { u64 sid; u32 wid }, so the wid sits at offset 8.
         uint32_t wid = 0;
