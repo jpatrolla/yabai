@@ -1604,6 +1604,73 @@ static uint32_t *window_manager_existing_application_window_list(struct applicat
     return space_list ? space_window_list_for_connection(space_list, space_count, application ? application->connection : 0, window_count, true) : NULL;
 }
 
+#define AX_REMOTE_TOKEN_SCAN_MAX 0x1000
+
+// NOTE: a hidden native tab is on no space, so every per-space query misses it. Adopt it unmanaged --
+// the AX API hands out no element for one either, hence the remote-token scan.
+void window_manager_add_existing_application_tabs(struct space_manager *sm, struct window_manager *wm, struct application *application)
+{
+    int count = 0;
+    uint32_t *window_list = space_window_list_for_connection(NULL, 0, application->connection, &count, true);
+    if (!window_list) return;
+
+    uint32_t unseen[256];
+    int unseen_count = 0;
+
+    for (int i = 0; i < count && unseen_count < array_count(unseen); ++i) {
+        if (window_manager_find_window(wm, window_list[i])) continue;
+        unseen[unseen_count++] = window_list[i];
+    }
+
+    if (!unseen_count) return;
+
+    CFMutableDataRef data_ref = CFDataCreateMutable(NULL, 0x14);
+    CFDataIncreaseLength(data_ref, 0x14);
+
+    uint8_t *data = CFDataGetMutableBytePtr(data_ref);
+    *(uint32_t *) (data + 0x0) = application->pid;
+    *(uint32_t *) (data + 0x8) = 0x636f636f;
+
+    int seeded = 0;
+    int remaining = unseen_count;
+
+    for (uint64_t element_id = 0; element_id < AX_REMOTE_TOKEN_SCAN_MAX && remaining > 0; ++element_id) {
+        memcpy(data + 0xc, &element_id, sizeof(uint64_t));
+        AXUIElementRef element_ref = _AXUIElementCreateWithRemoteToken(data_ref);
+        if (!element_ref) continue;
+
+        CFTypeRef role = NULL;
+        AXUIElementCopyAttributeValue(element_ref, kAXRoleAttribute, &role);
+        bool adopted = false;
+
+        if (role) {
+            if (CFEqual(role, kAXWindowRole)) {
+                uint32_t element_wid = ax_window_id(element_ref);
+
+                for (int i = 0; element_wid && i < unseen_count; ++i) {
+                    if (unseen[i] != element_wid) continue;
+                    unseen[i] = 0;
+                    --remaining;
+
+                    struct window *window = window_manager_create_and_add_window(sm, wm, application, element_ref, element_wid, false);
+                    if (window) {
+                        window_set_flag(window, WINDOW_TAB_MEMBER);
+                        adopted = true;
+                        ++seeded;
+                    }
+                    break;
+                }
+            }
+            CFRelease(role);
+        }
+
+        if (!adopted) CFRelease(element_ref);
+    }
+
+    CFRelease(data_ref);
+    debug("%s: %s seeded %d of %d unseen\n", __FUNCTION__, application->name, seeded, unseen_count);
+}
+
 bool window_manager_add_existing_application_windows(struct space_manager *sm, struct window_manager *wm, struct application *application, int refresh_index)
 {
     bool result = false;
@@ -2582,6 +2649,9 @@ static void window_manager_check_for_windows_on_space(struct window_manager *wm,
         struct window *window = window_manager_find_window(wm, window_list[i]);
         if (!window || !window_manager_should_manage_window(window)) continue;
 
+        // NOTE: a tab member reaching a space is a group switching tabs, not a window to tile.
+        if (window_check_flag(window, WINDOW_TAB_MEMBER)) continue;
+
         struct view *existing_view = window_manager_find_managed_window(wm, window);
         if (existing_view && existing_view->layout != VIEW_FLOAT && existing_view != view) {
 
@@ -2744,6 +2814,7 @@ void window_manager_begin(struct space_manager *sm, struct window_manager *wm)
             if (application_observe(application)) {
                 window_manager_add_application(wm, application);
                 window_manager_add_existing_application_windows(sm, wm, application, -1);
+                window_manager_add_existing_application_tabs(sm, wm, application);
             } else {
                 application_unobserve(application);
                 application_destroy(application);
@@ -2754,6 +2825,8 @@ void window_manager_begin(struct space_manager *sm, struct window_manager *wm)
         }
     })
     [pool drain];
+
+    update_window_notifications();
 
     struct window *window = window_manager_focused_window(wm);
     if (window) {
