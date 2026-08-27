@@ -235,6 +235,7 @@ void window_node_capture_windows(struct window_node *node, struct window_capture
 
 struct window_node *view_find_window_node_in_direction(struct view *view, struct window_node *source, int direction);
 struct window_node *view_find_window_node(struct view *view, uint32_t window_id);
+bool view_swap_node_window(struct view *view, uint32_t old_wid, uint32_t new_wid);
 void view_stack_window_node(struct window_node *node, struct window *window);
 struct window_node *view_add_window_node_with_insertion_point(struct view *view, struct window *window, uint32_t insertion_point);
 struct window_node *view_add_window_node(struct view *view, struct window *window);

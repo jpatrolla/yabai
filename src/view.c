@@ -618,6 +618,31 @@ struct window_node *view_find_window_node(struct view *view, uint32_t window_id)
     return NULL;
 }
 
+bool view_swap_node_window(struct view *view, uint32_t old_wid, uint32_t new_wid)
+{
+    struct window_node *node = view_find_window_node(view, old_wid);
+    if (!node) return false;
+
+    // NOTE: insert_feedback is keyed by window_order[0]; re-key it or the entry dangles.
+    bool rekey = node->feedback_window.id && node->window_order[0] == old_wid;
+    if (rekey) table_remove(&g_window_manager.insert_feedback, &node->window_order[0]);
+
+    for (int i = 0; i < node->window_count; ++i) {
+        if (node->window_list[i]  == old_wid) node->window_list[i]  = new_wid;
+        if (node->window_order[i] == old_wid) node->window_order[i] = new_wid;
+    }
+
+    if (rekey) {
+        table_add(&g_window_manager.insert_feedback, &node->window_order[0], node);
+        SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
+        if (!workspace_is_macos_sequoia() && !workspace_is_macos_tahoe()) {
+            update_window_notifications();
+        }
+    }
+
+    return true;
+}
+
 struct window_node *view_remove_window_node(struct view *view, struct window *window)
 {
     struct window_node *node = view_find_window_node(view, window->id);
