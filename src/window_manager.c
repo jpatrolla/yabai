@@ -1606,6 +1606,38 @@ static uint32_t *window_manager_existing_application_window_list(struct applicat
 
 #define AX_REMOTE_TOKEN_SCAN_MAX 0x1000
 
+// NOTE: the tab bar belongs to whichever member is showing, so only a tracked window can name a group.
+// Answer yes when a window will not say -- a skip on no evidence silently costs an application its tabs.
+static bool window_manager_application_has_tab_group(struct window_manager *wm, uint32_t *window_list, int window_count)
+{
+    bool answered = false;
+
+    for (int i = 0; i < window_count; ++i) {
+        struct window *window = window_manager_find_window(wm, window_list[i]);
+        if (!window || !window->ref) continue;
+
+        CFArrayRef children_ref = NULL;
+        if (AXUIElementCopyAttributeValue(window->ref, kAXChildrenAttribute, (CFTypeRef *) &children_ref) != kAXErrorSuccess) return true;
+        if (!children_ref) return true;
+
+        answered = true;
+        bool found = false;
+        for (int j = 0; j < CFArrayGetCount(children_ref) && !found; ++j) {
+            CFTypeRef role_ref = NULL;
+            if (AXUIElementCopyAttributeValue(CFArrayGetValueAtIndex(children_ref, j), kAXRoleAttribute, &role_ref) != kAXErrorSuccess) continue;
+            if (!role_ref) continue;
+
+            found = CFEqual(role_ref, CFSTR("AXTabGroup"));
+            CFRelease(role_ref);
+        }
+
+        CFRelease(children_ref);
+        if (found) return true;
+    }
+
+    return !answered;
+}
+
 // NOTE: a hidden native tab is on no space, so every per-space query misses it. Adopt it unmanaged --
 // the AX API hands out no element for one either, hence the remote-token scan.
 void window_manager_add_existing_application_tabs(struct space_manager *sm, struct window_manager *wm, struct application *application)
@@ -1615,14 +1647,24 @@ void window_manager_add_existing_application_tabs(struct space_manager *sm, stru
     if (!window_list) return;
 
     uint32_t unseen[256];
+    uint32_t tracked[64];
     int unseen_count = 0;
+    int tracked_count = 0;
 
     for (int i = 0; i < count && unseen_count < array_count(unseen); ++i) {
-        if (window_manager_find_window(wm, window_list[i])) continue;
+        if (window_manager_find_window(wm, window_list[i])) {
+            if (tracked_count < array_count(tracked)) tracked[tracked_count++] = window_list[i];
+            continue;
+        }
         unseen[unseen_count++] = window_list[i];
     }
 
-    if (!unseen_count) return;
+    if (!unseen_count || !tracked_count) return;
+
+    if (!window_manager_application_has_tab_group(wm, tracked, tracked_count)) {
+        debug("%s: %s skipped %d candidates, no tab group\n", __FUNCTION__, application->name, unseen_count);
+        return;
+    }
 
     CFMutableDataRef data_ref = CFDataCreateMutable(NULL, 0x14);
     CFDataIncreaseLength(data_ref, 0x14);
