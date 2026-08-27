@@ -13,22 +13,29 @@ volatile bool __pending_gesture;
 volatile uint64_t __last_gesture_time;
 volatile uint64_t __last_cmd_tab_time;
 
+// NOTE: SLSRequestNotificationsForWindows hard-fails (subscribes NOTHING) at count >= 1024, it does
+// not truncate -- so cap every loop at 1023, not the array size, or an overflowing rebuild silently
+// drops all subscriptions.
+#define WINDOW_NOTIFICATION_CAP 1023
+
 static bool tabbed_window_swap(struct view *view, struct window *a, struct window *b);
 
 static void update_window_notifications(void)
 {
     int window_count = 0;
-    uint32_t window_list[1024] = {0};
+    uint32_t window_list[WINDOW_NOTIFICATION_CAP];
 
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         // NOTE(asmvik): Subscribe to all windows because of window_destroyed (and ordered) notifications
         table_for (struct window *window, g_window_manager.window, {
-            if (window_count < array_count(window_list)) window_list[window_count++] = window->id;
+            if (window_count >= WINDOW_NOTIFICATION_CAP) break;
+            window_list[window_count++] = window->id;
         })
     } else {
         // NOTE(asmvik): Subscribe to windows that have a feedback_border because of window_ordered notifications
         table_for (struct window_node *node, g_window_manager.insert_feedback, {
-            if (window_count < array_count(window_list)) window_list[window_count++] = node->window_order[0];
+            if (window_count >= WINDOW_NOTIFICATION_CAP) break;
+            window_list[window_count++] = node->window_order[0];
         })
     }
 
