@@ -23,12 +23,12 @@ static void update_window_notifications(void)
     if (workspace_is_macos_sequoia() || workspace_is_macos_tahoe()) {
         // NOTE(asmvik): Subscribe to all windows because of window_destroyed (and ordered) notifications
         table_for (struct window *window, g_window_manager.window, {
-            window_list[window_count++] = window->id;
+            if (window_count < array_count(window_list)) window_list[window_count++] = window->id;
         })
     } else {
         // NOTE(asmvik): Subscribe to windows that have a feedback_border because of window_ordered notifications
         table_for (struct window_node *node, g_window_manager.insert_feedback, {
-            window_list[window_count++] = node->window_order[0];
+            if (window_count < array_count(window_list)) window_list[window_count++] = node->window_order[0];
         })
     }
 
