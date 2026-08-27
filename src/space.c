@@ -21,11 +21,7 @@ uint32_t *space_window_list_for_connection(uint64_t *space_list, int space_count
     uint64_t clear_tags = 0;
     uint32_t options = include_minimized ? 0x7 : 0x2;
 
-    // NOTE: an empty space list is not a no-op filter -- it is what returns the windows that are on no
-    // space at all, which is where a hidden native tab lives.
-    CFArrayRef space_list_ref = space_count
-                              ? cfarray_of_cfnumbers(space_list, sizeof(uint64_t), space_count, kCFNumberSInt64Type)
-                              : CFArrayCreate(NULL, NULL, 0, &kCFTypeArrayCallBacks);
+    CFArrayRef space_list_ref = cfarray_of_cfnumbers(space_list, sizeof(uint64_t), space_count, kCFNumberSInt64Type);
     CFArrayRef window_list_ref = SLSCopyWindowsWithOptionsAndTags(g_connection, cid, space_list_ref, options, &set_tags, &clear_tags);
     if (!window_list_ref) goto err;
 
