@@ -735,8 +735,11 @@ static void tabbed_window_promote(struct window *window)
     uint64_t sid = window_space(window->id);
     if (!sid) return;
 
-    window_clear_flag(window, WINDOW_TAB_MEMBER);
+    // NOTE: keep the flag on a window that cannot be managed yet -- a seeded tab reads its eligibility
+    // while ordered out, and clearing here would strand it with neither a node nor a later promote.
     if (!window_manager_should_manage_window(window)) return;
+
+    window_clear_flag(window, WINDOW_TAB_MEMBER);
     if (window_manager_find_managed_window(&g_window_manager, window)) return;
 
     struct view *view = space_manager_tile_window_on_space(&g_space_manager, window, sid);
